@@ -11,7 +11,7 @@ import {
 import { SeverityPicker } from "./SeverityPicker";
 import { cn } from "@/lib/utils";
 
-const TREAT_ICON: Record<Treatment, React.ComponentType<{ className?: string }>> = {
+const TREAT_ICON: Record<Treatment, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
   BLOCO: Square,
   CURATIVO: Bandage,
   SPRAY: Droplets,
