@@ -67,19 +67,6 @@ function Index() {
   const [tick, setTick] = useState(0);
   const refresh = () => setTick((t) => t + 1);
 
-  if (!farm.configured) {
-    return (
-      <ConfigScreen
-        farm={farm}
-        onSave={(f) => {
-          saveFarm(f);
-          setFarm(f);
-        }}
-        first
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen pb-28">
       <Header
