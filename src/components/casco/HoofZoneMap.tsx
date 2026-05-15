@@ -5,149 +5,161 @@ interface Props {
   selectedZones: Zone[];
   onToggleZone: (z: Zone) => void;
   foot: "FE" | "FD" | "TE" | "TD";
-  severity?: Severity; // pior gravidade — determina a cor das zonas selecionadas
+  severity?: Severity;
 }
 
-// Layout de zonas usando rects que serão clipadas ao contorno do casco
-// Cada entrada: id da zona, rect(x, y, w, h), posição do label (lx, ly)
-const ZONE_RECTS: {
-  id: Zone;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  lx: number;
-  ly: number;
-  fs?: number; // fontSize override para zonas estreitas
-}[] = [
-  // Linha 1 – Ponta (toe)
-  { id:  1, x:  5, y:  4, w: 90, h: 29, lx: 50, ly: 21 },
-  // Linha 2 – Parede frontal esq / dir
-  { id:  2, x:  5, y: 33, w: 44, h: 29, lx: 27, ly: 50 },
-  { id:  3, x: 51, y: 33, w: 44, h: 29, lx: 73, ly: 50 },
-  // Linha 3 – Paredes laterais + Sola central
-  { id:  7, x:  5, y: 62, w: 16, h: 35, lx: 13, ly: 82, fs: 6 },
-  { id:  0, x: 21, y: 62, w: 58, h: 35, lx: 50, ly: 82 },
-  { id:  9, x: 79, y: 62, w: 16, h: 35, lx: 87, ly: 82, fs: 6 },
-  // Linha 4 – Sola posterior esq / dir
-  { id:  4, x:  5, y: 97, w: 44, h: 18, lx: 27, ly: 109 },
-  { id:  5, x: 51, y: 97, w: 44, h: 18, lx: 73, ly: 109 },
-  // Linha 5 – Talão esq / centro / dir
-  { id:  6, x:  5, y:115, w: 29, h: 18, lx: 19, ly: 127 },
-  { id: 11, x: 34, y:115, w: 32, h: 18, lx: 50, ly: 127 },
-  { id:  8, x: 66, y:115, w: 29, h: 18, lx: 81, ly: 127 },
-  // Linha 6 – Bulbo do talão esq / dir
-  { id: 10, x:  5, y:133, w: 44, h: 18, lx: 27, ly: 145 },
-  { id: 12, x: 51, y:133, w: 44, h: 18, lx: 73, ly: 145 },
-];
-
-// Linhas divisoras (serão clipadas ao contorno)
-const DIVIDERS = [
-  // horizontais
-  { x1: 5,  y1:  33, x2: 95, y2:  33 },
-  { x1: 5,  y1:  62, x2: 95, y2:  62 },
-  { x1: 5,  y1:  97, x2: 95, y2:  97 },
-  { x1: 5,  y1: 115, x2: 95, y2: 115 },
-  { x1: 5,  y1: 133, x2: 95, y2: 133 },
-  // verticais linha 2
-  { x1: 50, y1:  33, x2: 50, y2:  62 },
-  // verticais linha 3
-  { x1: 21, y1:  62, x2: 21, y2:  97 },
-  { x1: 79, y1:  62, x2: 79, y2:  97 },
-  // verticais linha 4
-  { x1: 50, y1:  97, x2: 50, y2: 115 },
-  // verticais linha 5
-  { x1: 34, y1: 115, x2: 34, y2: 133 },
-  { x1: 66, y1: 115, x2: 66, y2: 133 },
-  // verticais linha 6
-  { x1: 50, y1: 133, x2: 50, y2: 153 },
-];
+// ViewBox: 0 0 110 148
+// Layout: Ponta (toe) no topo, Talão (heel) na base
+// 6 linhas de zonas clipadas ao contorno do casco
 
 const HOOF_PATH =
-  "M 50,4 C 80,4 94,20 94,50 L 94,100 Q 94,138 70,143 Q 50,148 30,143 Q 6,138 6,100 L 6,50 C 6,20 20,4 50,4 Z";
+  "M 55,5 C 84,5 102,22 102,54 L 102,97 Q 102,134 80,141 Q 55,148 30,141 Q 8,134 8,97 L 8,54 C 8,22 26,5 55,5 Z";
 
-const DEFAULT = { fill: "#e5e7eb", stroke: "#9ca3af", text: "#6b7280" };
+// Cada zona: retângulo que será clipado ao contorno
+const ZONES: {
+  id: Zone;
+  x: number; y: number; w: number; h: number;
+  lx: number; ly: number;
+  fs?: number;
+}[] = [
+  // ── Linha 1: Ponta ──────────────────────────────────────────
+  { id:  1, x:  8, y:  5, w: 94, h: 27, lx: 55, ly: 22 },
+
+  // ── Linha 2: Parede frontal esq / dir ───────────────────────
+  { id:  2, x:  8, y: 32, w: 44, h: 26, lx: 30, ly: 48 },
+  { id:  3, x: 57, y: 32, w: 45, h: 26, lx: 79, ly: 48 },
+
+  // ── Linha 3: Paredes laterais + Sola central ────────────────
+  { id:  7, x:  8, y: 58, w: 15, h: 38, lx: 15, ly: 80, fs: 6.5 },
+  { id:  0, x: 23, y: 58, w: 64, h: 38, lx: 55, ly: 80 },
+  { id:  9, x: 87, y: 58, w: 15, h: 38, lx: 95, ly: 80, fs: 6.5 },
+
+  // ── Linha 4: Sola posterior esq / dir ───────────────────────
+  { id:  4, x:  8, y: 96, w: 44, h: 18, lx: 30, ly: 108 },
+  { id:  5, x: 57, y: 96, w: 45, h: 18, lx: 79, ly: 108 },
+
+  // ── Linha 5: Talão esq / centro / dir ───────────────────────
+  { id:  6, x:  8, y:114, w: 29, h: 17, lx: 22, ly: 126 },
+  { id: 11, x: 37, y:114, w: 36, h: 17, lx: 55, ly: 126 },
+  { id:  8, x: 73, y:114, w: 29, h: 17, lx: 88, ly: 126 },
+
+  // ── Linha 6: Bulbo do talão esq / dir ───────────────────────
+  { id: 10, x:  8, y:131, w: 44, h: 17, lx: 30, ly: 143 },
+  { id: 12, x: 57, y:131, w: 45, h: 17, lx: 79, ly: 143 },
+];
+
+const DIVIDERS = [
+  // horizontais
+  "M8,32 H102", "M8,58 H102", "M8,96 H102", "M8,114 H102", "M8,131 H102",
+  // linha 2: vertical centro
+  "M55,32 V58",
+  // linha 3: paredes laterais
+  "M23,58 V96", "M87,58 V96",
+  // linha 4: vertical centro
+  "M55,96 V114",
+  // linha 5: dois terços
+  "M37,114 V131", "M73,114 V131",
+  // linha 6: vertical centro
+  "M55,131 V148",
+];
+
+// Cor neutra para zonas não selecionadas (terra/bege fazenda)
+const NEUTRAL_FILL   = "oklch(0.90 0.025 80)";
+const NEUTRAL_TEXT   = "#5c4a2a";
 
 export function HoofZoneMap({ selectedZones, onToggleZone, foot, severity = 0 }: Props) {
   const isRight = foot === "FD" || foot === "TD";
-  const activeColor = ZONE_SEVERITY_COLOR[severity];
+  const activeCol = ZONE_SEVERITY_COLOR[severity];
 
   return (
     <div className="flex flex-col items-center gap-3">
-      {/* Orientação */}
-      <div className="flex w-full max-w-[260px] justify-between text-[10px] font-bold uppercase text-muted-foreground px-1">
-        <span>{isRight ? "Int." : "Ext."}</span>
-        <span>↑ Ponta do casco</span>
-        <span>{isRight ? "Ext." : "Int."}</span>
+      {/* Rótulo orientação */}
+      <div className="flex w-full max-w-[280px] justify-between px-1 text-[10px] font-bold uppercase text-muted-foreground">
+        <span>{isRight ? "← Int." : "← Ext."}</span>
+        <span>↑ Ponta</span>
+        <span>{isRight ? "Ext. →" : "Int. →"}</span>
       </div>
 
-      {/* SVG principal */}
+      {/* SVG do casco */}
       <svg
-        viewBox="0 0 100 152"
-        className={cn("w-full max-w-[260px] drop-shadow-md", isRight && "-scale-x-100")}
+        viewBox="0 0 110 150"
+        className={cn(
+          "w-full max-w-[280px] drop-shadow-lg",
+          isRight && "-scale-x-100",
+        )}
         style={{ touchAction: "none" }}
       >
         <defs>
-          <clipPath id="hoof-clip">
+          <clipPath id="hc">
             <path d={HOOF_PATH} />
           </clipPath>
         </defs>
 
         {/* Fundo do casco */}
-        <path d={HOOF_PATH} fill="#f9fafb" stroke="#9ca3af" strokeWidth="1.5" />
+        <path d={HOOF_PATH} fill={NEUTRAL_FILL} stroke="#8b7355" strokeWidth="2" />
 
-        {/* Zonas clipadas ao contorno */}
-        <g clipPath="url(#hoof-clip)">
-          {ZONE_RECTS.map((z) => {
-            const isSelected = selectedZones.includes(z.id);
-            const col = isSelected ? activeColor : DEFAULT;
+        {/* Zonas (preenchimento), clipadas */}
+        <g clipPath="url(#hc)">
+          {ZONES.map((z) => {
+            const sel = selectedZones.includes(z.id);
             return (
               <rect
                 key={z.id}
-                x={z.x}
-                y={z.y}
-                width={z.w}
-                height={z.h}
-                fill={col.fill}
-                opacity={isSelected ? 1 : 0.7}
+                x={z.x} y={z.y}
+                width={z.w} height={z.h}
+                fill={sel ? activeCol.fill : NEUTRAL_FILL}
+                opacity={sel ? 1 : 0.55}
               />
             );
           })}
         </g>
 
-        {/* Linhas divisórias (sempre sobre as zonas, clipadas) */}
-        <g clipPath="url(#hoof-clip)" stroke="#9ca3af" strokeWidth="0.6">
-          {DIVIDERS.map((d, i) => (
-            <line key={i} x1={d.x1} y1={d.y1} x2={d.x2} y2={d.y2} />
+        {/* Divisórias, clipadas ao contorno */}
+        <g clipPath="url(#hc)" stroke="#8b7355" strokeWidth="1.3" fill="none">
+          {DIVIDERS.map((d, i) => <path key={i} d={d} />)}
+        </g>
+
+        {/* Contorno por cima de tudo */}
+        <path d={HOOF_PATH} fill="none" stroke="#5c4a2a" strokeWidth="2" />
+
+        {/* Highlight de seleção (borda interna da zona) clipado */}
+        <g clipPath="url(#hc)">
+          {ZONES.filter((z) => selectedZones.includes(z.id)).map((z) => (
+            <rect
+              key={`sel-${z.id}`}
+              x={z.x + 1} y={z.y + 1}
+              width={z.w - 2} height={z.h - 2}
+              fill="none"
+              stroke={activeCol.stroke}
+              strokeWidth="2"
+            />
           ))}
         </g>
 
-        {/* Contorno do casco por cima */}
-        <path d={HOOF_PATH} fill="none" stroke="#6b7280" strokeWidth="1.5" />
-
-        {/* Labels das zonas + área de toque */}
-        {ZONE_RECTS.map((z) => {
-          const isSelected = selectedZones.includes(z.id);
-          const col = isSelected ? activeColor : DEFAULT;
+        {/* Labels + área de toque */}
+        {ZONES.map((z) => {
+          const sel = selectedZones.includes(z.id);
+          const textColor = sel ? activeCol.text : NEUTRAL_TEXT;
           return (
             <g
-              key={z.id}
+              key={`lbl-${z.id}`}
               onClick={() => onToggleZone(z.id)}
               style={{ cursor: "pointer" }}
-              role="button"
-              aria-label={`Zona ${z.id}`}
             >
-              {/* Área de toque invisível */}
-              <rect x={z.x} y={z.y} width={z.w} height={z.h} fill="transparent" />
-              {/* Label */}
+              {/* Área de toque invisível (tamanho real da zona) */}
+              <rect
+                x={z.x} y={z.y}
+                width={z.w} height={z.h}
+                fill="transparent"
+              />
+              {/* Número da zona */}
               <text
-                x={z.lx}
-                y={z.ly + 1}
+                x={z.lx} y={z.ly + 1}
                 textAnchor="middle"
-                fontSize={z.fs ?? 7.5}
-                fontWeight="800"
-                fill={col.text}
-                style={{ userSelect: "none", pointerEvents: "none" }}
+                fontSize={z.fs ?? 8}
+                fontWeight="900"
+                fill={textColor}
+                style={{ userSelect: "none", pointerEvents: "none", fontFamily: "Archivo Black, sans-serif" }}
               >
                 {z.id}
               </text>
@@ -156,21 +168,53 @@ export function HoofZoneMap({ selectedZones, onToggleZone, foot, severity = 0 }:
         })}
       </svg>
 
-      <p className="text-[10px] font-bold uppercase text-muted-foreground">
-        Talão ↓
-      </p>
+      <p className="text-[10px] font-bold uppercase text-muted-foreground">Talão ↓</p>
 
-      {/* Resumo das zonas selecionadas */}
+      {/* Legenda das zonas selecionadas */}
       {selectedZones.length > 0 && (
         <div
-          className="w-full rounded-xl px-3 py-2 text-center text-xs font-semibold transition-all"
-          style={{ backgroundColor: activeColor.fill + "cc", color: activeColor.text }}
+          className="w-full max-w-[280px] rounded-xl px-3 py-2 text-center text-sm font-semibold transition-all"
+          style={{
+            backgroundColor: activeCol.fill + "dd",
+            color: activeCol.text,
+            borderLeft: `4px solid ${activeCol.stroke}`,
+          }}
         >
           {selectedZones.length === 1
             ? `Zona ${selectedZones[0]} — ${ZONE_LABEL[selectedZones[0]]}`
-            : `${selectedZones.length} zonas: ${[...selectedZones].sort((a, b) => a - b).join(", ")}`}
+            : `Zonas: ${[...selectedZones].sort((a, b) => a - b).join(", ")}`}
         </div>
       )}
+
+      {/* Grade numérica rápida (toque alternativo) */}
+      <div className="w-full max-w-[280px]">
+        <p className="mb-1.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          Atalho — tocar no número
+        </p>
+        <div className="grid grid-cols-7 gap-1.5">
+          {(Array.from({ length: 13 }, (_, i) => i) as Zone[]).map((z) => {
+            const sel = selectedZones.includes(z);
+            return (
+              <button
+                key={z}
+                type="button"
+                onClick={() => onToggleZone(z)}
+                style={
+                  sel
+                    ? { backgroundColor: activeCol.fill, borderColor: activeCol.stroke, color: activeCol.text }
+                    : undefined
+                }
+                className={cn(
+                  "flex aspect-square items-center justify-center rounded-xl border-2 font-display text-sm font-black transition-all active:scale-90",
+                  sel ? "" : "border-border bg-surface text-foreground",
+                )}
+              >
+                {z}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
