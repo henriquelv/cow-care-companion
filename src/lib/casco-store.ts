@@ -314,3 +314,148 @@ export function severityBucket(s?: Severity): "leve" | "medio" | "grave" | null 
 export function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
+
+export function seedMockData(replace = false) {
+  const existing = loadVisits();
+  if (existing.length > 0 && !replace) return;
+
+  const base = Date.now();
+  const day = 86400000;
+
+  function mkDate(daysAgo: number): string {
+    const d = new Date(base - daysAgo * day);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  }
+
+  function mkTs(daysAgo: number, offsetMs = 0): number {
+    return base - daysAgo * day + offsetMs;
+  }
+
+  function f(key: FootKey, overrides: Partial<FootEntry> = {}): FootEntry {
+    return { foot: key, ok: true, zones: [], diseases: [], treatments: [], ...overrides };
+  }
+
+  const visits: Visit[] = [
+    // 1284 — DD + SH, 3 visitas
+    { id: uid(), date: mkDate(45), createdAt: mkTs(45), tag: "1284", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "DD", severity: 3, zones: [6, 10] }], treatments: ["SPRAY"] }),
+      f("FD"),
+      f("TE", { ok: false, diseases: [{ code: "SH", severity: 2, zones: [0] }], treatments: ["TRIM"] }),
+      f("TD"),
+    ]},
+    { id: uid(), date: mkDate(14), createdAt: mkTs(14), tag: "1284", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "DD", severity: 2, zones: [6] }], treatments: ["SPRAY", "BAND_ON"], recheck: true }),
+      f("FD"),
+      f("TE", { ok: false, diseases: [{ code: "SH", severity: 1, zones: [0, 4] }], treatments: ["TRIM"] }),
+      f("TD"),
+    ]},
+    { id: uid(), date: mkDate(0), createdAt: mkTs(0, -3600000), tag: "1284", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "DD", severity: 1, zones: [6] }], treatments: ["SPRAY"] }),
+      f("FD"), f("TE"), f("TD"),
+    ]},
+
+    // 502 — SU grave, 2 visitas, curada
+    { id: uid(), date: mkDate(30), createdAt: mkTs(30), tag: "502", sex: "vaca", feet: [
+      f("FE"),
+      f("FD", { ok: false, diseases: [{ code: "SU", severity: 4, zones: [5] }], treatments: ["TRIM", "BLOCO_ON", "BAND_ON"] }),
+      f("TE"),
+      f("TD", { ok: false, diseases: [{ code: "SU", severity: 3, zones: [5] }], treatments: ["TRIM", "BLOCO_ON"] }),
+    ]},
+    { id: uid(), date: mkDate(7), createdAt: mkTs(7), tag: "502", sex: "vaca", feet: [
+      f("FE"),
+      f("FD", { ok: false, diseases: [{ code: "SU", severity: 1, zones: [5] }], treatments: ["BLOCO_OFF", "SPRAY"], resolved: true }),
+      f("TE"),
+      f("TD", { ok: false, diseases: [{ code: "SU", severity: 1, zones: [5] }], treatments: ["SPRAY"], resolved: true }),
+    ]},
+
+    // 3871 — DD + HHE touro grave
+    { id: uid(), date: mkDate(5), createdAt: mkTs(5), tag: "3871", sex: "touro", feet: [
+      f("FE", { ok: false, diseases: [{ code: "DD", severity: 2, zones: [6, 10] }, { code: "HHE", severity: 2, zones: [10, 11] }], treatments: ["SPRAY", "SCORING"] }),
+      f("FD", { ok: false, diseases: [{ code: "DD", severity: 3, zones: [8, 12] }, { code: "HHE", severity: 3, zones: [11, 12] }], treatments: ["SPRAY", "SCORING"] }),
+      f("TE"), f("TD"),
+    ]},
+
+    // 94 — LB
+    { id: uid(), date: mkDate(20), createdAt: mkTs(20), tag: "94", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "LB", severity: 2, zones: [2, 3] }], treatments: ["TRIM"] }),
+      f("FD"), f("TE"), f("TD"),
+    ]},
+
+    // 2210 — FF grave, recheck
+    { id: uid(), date: mkDate(3), createdAt: mkTs(3), tag: "2210", sex: "vaca", feet: [
+      f("FE"), f("FD"),
+      f("TE", { ok: false, diseases: [{ code: "FF", severity: 4, zones: [0, 6, 7] }], treatments: ["TRIM", "BAND_ON"], recheck: true }),
+      f("TD", { ok: false, diseases: [{ code: "DD", severity: 2, zones: [8] }], treatments: ["SPRAY"] }),
+    ]},
+
+    // 765 — TS
+    { id: uid(), date: mkDate(10), createdAt: mkTs(10), tag: "765", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "TS", severity: 1, zones: [0] }], treatments: ["ALIVIO", "BLOCO_ON"] }),
+      f("FD", { ok: false, diseases: [{ code: "TS", severity: 1, zones: [0] }], treatments: ["ALIVIO", "BLOCO_ON"] }),
+      f("TE"), f("TD"),
+    ]},
+
+    // 1033 — HI recheck
+    { id: uid(), date: mkDate(12), createdAt: mkTs(12), tag: "1033", sex: "vaca", feet: [
+      f("FE"), f("FD"),
+      f("TE", { ok: false, diseases: [{ code: "HI", severity: 3, zones: [0] }], treatments: ["TRIM", "BAND_ON"], recheck: true }),
+      f("TD"),
+    ]},
+
+    // 487 — WU
+    { id: uid(), date: mkDate(8), createdAt: mkTs(8), tag: "487", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "WU", severity: 2, zones: [7] }], treatments: ["TRIM", "SPRAY"] }),
+      f("FD"),
+      f("TE", { ok: false, diseases: [{ code: "WU", severity: 2, zones: [9] }], treatments: ["TRIM", "SPRAY"] }),
+      f("TD"),
+    ]},
+
+    // 3001 — descarte X + J
+    { id: uid(), date: mkDate(1), createdAt: mkTs(1), tag: "3001", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "X", severity: 4, zones: [0, 1, 2, 3] }, { code: "J", severity: 4, zones: [1] }], treatments: ["NADA"] }),
+      f("FD"), f("TE"), f("TD"),
+    ]},
+
+    // 88 — Tudo bom
+    { id: uid(), date: mkDate(2), createdAt: mkTs(2), tag: "88", sex: "vaca", feet: [
+      f("FE"), f("FD"), f("TE"), f("TD"),
+    ]},
+
+    // 2756 — TU ponta recheck
+    { id: uid(), date: mkDate(6), createdAt: mkTs(6), tag: "2756", sex: "vaca", feet: [
+      f("FE"),
+      f("FD", { ok: false, diseases: [{ code: "TU", severity: 3, zones: [1] }], treatments: ["TRIM", "BAND_ON"], recheck: true }),
+      f("TE"),
+      f("TD", { ok: false, diseases: [{ code: "TU", severity: 2, zones: [1] }], treatments: ["TRIM"] }),
+    ]},
+
+    // 391 — P perfuração
+    { id: uid(), date: mkDate(15), createdAt: mkTs(15), tag: "391", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "P", severity: 3, zones: [0] }], treatments: ["TRIM", "BAND_ON", "BLOCO_ON"] }),
+      f("FD"), f("TE"), f("TD"),
+    ]},
+
+    // 1100 — SH laminite 4 pés
+    { id: uid(), date: mkDate(4), createdAt: mkTs(4), tag: "1100", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "SH", severity: 2, zones: [0, 4] }], treatments: ["ALIVIO"] }),
+      f("FD", { ok: false, diseases: [{ code: "SH", severity: 2, zones: [0, 5] }], treatments: ["ALIVIO"] }),
+      f("TE", { ok: false, diseases: [{ code: "SH", severity: 1, zones: [0] }], treatments: ["ALIVIO"] }),
+      f("TD", { ok: false, diseases: [{ code: "SH", severity: 1, zones: [0] }], treatments: ["ALIVIO"] }),
+    ]},
+
+    // 654 — BU
+    { id: uid(), date: mkDate(9), createdAt: mkTs(9), tag: "654", sex: "vaca", feet: [
+      f("FE"),
+      f("FD", { ok: false, diseases: [{ code: "BU", severity: 2, zones: [5] }], treatments: ["TRIM", "BLOCO_ON"] }),
+      f("TE"), f("TD"),
+    ]},
+
+    // 2009 — LM + D3
+    { id: uid(), date: mkDate(11), createdAt: mkTs(11), tag: "2009", sex: "vaca", feet: [
+      f("FE", { ok: false, diseases: [{ code: "LM", severity: 2, zones: [7] }], treatments: ["SPRAY"], comments: ["D3"] }),
+      f("FD"), f("TE"), f("TD"),
+    ]},
+  ];
+
+  saveVisits(replace ? visits : [...visits, ...existing]);
+}

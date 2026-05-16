@@ -3,7 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   Plus,
   Search,
-  BarChart3,
   ArrowLeft,
   Save,
   Trash2,
@@ -12,12 +11,12 @@ import {
   Hash,
   Calendar,
   Footprints,
-  Users,
   Clock,
   X,
   ChevronRight,
   AlertTriangle,
   HelpCircle,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -29,6 +28,8 @@ import {
   loadFarm,
   loadVisits,
   saveFarm,
+  saveVisits,
+  seedMockData,
   severityBucket,
   todayISO,
   uid,
@@ -46,6 +47,7 @@ import {
   type LesionCode,
   type Sex,
   type Severity,
+  type TreatmentCode,
   type Visit,
 } from "@/lib/casco-store";
 import { HoofMap } from "@/components/casco/HoofMap";
@@ -57,13 +59,41 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
+type Filters = {
+  dateFrom: string;
+  dateTo: string;
+  diseases: LesionCode[];
+  feet: FootKey[];
+  minSeverity: Severity;
+  treatments: TreatmentCode[];
+  status: "all" | "problem" | "ok" | "recheck" | "curado";
+};
+
+const EMPTY_FILTERS: Filters = {
+  dateFrom: "",
+  dateTo: "",
+  diseases: [],
+  feet: [],
+  minSeverity: 0,
+  treatments: [],
+  status: "all",
+};
+
+function hasActiveFilters(f: Filters): boolean {
+  return (
+    !!f.dateFrom || !!f.dateTo || f.diseases.length > 0 ||
+    f.feet.length > 0 || f.minSeverity > 0 ||
+    f.treatments.length > 0 || f.status !== "all"
+  );
+}
+
 type Screen =
   | { name: "today" }
   | { name: "register"; visit: Visit; activeFoot: FootKey | null }
   | { name: "history"; tag: string }
   | { name: "summary" }
-  | { name: "animals" }
-  | { name: "config" };
+  | { name: "config" }
+  | { name: "filters" };
 
 function newDraft(tag = "", sex: Sex = "vaca"): Visit {
   return {
@@ -88,14 +118,18 @@ function Index() {
   const [tick, setTick] = useState(0);
   const [showTutorial, setShowTutorial] = useState(() => !isTutorialDone());
   const [showHelp, setShowHelp] = useState(false);
+  const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
 
   const refresh = () => setTick((t) => t + 1);
   const goToday = () => setScreen({ name: "today" });
 
+  function openEdit(tag: string, sex: Sex) {
+    setScreen({ name: "register", visit: newDraft(tag, sex), activeFoot: null });
+  }
+
   const helpScreen =
     screen.name === "register" ? "register" :
     screen.name === "history" ? "history" :
-    screen.name === "animals" ? "animals" :
     screen.name === "summary" ? "summary" :
     "today";
 
@@ -114,9 +148,12 @@ function Index() {
         {screen.name === "today" && (
           <TodayScreen
             onNew={() => setScreen({ name: "register", visit: newDraft(), activeFoot: null })}
+            onEdit={openEdit}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
             onSummary={() => setScreen({ name: "summary" })}
-            onAnimals={() => setScreen({ name: "animals" })}
+            onFilters={() => setScreen({ name: "filters" })}
+            filters={homeFilters}
+            onClearFilters={() => setHomeFilters(EMPTY_FILTERS)}
           />
         )}
         {screen.name === "register" && (
@@ -143,8 +180,12 @@ function Index() {
           />
         )}
         {screen.name === "summary" && <SummaryScreen />}
-        {screen.name === "animals" && (
-          <AnimalsScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
+        {screen.name === "filters" && (
+          <FiltersScreen
+            current={homeFilters}
+            onApply={(f) => { setHomeFilters(f); goToday(); }}
+            onBack={goToday}
+          />
         )}
         {screen.name === "config" && (
           <ConfigScreen
@@ -152,6 +193,13 @@ function Index() {
             onSave={(f) => {
               saveFarm(f);
               setFarm(f);
+              goToday();
+            }}
+            onSeed={() => {
+              const has = loadVisits().length > 0;
+              if (has && !confirm("Já existem dados. Substituir pelos dados de teste?")) return;
+              seedMockData(true);
+              refresh();
               goToday();
             }}
           />
@@ -195,8 +243,8 @@ function Header({
     register: "Nova Visita",
     history: "Histórico",
     summary: "Resumo",
-    animals: "Todos os Animais",
     config: "Configuração",
+    filters: "Filtros",
   };
 
   return (
@@ -251,126 +299,296 @@ function Header({
   );
 }
 
-/* ───────────── Today ───────────── */
+/* ───────────── Home — Todos os Animais ───────────── */
 function TodayScreen({
   onNew,
+  onEdit,
   onOpenHistory,
   onSummary,
-  onAnimals,
+  onFilters,
+  filters,
+  onClearFilters,
 }: {
   onNew: () => void;
+  onEdit: (tag: string, sex: Sex) => void;
   onOpenHistory: (tag: string) => void;
   onSummary: () => void;
-  onAnimals: () => void;
+  onFilters: () => void;
+  filters: Filters;
+  onClearFilters: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "problem" | "severe" | "recheck">("all");
-  const today = todayISO();
-  const allVisits = visitsForDay(today);
 
-  const visits = useMemo(() => {
-    if (filter === "problem") return allVisits.filter((v) => v.feet.some((f) => !f.ok));
-    if (filter === "severe") return allVisits.filter((v) => footsWorstSeverity(v.feet) >= 3);
-    if (filter === "recheck") return allVisits.filter((v) => v.feet.some((f) => f.recheck));
-    return allVisits;
-  }, [allVisits, filter]);
+  const visits = useMemo(() => loadVisits().sort((a, b) => b.createdAt - a.createdAt), []);
+  const animals = useMemo(() => allAnimals(), []);
 
-  const totalProblems = allVisits.reduce((acc, v) => acc + v.feet.filter((f) => !f.ok).length, 0);
-  const severe = allVisits.reduce(
-    (acc, v) => acc + v.feet.filter((f) => !f.ok && footWorstSeverity(f) >= 3).length,
-    0,
-  );
-  const recheckCount = allVisits.reduce((acc, v) => acc + v.feet.filter((f) => f.recheck).length, 0);
+  const latestVisit = useMemo(() => {
+    const m = new Map<string, Visit>();
+    for (const v of visits) {
+      const key = v.tag.toLowerCase();
+      if (!m.has(key)) m.set(key, v);
+    }
+    return m;
+  }, [visits]);
+
+  const totalWithProblem = animals.filter((a) => a.worstSeverity > 0).length;
+  const totalSevere = animals.filter((a) => a.worstSeverity >= 3).length;
+  const totalRecheck = animals.filter((a) => a.hasRecheck).length;
+
+  const filtered = useMemo(() => {
+    let list = animals;
+    if (search.trim()) {
+      list = list.filter((a) => a.tag.toLowerCase().includes(search.toLowerCase()));
+    }
+    if (filters.status === "problem") list = list.filter((a) => a.worstSeverity > 0);
+    if (filters.status === "ok") list = list.filter((a) => a.worstSeverity === 0);
+    if (filters.status === "recheck") list = list.filter((a) => a.hasRecheck);
+    if (filters.status === "curado") list = list.filter((a) => a.hasResolved);
+    if (filters.minSeverity > 0) list = list.filter((a) => a.worstSeverity >= filters.minSeverity);
+    if (filters.diseases.length > 0) {
+      list = list.filter((a) => {
+        const lv = latestVisit.get(a.tag.toLowerCase());
+        return lv?.feet.some((f) =>
+          f.diseases?.some((d) => d.severity > 0 && filters.diseases.includes(d.code))
+        );
+      });
+    }
+    if (filters.feet.length > 0) {
+      list = list.filter((a) => {
+        const lv = latestVisit.get(a.tag.toLowerCase());
+        return lv?.feet.some((f) => !f.ok && filters.feet.includes(f.foot));
+      });
+    }
+    if (filters.treatments.length > 0) {
+      list = list.filter((a) => {
+        const lv = latestVisit.get(a.tag.toLowerCase());
+        return lv?.feet.some((f) =>
+          (f.treatments ?? []).some((t) => filters.treatments.includes(t))
+        );
+      });
+    }
+    if (filters.dateFrom) {
+      const from = new Date(filters.dateFrom + "T00:00:00").getTime();
+      list = list.filter((a) => a.lastVisit >= from);
+    }
+    if (filters.dateTo) {
+      const to = new Date(filters.dateTo + "T23:59:59").getTime();
+      list = list.filter((a) => a.lastVisit <= to);
+    }
+    return list;
+  }, [animals, search, filters, latestVisit]);
+
+  const filtersActive = hasActiveFilters(filters);
 
   return (
     <div className="space-y-4">
       {/* Estatísticas */}
       <div className="grid grid-cols-3 gap-3">
-        <BigStat emoji="🐄" label="Animais" value={allVisits.length} tone="neutral" />
-        <BigStat emoji="🦶" label="c/ Problema" value={totalProblems} tone="warn" />
-        <BigStat emoji="🚨" label="Graves" value={severe} tone="danger" />
+        <BigStat emoji="🐄" label="Animais" value={animals.length} tone="neutral" />
+        <BigStat emoji="🦶" label="c/ Problema" value={totalWithProblem} tone="warn" />
+        <BigStat emoji="🚨" label="Graves" value={totalSevere} tone="danger" />
       </div>
 
-      {recheckCount > 0 && (
+      {totalRecheck > 0 && (
         <div className="flex items-center gap-3 rounded-2xl border-2 border-warn bg-warn/10 px-4 py-3">
           <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
           <p className="font-display text-sm uppercase text-warn-foreground">
-            {recheckCount} pé(s) precisam de revisão
+            {totalRecheck} pé(s) aguardando revisão
           </p>
         </div>
       )}
 
-      {/* Busca */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar brinco…"
-          inputMode="numeric"
-          className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 font-display text-xl uppercase outline-none focus:border-primary"
-        />
-        {search && (
-          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
-        )}
-      </div>
-      {search.trim() && (
+      {/* Busca + Filtros */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar pelo brinco…"
+            inputMode="numeric"
+            className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 font-display text-xl uppercase outline-none focus:border-primary"
+            style={{ height: 56 }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
+        </div>
         <button
-          onClick={() => onOpenHistory(search.trim())}
-          className="flex w-full items-center justify-between rounded-2xl border-2 border-primary/30 bg-primary/10 px-4 py-3 text-left"
+          onClick={onFilters}
+          className={cn(
+            "tap flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-2 transition-all",
+            filtersActive
+              ? "border-primary bg-primary text-primary-foreground stamp"
+              : "border-border bg-card",
+          )}
+          aria-label="Filtros"
         >
-          <span className="flex items-center gap-2 font-display text-base uppercase">
-            <History className="h-5 w-5" />
-            Ver histórico do brinco {search.trim()}
-          </span>
-          <ChevronRight className="h-5 w-5" />
+          <SlidersHorizontal className="h-6 w-6" />
         </button>
-      )}
-
-      {/* Botões de ação */}
-      <div className="grid grid-cols-2 gap-3">
-        <ActionButton emoji="📋" label="Todos os Animais" onClick={onAnimals} />
-        <ActionButton emoji="📊" label="Resumo do Dia" onClick={onSummary} />
       </div>
 
-      {/* Filtros da lista do dia */}
-      {allVisits.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <FilterChip label="Todos" active={filter === "all"} onClick={() => setFilter("all")} />
-          <FilterChip label="⚠️ Problema" active={filter === "problem"} onClick={() => setFilter("problem")} />
-          <FilterChip label="🚨 Graves" active={filter === "severe"} onClick={() => setFilter("severe")} />
-          <FilterChip label="⏰ Revisão" active={filter === "recheck"} onClick={() => setFilter("recheck")} />
+      {filtersActive && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase text-primary">Filtros ativos</span>
+          <button
+            onClick={onClearFilters}
+            className="rounded-full bg-muted px-3 py-1 text-xs font-display uppercase text-muted-foreground"
+          >
+            Limpar
+          </button>
         </div>
       )}
 
-      {/* Lista do dia */}
-      <section>
-        <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-          <Calendar className="h-4 w-4" />
-          Lista de hoje · {visits.length} animal(is)
+      {/* Resumo */}
+      <ActionButton emoji="📊" label="Resumo do Dia" onClick={onSummary} />
+
+      <p className="px-1 text-xs text-muted-foreground">
+        {filtered.length} animal(is) · {animals.length} total
+      </p>
+
+      {/* Lista */}
+      {animals.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
+          <p className="text-4xl">🐄</p>
+          <p className="mt-2 font-display text-lg uppercase">Nenhum animal cadastrado</p>
+          <p className="mt-1 text-sm text-muted-foreground">Toque em Nova Vaca para começar</p>
         </div>
-        {allVisits.length === 0 ? (
-          <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
-            <p className="text-4xl">🐄</p>
-            <p className="mt-2 font-display text-lg uppercase">Nenhum animal ainda</p>
-            <p className="mt-1 text-sm text-muted-foreground">Toque em Nova Vaca para começar</p>
-          </div>
-        ) : visits.length === 0 ? (
-          <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
-            <p className="font-display text-base uppercase text-muted-foreground">
-              Nenhum resultado para este filtro
-            </p>
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {visits.map((v) => (
-              <VisitRow key={v.id} v={v} onClick={() => onOpenHistory(v.tag)} />
-            ))}
-          </ul>
-        )}
-      </section>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
+          <p className="text-4xl">🔍</p>
+          <p className="mt-2 font-display text-base uppercase">Nenhum resultado</p>
+          <button
+            onClick={() => { setSearch(""); onClearFilters(); }}
+            className="mt-3 rounded-full bg-muted px-4 py-2 text-sm font-display uppercase text-muted-foreground"
+          >
+            Limpar filtros
+          </button>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {filtered.map((a) => {
+            const lv = latestVisit.get(a.tag.toLowerCase());
+            const badFeet = lv?.feet.filter((f) => !f.ok) ?? [];
+            const treatSet = new Set<string>();
+            for (const ft of badFeet) {
+              for (const c of ft.treatments ?? []) {
+                const t = TREATMENTS.find((x) => x.code === c);
+                if (t) treatSet.add(`${t.emoji} ${t.label}`);
+              }
+            }
+            return (
+              <li key={a.tag}>
+                <button
+                  onClick={() => onEdit(a.tag, a.sex)}
+                  className={cn(
+                    "tap-lg flex w-full items-start gap-3 rounded-2xl border-2 bg-card p-3 text-left active:scale-[0.99] transition-transform",
+                    a.worstSeverity >= 3
+                      ? "border-danger/60 bg-danger/5"
+                      : a.worstSeverity >= 1
+                        ? "border-warn/60 bg-warn/5"
+                        : "border-border",
+                  )}
+                >
+                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
+                    <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
+                    <span className="text-xl font-black leading-none">{a.tag}</span>
+                    <span className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1 mb-1">
+                      {a.worstSeverity >= 3 && (
+                        <span className="rounded bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">
+                          🚨 Grave
+                        </span>
+                      )}
+                      {a.worstSeverity > 0 && a.worstSeverity < 3 && (
+                        <span className="rounded bg-warn/30 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
+                          ⚠️ G{a.worstSeverity}
+                        </span>
+                      )}
+                      {a.hasResolved && (
+                        <span className="rounded bg-good/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-good">
+                          ✅ Curado
+                        </span>
+                      )}
+                      {a.hasRecheck && (
+                        <span className="rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
+                          ⏰ Revisão
+                        </span>
+                      )}
+                    </div>
+
+                    {badFeet.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-1">
+                        {badFeet.map((ft) => {
+                          const ws = footWorstSeverity(ft);
+                          const topD = ft.diseases?.filter((d) => d.severity > 0).sort((x, y) => y.severity - x.severity)[0];
+                          const l = LESIONS.find((x) => x.code === topD?.code);
+                          return (
+                            <span
+                              key={ft.foot}
+                              className={cn(
+                                "rounded px-1.5 py-0.5 text-[10px] font-display font-black uppercase",
+                                ws >= 3 ? "bg-danger/20 text-danger" : "bg-warn/20 text-warn-foreground",
+                              )}
+                            >
+                              {ft.foot} {l?.emoji ?? ""}{l ? ` ${l.code}` : ""} G{ws}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {treatSet.size > 0 && (
+                      <p className="text-[10px] text-muted-foreground truncate mb-0.5">
+                        {Array.from(treatSet).slice(0, 3).join(" · ")}
+                      </p>
+                    )}
+
+                    <p className="text-[10px] text-muted-foreground">
+                      {a.totalVisits} visita(s) · última:{" "}
+                      {new Date(a.lastVisit).toLocaleDateString("pt-BR", {
+                        day: "2-digit", month: "2-digit", year: "2-digit",
+                      })}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 flex-col items-center gap-1 pt-1">
+                    {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
+                      const ft = lv?.feet.find((x) => x.foot === k);
+                      const ws = ft ? footWorstSeverity(ft) : 0;
+                      return (
+                        <span
+                          key={k}
+                          className={cn(
+                            "h-4 w-4 rounded-sm",
+                            !ft || ft.ok ? "bg-good/40" : ws >= 3 ? "bg-danger" : ws >= 1 ? "bg-warn" : "bg-danger/50",
+                          )}
+                          title={k}
+                        />
+                      );
+                    })}
+                    <ChevronRight className="h-4 w-4 text-muted-foreground mt-1" />
+                  </div>
+                </button>
+
+                {/* Acesso rápido ao histórico */}
+                <button
+                  onClick={() => onOpenHistory(a.tag)}
+                  className="mt-1 flex w-full items-center justify-end gap-1 px-3 py-1 text-[10px] font-bold uppercase text-muted-foreground"
+                >
+                  <History className="h-3 w-3" />
+                  Histórico
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -512,8 +730,151 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
   );
 }
 
-/* ───────────── Animals ───────────── */
-function AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
+/* ───────────── Filtros ───────────── */
+function FiltersScreen({
+  current,
+  onApply,
+  onBack,
+}: {
+  current: Filters;
+  onApply: (f: Filters) => void;
+  onBack: () => void;
+}) {
+  const [f, setF] = useState<Filters>(current);
+
+  function toggleDisease(code: LesionCode) {
+    setF((p) => ({ ...p, diseases: p.diseases.includes(code) ? p.diseases.filter((c) => c !== code) : [...p.diseases, code] }));
+  }
+  function toggleFoot(key: FootKey) {
+    setF((p) => ({ ...p, feet: p.feet.includes(key) ? p.feet.filter((k) => k !== key) : [...p.feet, key] }));
+  }
+  function toggleTreatment(code: TreatmentCode) {
+    setF((p) => ({ ...p, treatments: p.treatments.includes(code) ? p.treatments.filter((c) => c !== code) : [...p.treatments, code] }));
+  }
+
+  return (
+    <div className="space-y-5 pb-8">
+      {/* Status */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            ["all", "Todos", ""],
+            ["problem", "Com Problema", "⚠️"],
+            ["ok", "Sem Problema", "✅"],
+            ["recheck", "Revisão", "⏰"],
+            ["curado", "Curado", "🟢"],
+          ] as [Filters["status"], string, string][]).map(([val, label, emoji]) => (
+            <button key={val} type="button" onClick={() => setF((p) => ({ ...p, status: val }))}
+              className={cn("tap rounded-xl border-2 px-3 py-2 font-display text-sm uppercase",
+                f.status === val ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
+              )}>
+              {emoji} {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Gravidade mínima */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Gravidade mínima</p>
+        <div className="grid grid-cols-5 gap-2">
+          {([0, 1, 2, 3, 4] as Severity[]).map((s) => (
+            <button key={s} type="button" onClick={() => setF((p) => ({ ...p, minSeverity: s }))}
+              className={cn("tap rounded-xl border-2 px-2 py-3 font-display text-sm uppercase",
+                f.minSeverity === s ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
+              )}>
+              {s === 0 ? "—" : `G${s}`}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Pé */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Pé afetado</p>
+        <div className="grid grid-cols-4 gap-2">
+          {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => (
+            <button key={k} type="button" onClick={() => toggleFoot(k)}
+              className={cn("tap rounded-xl border-2 px-3 py-4 font-display text-base uppercase",
+                f.feet.includes(k) ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
+              )}>
+              {k}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Doenças */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Doença</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {LESIONS.map((l) => (
+            <button key={l.code} type="button" onClick={() => toggleDisease(l.code)}
+              className={cn("tap flex items-center gap-1.5 rounded-xl border-2 px-2 py-2 text-left",
+                f.diseases.includes(l.code) ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
+              )}>
+              <span>{l.emoji}</span>
+              <span className="font-display text-xs font-black uppercase">{l.code}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Tratamento */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Tratamento</p>
+        <div className="flex flex-col gap-1.5">
+          {TREATMENTS.map((t) => (
+            <button key={t.code} type="button" onClick={() => toggleTreatment(t.code)}
+              className={cn("tap flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-left font-display text-sm uppercase",
+                f.treatments.includes(t.code) ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
+              )}>
+              <span>{t.emoji}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Data */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Data da última visita</p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">De</span>
+            <input type="date" value={f.dateFrom}
+              onChange={(e) => setF((p) => ({ ...p, dateFrom: e.target.value }))}
+              className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">Até</span>
+            <input type="date" value={f.dateTo}
+              onChange={(e) => setF((p) => ({ ...p, dateTo: e.target.value }))}
+              className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
+            />
+          </label>
+        </div>
+      </section>
+
+      {/* Ações */}
+      <div className="flex gap-3 pt-2">
+        <button type="button" onClick={() => { setF(EMPTY_FILTERS); onApply(EMPTY_FILTERS); }}
+          className="tap flex-1 rounded-2xl border-2 border-border bg-surface font-display text-base uppercase py-4">
+          Limpar
+        </button>
+        <button type="button" onClick={() => onApply(f)}
+          className="tap-lg flex-[2] rounded-2xl bg-primary font-display text-base uppercase text-primary-foreground stamp py-4">
+          Aplicar Filtros
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────── (Animals screen removed — home is now the animals directory) ───────────── */
+function _AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "recheck" | "recent" | "severe" | "curado">("all");
   const [diseaseFilter, setDiseaseFilter] = useState<LesionCode | null>(null);
@@ -794,16 +1155,27 @@ function RegisterScreen({
           })}
         </div>
         {previous.length > 0 && (
-          <button
-            onClick={() => onOpenHistory(visit.tag.trim())}
-            className="mt-3 flex w-full items-center justify-between rounded-xl border border-warn/30 bg-warn/10 p-3 text-left"
-          >
-            <span className="flex items-center gap-2 text-sm font-semibold text-warn-foreground">
-              <AlertTriangle className="h-4 w-4" />
-              {previous.length} visita(s) anterior(es)
-            </span>
-            <span className="font-display text-xs uppercase">Ver</span>
-          </button>
+          <div className="mt-3 rounded-xl border-2 border-warn/60 bg-warn/10 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-warn-foreground" />
+              <p className="font-display text-sm uppercase text-warn-foreground">
+                Animal já cadastrado! {previous.length} visita(s) anterior(es).
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Você está adicionando uma nova visita para este animal.
+            </p>
+            <button
+              onClick={() => onOpenHistory(visit.tag.trim())}
+              className="tap flex w-full items-center justify-between rounded-lg border border-warn/40 bg-card px-3 py-2 text-left"
+            >
+              <span className="flex items-center gap-2 font-display text-xs uppercase text-warn-foreground">
+                <History className="h-4 w-4" />
+                Ver histórico do brinco {visit.tag.trim()}
+              </span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
         )}
       </section>
 
@@ -1298,7 +1670,15 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "wa
 }
 
 /* ───────────── Config ───────────── */
-function ConfigScreen({ farm, onSave }: { farm: FarmConfig; onSave: (f: FarmConfig) => void }) {
+function ConfigScreen({
+  farm,
+  onSave,
+  onSeed,
+}: {
+  farm: FarmConfig;
+  onSave: (f: FarmConfig) => void;
+  onSeed: () => void;
+}) {
   const [name, setName] = useState(farm.farmName);
   const [worker, setWorker] = useState(farm.worker);
   const valid = name.trim().length > 0;
@@ -1347,6 +1727,23 @@ function ConfigScreen({ farm, onSave }: { farm: FarmConfig; onSave: (f: FarmConf
         >
           💾 Salvar
         </button>
+
+        {/* Dados de teste */}
+        <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-5 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Dados de Teste
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Popula o sistema com 17 animais de exemplo para testar o app.
+          </p>
+          <button
+            type="button"
+            onClick={onSeed}
+            className="tap w-full rounded-2xl border-2 border-border bg-card font-display text-base uppercase py-4"
+          >
+            🧪 Carregar Dados de Teste
+          </button>
+        </div>
       </div>
     </div>
   );
