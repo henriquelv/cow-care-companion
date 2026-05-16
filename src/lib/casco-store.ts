@@ -20,6 +20,7 @@ export type CommentCode = "D1" | "D2" | "D3" | "D4" | "D5" | "D6";
 export interface DiseaseEntry {
   code: LesionCode;
   severity: Severity; // 0 = não marcado, 1–4 = gravidade crescente
+  zones?: Zone[];     // zonas específicas afetadas por esta doença
 }
 
 export interface FootEntry {

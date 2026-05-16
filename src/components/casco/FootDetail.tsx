@@ -105,6 +105,7 @@ export function FootDetail({
             onToggleZone={toggleZone}
             foot={entry.foot}
             severity={worstSev}
+            diseases={diseases}
           />
         </div>
       </section>
