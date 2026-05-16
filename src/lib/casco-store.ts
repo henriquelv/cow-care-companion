@@ -4,8 +4,18 @@ export type Sex = "vaca" | "touro";
 export type FootKey = "FE" | "FD" | "TE" | "TD";
 export type Severity = 0 | 1 | 2 | 3 | 4;
 export type Zone = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
-export type LesionCode = "SH" | "SU" | "BU" | "DD" | "HHE" | "J" | "X" | "TS" | "P";
-export type TreatmentCode = "TRIM" | "ALIVIO" | "BAND_ON" | "BAND_OFF" | "BLOCO" | "SPRAY" | "NADA";
+export type LesionCode =
+  | "SH" | "SU" | "BU" | "DD" | "HHE" | "J" | "X" | "TS" | "P"
+  | "WU" | "TU" | "LB" | "HI" | "FF" | "LM";
+
+export type TreatmentCode =
+  | "TRIM" | "ALIVIO"
+  | "BLOCO_ON" | "BLOCO_OFF" | "BLOCO_FIX"
+  | "BAND_ON" | "BAND_OFF"
+  | "SPRAY" | "SCORING"
+  | "NADA";
+
+export type CommentCode = "D1" | "D2" | "D3" | "D4" | "D5" | "D6";
 
 export interface DiseaseEntry {
   code: LesionCode;
@@ -15,12 +25,13 @@ export interface DiseaseEntry {
 export interface FootEntry {
   foot: FootKey;
   ok: boolean;
-  zones?: Zone[];           // múltiplas zonas selecionadas (0–12)
+  zones?: Zone[];            // múltiplas zonas selecionadas (0–12)
   diseases?: DiseaseEntry[]; // múltiplas doenças cada uma com sua gravidade
   treatments?: TreatmentCode[];
+  comments?: CommentCode[];  // códigos D1–D6
   recheck?: boolean;
-  resolved?: boolean;       // marca casco como curado/resolvido
-  photo?: string;           // dataURL — armazenada localmente, funciona offline
+  resolved?: boolean;        // marca casco como curado/resolvido
+  photo?: string;            // dataURL — armazenada localmente, funciona offline
 }
 
 export interface Visit {
@@ -55,25 +66,43 @@ export const LESIONS: {
   full: string;
   emoji: string;
 }[] = [
-  { code: "SH",  name: "SH",  full: "Hemorragia de Sola / Laminite", emoji: "🟡" },
-  { code: "SU",  name: "SU",  full: "Úlcera de Sola",                 emoji: "🔴" },
-  { code: "BU",  name: "BU",  full: "Fratura de Sola",                emoji: "🟠" },
-  { code: "DD",  name: "DD",  full: "Dermatite Digital",              emoji: "🦠" },
-  { code: "HHE", name: "HHE", full: "Talão por Lama / Esterco",       emoji: "💧" },
-  { code: "J",   name: "J",   full: "Infecção Articular",             emoji: "🔩" },
-  { code: "X",   name: "X",   full: "Descarte (Vaca para Retirar)",   emoji: "❌" },
-  { code: "TS",  name: "TS",  full: "Sola Fina",                      emoji: "📏" },
-  { code: "P",   name: "P",   full: "Perfuração",                     emoji: "📌" },
+  { code: "SH",  name: "SH",  full: "Hemorragia de Sola / Laminite",  emoji: "🟡" },
+  { code: "SU",  name: "SU",  full: "Úlcera de Sola",                  emoji: "🔴" },
+  { code: "BU",  name: "BU",  full: "Fratura de Sola",                 emoji: "🟠" },
+  { code: "WU",  name: "WU",  full: "Úlcera de Parede",                emoji: "🧱" },
+  { code: "TU",  name: "TU",  full: "Úlcera da Ponta / Necrose",       emoji: "⚫" },
+  { code: "LB",  name: "LB",  full: "Linha Branca",                    emoji: "⬜" },
+  { code: "DD",  name: "DD",  full: "Dermatite Digital",               emoji: "🦠" },
+  { code: "HHE", name: "HHE", full: "Talão por Lama / Esterco",        emoji: "💧" },
+  { code: "HI",  name: "HI",  full: "Hiperplasia Interdigital",        emoji: "🌿" },
+  { code: "FF",  name: "FF",  full: "Fleimão / Podridão do Pé",        emoji: "🦨" },
+  { code: "J",   name: "J",   full: "Infecção Articular",              emoji: "🔩" },
+  { code: "LM",  name: "LM",  full: "Lesão de Membro",                 emoji: "🦵" },
+  { code: "TS",  name: "TS",  full: "Sola Fina",                       emoji: "📏" },
+  { code: "P",   name: "P",   full: "Perfuração",                      emoji: "📌" },
+  { code: "X",   name: "X",   full: "Descarte — Retirar do Lote",      emoji: "❌" },
 ];
 
 export const TREATMENTS: { code: TreatmentCode; label: string; emoji: string }[] = [
-  { code: "TRIM",     label: "Casquear",       emoji: "🔪" },
-  { code: "ALIVIO",   label: "Alívio",         emoji: "⬇️" },
-  { code: "BAND_ON",  label: "Curativo",       emoji: "🩹" },
-  { code: "BAND_OFF", label: "Tirar Curativo", emoji: "✂️" },
-  { code: "BLOCO",    label: "Bloco",          emoji: "🟦" },
-  { code: "SPRAY",    label: "Spray",          emoji: "💧" },
-  { code: "NADA",     label: "Só Limpou",      emoji: "✅" },
+  { code: "TRIM",      label: "Casquear",          emoji: "🔪" },
+  { code: "ALIVIO",    label: "Alívio de Carga",   emoji: "⬇️" },
+  { code: "BLOCO_ON",  label: "Aplicar Bloco",     emoji: "🟦" },
+  { code: "BLOCO_OFF", label: "Remover Bloco",     emoji: "🔲" },
+  { code: "BLOCO_FIX", label: "Bloco Mantido",     emoji: "✔️" },
+  { code: "BAND_ON",   label: "Curativo",          emoji: "🩹" },
+  { code: "BAND_OFF",  label: "Tirar Curativo",    emoji: "✂️" },
+  { code: "SPRAY",     label: "Spray / Produto",   emoji: "💧" },
+  { code: "SCORING",   label: "Escore DD (M.)",    emoji: "📊" },
+  { code: "NADA",      label: "Só Limpou",         emoji: "✅" },
+];
+
+export const COMMENTS: { code: CommentCode; label: string }[] = [
+  { code: "D1", label: "Já casqueado por terceiro" },
+  { code: "D2", label: "Recomendar remoção da garra" },
+  { code: "D3", label: "Preocupação com bem-estar" },
+  { code: "D4", label: "Queimaduras químicas" },
+  { code: "D5", label: "Ensaio com pó salicílico" },
+  { code: "D6", label: "Ensaio com pó de antibiótico" },
 ];
 
 export const ZONE_LABEL: Record<Zone, string> = {
@@ -134,7 +163,8 @@ function migrateFootEntry(f: any): FootEntry {
     ok: f.ok,
     zones: f.zone !== undefined ? [f.zone as Zone] : f.zones ?? [],
     diseases: diseases.length ? diseases : [],
-    treatments: f.treatments ?? (f.treatment && f.treatment !== "NADA" ? [f.treatment as TreatmentCode] : []),
+    treatments: (f.treatments ?? (f.treatment && f.treatment !== "NADA" ? [f.treatment as TreatmentCode] : []))
+      .map((c: string) => c === "BLOCO" ? "BLOCO_ON" : c) as TreatmentCode[],
     recheck: f.recheck,
     resolved: f.resolved,
     photo: f.photo,

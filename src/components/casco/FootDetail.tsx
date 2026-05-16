@@ -3,7 +3,9 @@ import { Camera, X, Clock, CheckCircle2 } from "lucide-react";
 import {
   FOOT_LABEL,
   TREATMENTS,
+  COMMENTS,
   footWorstSeverity,
+  type CommentCode,
   type DiseaseEntry,
   type FootEntry,
   type TreatmentCode,
@@ -27,6 +29,7 @@ export function FootDetail({
   const diseases = entry.diseases ?? [];
   const zones = entry.zones ?? [];
   const treatments = entry.treatments ?? [];
+  const comments = entry.comments ?? [];
   const worstSev = footWorstSeverity(entry);
 
   function pickPhoto(file: File) {
@@ -43,6 +46,13 @@ export function FootDetail({
     const cur = treatments.filter((c) => c !== "NADA");
     const next = cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code];
     onChange({ ...entry, treatments: next });
+  }
+
+  function toggleComment(code: CommentCode) {
+    const next = comments.includes(code)
+      ? comments.filter((c) => c !== code)
+      : [...comments, code];
+    onChange({ ...entry, comments: next });
   }
 
   function toggleZone(z: Zone) {
@@ -115,7 +125,7 @@ export function FootDetail({
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
           Tratamento (pode marcar vários)
         </p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-1.5">
           {TREATMENTS.map((t) => {
             const active = treatments.includes(t.code);
             return (
@@ -124,7 +134,7 @@ export function FootDetail({
                 type="button"
                 onClick={() => toggleTreatment(t.code)}
                 className={cn(
-                  "tap flex items-center gap-2 rounded-xl border-2 px-3 font-display uppercase transition-all active:scale-95",
+                  "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2 font-display uppercase transition-all active:scale-95",
                   active
                     ? "border-primary bg-primary text-primary-foreground stamp"
                     : "border-border bg-surface text-foreground",
@@ -132,6 +142,34 @@ export function FootDetail({
               >
                 <span className="text-xl leading-none">{t.emoji}</span>
                 <span className="text-sm">{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* COMENTÁRIOS D1–D6 */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Observações (D1–D6)
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {COMMENTS.map((c) => {
+            const active = comments.includes(c.code);
+            return (
+              <button
+                key={c.code}
+                type="button"
+                onClick={() => toggleComment(c.code)}
+                className={cn(
+                  "tap flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2 text-left font-display transition-all active:scale-95",
+                  active
+                    ? "border-primary bg-primary text-primary-foreground stamp"
+                    : "border-border bg-surface text-foreground",
+                )}
+              >
+                <span className="shrink-0 text-sm font-black">{c.code}</span>
+                <span className="text-sm">{c.label}</span>
               </button>
             );
           })}
