@@ -1,10 +1,11 @@
 import { useRef } from "react";
-import { Camera, X, Clock, CheckCircle2 } from "lucide-react";
+import { Camera, X, Clock, CheckCircle2, Calendar } from "lucide-react";
 import {
   FOOT_LABEL,
   TREATMENTS,
   COMMENTS,
   footWorstSeverity,
+  todayISO,
   type CommentCode,
   type DiseaseEntry,
   type FootEntry,
@@ -178,19 +179,36 @@ export function FootDetail({
       </section>
 
       {/* RECHECK */}
-      <button
-        type="button"
-        onClick={() => onChange({ ...entry, recheck: !entry.recheck })}
-        className={cn(
-          "tap-lg flex w-full items-center justify-center gap-3 rounded-xl border-2 font-display text-base uppercase transition-all",
-          entry.recheck
-            ? "border-warn bg-warn text-warn-foreground stamp"
-            : "border-border bg-surface text-muted-foreground",
+      <section>
+        <button
+          type="button"
+          onClick={() => onChange({ ...entry, recheck: !entry.recheck, recheckDate: !entry.recheck ? undefined : entry.recheckDate })}
+          className={cn(
+            "tap-lg flex w-full items-center justify-center gap-3 rounded-xl border-2 font-display text-base uppercase transition-all",
+            entry.recheck
+              ? "border-warn bg-warn text-warn-foreground stamp"
+              : "border-border bg-surface text-muted-foreground",
+          )}
+        >
+          <Clock className="h-6 w-6" />
+          {entry.recheck ? "⏰ Precisa revisão" : "Marcar revisão futura"}
+        </button>
+        {entry.recheck && (
+          <div className="mt-2 flex items-center gap-3 rounded-xl border-2 border-warn/40 bg-warn/5 px-3 py-2">
+            <Calendar className="h-5 w-5 shrink-0 text-warn-foreground" />
+            <div className="flex-1">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Data da revisão</p>
+              <input
+                type="date"
+                value={entry.recheckDate ?? ""}
+                min={todayISO()}
+                onChange={(e) => onChange({ ...entry, recheckDate: e.target.value || undefined })}
+                className="w-full bg-transparent font-display text-sm uppercase outline-none"
+              />
+            </div>
+          </div>
         )}
-      >
-        <Clock className="h-6 w-6" />
-        {entry.recheck ? "⏰ Precisa revisão" : "Marcar revisão futura"}
-      </button>
+      </section>
 
       {/* FOTO */}
       <section>

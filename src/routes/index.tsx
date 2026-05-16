@@ -10,13 +10,17 @@ import {
   History,
   Hash,
   Calendar,
+  CalendarDays,
   Footprints,
   Clock,
   X,
   ChevronRight,
+  ChevronLeft,
   AlertTriangle,
   HelpCircle,
   SlidersHorizontal,
+  BarChart3,
+  Users,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -30,6 +34,7 @@ import {
   saveFarm,
   saveVisits,
   seedMockData,
+  rechecksByDate,
   severityBucket,
   todayISO,
   uid,
@@ -93,7 +98,8 @@ type Screen =
   | { name: "history"; tag: string }
   | { name: "summary" }
   | { name: "config" }
-  | { name: "filters" };
+  | { name: "filters" }
+  | { name: "calendar" };
 
 function newDraft(tag = "", sex: Sex = "vaca"): Visit {
   return {
@@ -115,7 +121,10 @@ function newDraft(tag = "", sex: Sex = "vaca"): Visit {
 function Index() {
   const [farm, setFarm] = useState<FarmConfig>(() => loadFarm());
   const [screen, setScreen] = useState<Screen>({ name: "today" });
-  const [tick, setTick] = useState(0);
+  const [tick, setTick] = useState(() => {
+    if (loadVisits().length === 0) seedMockData(false);
+    return 0;
+  });
   const [showTutorial, setShowTutorial] = useState(() => !isTutorialDone());
   const [showHelp, setShowHelp] = useState(false);
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -127,6 +136,8 @@ function Index() {
     setScreen({ name: "register", visit: newDraft(tag, sex), activeFoot: null });
   }
 
+  const isHomeLevel = screen.name === "today" || screen.name === "calendar" || screen.name === "summary";
+
   const helpScreen =
     screen.name === "register" ? "register" :
     screen.name === "history" ? "history" :
@@ -134,11 +145,11 @@ function Index() {
     "today";
 
   return (
-    <div className="min-h-screen pb-28">
+    <div className="min-h-screen pb-24">
       <Header
         farm={farm}
         onConfig={() => setScreen({ name: "config" })}
-        showBack={screen.name !== "today"}
+        showBack={!isHomeLevel}
         onBack={goToday}
         screen={screen.name}
         onHelp={() => setShowHelp(true)}
@@ -180,6 +191,9 @@ function Index() {
           />
         )}
         {screen.name === "summary" && <SummaryScreen />}
+        {screen.name === "calendar" && (
+          <CalendarScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
+        )}
         {screen.name === "filters" && (
           <FiltersScreen
             current={homeFilters}
@@ -206,15 +220,38 @@ function Index() {
         )}
       </main>
 
-      {screen.name === "today" && (
-        <button
-          onClick={() => setScreen({ name: "register", visit: newDraft(), activeFoot: null })}
-          className="fixed bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full bg-primary px-8 py-5 font-display text-xl uppercase text-primary-foreground stamp transition-transform active:scale-95 shadow-xl"
-        >
-          <Plus className="h-7 w-7" strokeWidth={3} />
-          Nova Vaca
-        </button>
-      )}
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t-2 border-border bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-2xl items-stretch">
+          <NavTab
+            icon={<Users className="h-5 w-5" />}
+            label="Animais"
+            active={screen.name === "today"}
+            onClick={goToday}
+          />
+          <button
+            onClick={() => setScreen({ name: "register", visit: newDraft(), activeFoot: null })}
+            className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground stamp shadow-lg transition-transform active:scale-95">
+              <Plus className="h-7 w-7" strokeWidth={3} />
+            </div>
+            <span className="text-[10px] font-bold uppercase text-primary">Nova Vaca</span>
+          </button>
+          <NavTab
+            icon={<CalendarDays className="h-5 w-5" />}
+            label="Calendário"
+            active={screen.name === "calendar"}
+            onClick={() => setScreen({ name: "calendar" })}
+          />
+          <NavTab
+            icon={<BarChart3 className="h-5 w-5" />}
+            label="Resumo"
+            active={screen.name === "summary"}
+            onClick={() => setScreen({ name: "summary" })}
+          />
+        </div>
+      </nav>
 
       {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} />}
       {showHelp && <HelpModal screen={helpScreen} onClose={() => setShowHelp(false)} />}
@@ -240,6 +277,7 @@ function Header({
 }) {
   const titles: Record<string, string> = {
     today: "",
+    calendar: "Calendário",
     register: "Nova Visita",
     history: "Histórico",
     summary: "Resumo",
@@ -479,110 +517,98 @@ function TodayScreen({
                 if (t) treatSet.add(`${t.emoji} ${t.label}`);
               }
             }
-            return (
-              <li key={a.tag}>
-                <button
-                  onClick={() => onEdit(a.tag, a.sex)}
-                  className={cn(
-                    "tap-lg flex w-full items-start gap-3 rounded-2xl border-2 bg-card p-3 text-left active:scale-[0.99] transition-transform",
-                    a.worstSeverity >= 3
-                      ? "border-danger/60 bg-danger/5"
-                      : a.worstSeverity >= 1
-                        ? "border-warn/60 bg-warn/5"
-                        : "border-border",
-                  )}
-                >
-                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
-                    <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
-                    <span className="text-xl font-black leading-none">{a.tag}</span>
-                    <span className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</span>
-                  </div>
+            const accentColor =
+              a.worstSeverity >= 3 ? "bg-danger" :
+              a.worstSeverity >= 1 ? "bg-warn" : "bg-good";
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1 mb-1">
-                      {a.worstSeverity >= 3 && (
-                        <span className="rounded bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">
-                          🚨 Grave
-                        </span>
-                      )}
-                      {a.worstSeverity > 0 && a.worstSeverity < 3 && (
-                        <span className="rounded bg-warn/30 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
-                          ⚠️ G{a.worstSeverity}
-                        </span>
-                      )}
-                      {a.hasResolved && (
-                        <span className="rounded bg-good/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-good">
-                          ✅ Curado
-                        </span>
-                      )}
-                      {a.hasRecheck && (
-                        <span className="rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
-                          ⏰ Revisão
-                        </span>
-                      )}
+            return (
+              <li key={a.tag} className="overflow-hidden rounded-2xl shadow-sm border border-border/60">
+                {/* Accent bar + main button */}
+                <div className="relative">
+                  <div className={cn("absolute inset-y-0 left-0 w-1.5 rounded-l-2xl", accentColor)} />
+                  <button
+                    onClick={() => onEdit(a.tag, a.sex)}
+                    className="flex w-full items-center gap-3 bg-card pl-5 pr-3 py-3 text-left active:bg-surface transition-colors"
+                  >
+                    {/* Tag + sex */}
+                    <div className="shrink-0 text-center min-w-[3rem]">
+                      <p className="font-display text-2xl font-black leading-none">{a.tag}</p>
+                      <p className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</p>
                     </div>
 
-                    {badFeet.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mb-1">
-                        {badFeet.map((ft) => {
-                          const ws = footWorstSeverity(ft);
-                          const topD = ft.diseases?.filter((d) => d.severity > 0).sort((x, y) => y.severity - x.severity)[0];
-                          const l = LESIONS.find((x) => x.code === topD?.code);
-                          return (
-                            <span
-                              key={ft.foot}
-                              className={cn(
-                                "rounded px-1.5 py-0.5 text-[10px] font-display font-black uppercase",
-                                ws >= 3 ? "bg-danger/20 text-danger" : "bg-warn/20 text-warn-foreground",
-                              )}
-                            >
-                              {ft.foot} {l?.emoji ?? ""}{l ? ` ${l.code}` : ""} G{ws}
-                            </span>
-                          );
-                        })}
+                    {/* Divider */}
+                    <div className="h-10 w-px bg-border/50 shrink-0" />
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {a.worstSeverity >= 3 && (
+                          <span className="rounded-md bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">🚨 Grave</span>
+                        )}
+                        {a.worstSeverity > 0 && a.worstSeverity < 3 && (
+                          <span className="rounded-md bg-warn/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">⚠️ G{a.worstSeverity}</span>
+                        )}
+                        {a.hasResolved && (
+                          <span className="rounded-md bg-good/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-good">✅ Curado</span>
+                        )}
+                        {a.hasRecheck && (
+                          <span className="rounded-md bg-warn/10 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">⏰ Revisão</span>
+                        )}
                       </div>
-                    )}
 
-                    {treatSet.size > 0 && (
-                      <p className="text-[10px] text-muted-foreground truncate mb-0.5">
-                        {Array.from(treatSet).slice(0, 3).join(" · ")}
+                      {badFeet.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {badFeet.map((ft) => {
+                            const ws = footWorstSeverity(ft);
+                            const topD = ft.diseases?.filter((d) => d.severity > 0).sort((x, y) => y.severity - x.severity)[0];
+                            const l = LESIONS.find((x) => x.code === topD?.code);
+                            return (
+                              <span key={ft.foot} className={cn(
+                                "rounded px-1 py-0.5 text-[10px] font-black uppercase",
+                                ws >= 3 ? "bg-danger/15 text-danger" : "bg-warn/15 text-warn-foreground",
+                              )}>
+                                {ft.foot}{l ? ` ${l.emoji}${l.code}` : ""} G{ws}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {treatSet.size > 0 && (
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          {Array.from(treatSet).slice(0, 3).join(" · ")}
+                        </p>
+                      )}
+
+                      <p className="text-[10px] text-muted-foreground">
+                        {a.totalVisits} visita(s) · {new Date(a.lastVisit).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" })}
                       </p>
-                    )}
+                    </div>
 
-                    <p className="text-[10px] text-muted-foreground">
-                      {a.totalVisits} visita(s) · última:{" "}
-                      {new Date(a.lastVisit).toLocaleDateString("pt-BR", {
-                        day: "2-digit", month: "2-digit", year: "2-digit",
+                    {/* Foot dots */}
+                    <div className="flex shrink-0 flex-col items-center gap-1">
+                      {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
+                        const ft = lv?.feet.find((x) => x.foot === k);
+                        const ws = ft ? footWorstSeverity(ft) : 0;
+                        return (
+                          <span key={k} className={cn(
+                            "h-3.5 w-3.5 rounded-sm",
+                            !ft || ft.ok ? "bg-good/50" : ws >= 3 ? "bg-danger" : ws >= 1 ? "bg-warn" : "bg-danger/50",
+                          )} title={k} />
+                        );
                       })}
-                    </p>
-                  </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                </div>
 
-                  <div className="flex shrink-0 flex-col items-center gap-1 pt-1">
-                    {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
-                      const ft = lv?.feet.find((x) => x.foot === k);
-                      const ws = ft ? footWorstSeverity(ft) : 0;
-                      return (
-                        <span
-                          key={k}
-                          className={cn(
-                            "h-4 w-4 rounded-sm",
-                            !ft || ft.ok ? "bg-good/40" : ws >= 3 ? "bg-danger" : ws >= 1 ? "bg-warn" : "bg-danger/50",
-                          )}
-                          title={k}
-                        />
-                      );
-                    })}
-                    <ChevronRight className="h-4 w-4 text-muted-foreground mt-1" />
-                  </div>
-                </button>
-
-                {/* Acesso rápido ao histórico */}
+                {/* Histórico footer */}
                 <button
                   onClick={() => onOpenHistory(a.tag)}
-                  className="mt-1 flex w-full items-center justify-end gap-1 px-3 py-1 text-[10px] font-bold uppercase text-muted-foreground"
+                  className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 bg-surface/60 py-1.5 text-[10px] font-bold uppercase text-muted-foreground active:bg-surface"
                 >
                   <History className="h-3 w-3" />
-                  Histórico
+                  Ver Histórico
                 </button>
               </li>
             );
@@ -590,6 +616,33 @@ function TodayScreen({
         </ul>
       )}
     </div>
+  );
+}
+
+function NavTab({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex flex-1 flex-col items-center justify-center gap-1 py-3 transition-colors",
+        active ? "text-primary" : "text-muted-foreground",
+      )}
+    >
+      <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl transition-all", active && "bg-primary/10")}>
+        {icon}
+      </span>
+      <span className="text-[10px] font-bold uppercase">{label}</span>
+    </button>
   );
 }
 
@@ -873,8 +926,205 @@ function FiltersScreen({
   );
 }
 
-/* ───────────── (Animals screen removed — home is now the animals directory) ───────────── */
-function _AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
+/* ───────────── Calendário ───────────── */
+function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
+  const today = todayISO();
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  const [selectedDate, setSelectedDate] = useState(today);
+
+  const recheckMap = useMemo(() => rechecksByDate(), []);
+  const { year, month } = currentMonth;
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthName = new Date(year, month).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+  function isoDay(d: number) {
+    return `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
+  function prevMonth() {
+    setCurrentMonth(({ year, month }) => month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 });
+  }
+  function nextMonth() {
+    setCurrentMonth(({ year, month }) => month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 });
+  }
+
+  const selectedItems = recheckMap.get(selectedDate) ?? [];
+  const allPending = Array.from(recheckMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const pendingTotal = allPending.reduce((acc, [, items]) => acc + items.length, 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Resumo pendências */}
+      {pendingTotal > 0 && (
+        <div className={cn(
+          "flex items-center gap-3 rounded-2xl border-2 px-4 py-3",
+          allPending.some(([d]) => d < today) ? "border-danger/50 bg-danger/5" : "border-warn/50 bg-warn/5",
+        )}>
+          <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
+          <div>
+            <p className="font-display text-sm font-black uppercase text-warn-foreground">
+              {pendingTotal} animal(is) com revisão marcada
+            </p>
+            {allPending.some(([d]) => d < today) && (
+              <p className="text-xs font-bold text-danger">⚠️ Há revisões atrasadas!</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Navegação de mês */}
+      <div className="flex items-center justify-between rounded-2xl bg-card px-4 py-3 stamp">
+        <button onClick={prevMonth} className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface">
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <p className="font-display text-base font-black uppercase">{monthName}</p>
+        <button onClick={nextMonth} className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface">
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Grade do calendário */}
+      <div className="rounded-2xl bg-card p-3">
+        {/* Cabeçalho dos dias */}
+        <div className="mb-2 grid grid-cols-7 gap-1">
+          {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => (
+            <div key={d} className="py-1 text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+              {d}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+            const dateStr = isoDay(day);
+            const isToday = dateStr === today;
+            const isSel = dateStr === selectedDate;
+            const count = recheckMap.get(dateStr)?.length ?? 0;
+            const isPast = dateStr < today && count > 0;
+            return (
+              <button
+                key={day}
+                onClick={() => setSelectedDate(dateStr)}
+                className={cn(
+                  "relative flex flex-col items-center justify-center rounded-xl py-2 transition-all",
+                  isSel
+                    ? "bg-primary text-primary-foreground stamp"
+                    : isToday
+                      ? "border-2 border-primary/50 bg-primary/10 text-primary"
+                      : "bg-surface text-foreground hover:bg-muted",
+                )}
+              >
+                <span className="font-display text-sm font-black leading-none">{day}</span>
+                {count > 0 && (
+                  <span className={cn(
+                    "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black",
+                    isSel ? "bg-primary-foreground text-primary" :
+                    isPast ? "bg-danger text-danger-foreground" : "bg-warn text-warn-foreground",
+                  )}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Detalhe do dia selecionado */}
+      <div>
+        <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          {new Date(selectedDate + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
+          {selectedDate === today && <span className="ml-1 text-primary">(Hoje)</span>}
+          {selectedDate < today && selectedItems.length > 0 && <span className="ml-1 text-danger"> — Atrasada!</span>}
+        </p>
+        {selectedItems.length === 0 ? (
+          <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
+            <p className="text-3xl">📅</p>
+            <p className="mt-2 font-display text-sm uppercase text-muted-foreground">Nenhuma revisão neste dia</p>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {selectedItems.map((item, idx) => (
+              <li key={idx}>
+                <button
+                  onClick={() => onOpenHistory(item.tag)}
+                  className={cn(
+                    "tap-lg flex w-full items-center gap-4 rounded-2xl border-2 p-4 text-left",
+                    selectedDate < today ? "border-danger/40 bg-danger/5" : "border-warn/40 bg-warn/5",
+                  )}
+                >
+                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
+                    <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
+                    <span className="text-xl font-black leading-none">{item.tag}</span>
+                    <span className="text-base leading-none">{item.sex === "vaca" ? "🐄" : "🐂"}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-display text-sm font-black uppercase text-warn-foreground">⏰ Revisão marcada</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Pé(s): {item.feet.join(" · ")}</p>
+                    {selectedDate < today && (
+                      <p className="mt-0.5 text-xs font-bold text-danger">⚠️ Atrasada — não realizada</p>
+                    )}
+                  </div>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Lista completa de pendências */}
+      {allPending.length > 0 && (
+        <section>
+          <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Todas as revisões pendentes
+          </p>
+          <ul className="space-y-1">
+            {allPending.map(([date, items]) => {
+              const isPast = date < today;
+              const isTdy = date === today;
+              return (
+                <li key={date}>
+                  <button
+                    onClick={() => setSelectedDate(date)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
+                      selectedDate === date ? "bg-primary/10" : "bg-surface",
+                    )}
+                  >
+                    <span className={cn(
+                      "shrink-0 rounded-lg px-2 py-1 font-display text-xs font-black uppercase",
+                      isPast ? "bg-danger text-danger-foreground" :
+                      isTdy ? "bg-warn text-warn-foreground" :
+                      "bg-primary/10 text-primary",
+                    )}>
+                      {new Date(date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                    </span>
+                    <span className="flex-1 truncate text-sm font-semibold">
+                      {items.map((x) => x.tag).join(", ")}
+                    </span>
+                    <span className={cn("shrink-0 text-xs font-bold", isPast ? "text-danger" : "text-muted-foreground")}>
+                      {isPast ? "⚠️ Atrasada" : `${items.length} animal(is)`}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── (Dead code removed) ───────────── */
+function _DEAD_AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "recheck" | "recent" | "severe" | "curado">("all");
   const [diseaseFilter, setDiseaseFilter] = useState<LesionCode | null>(null);

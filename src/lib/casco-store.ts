@@ -26,13 +26,14 @@ export interface DiseaseEntry {
 export interface FootEntry {
   foot: FootKey;
   ok: boolean;
-  zones?: Zone[];            // múltiplas zonas selecionadas (0–12)
-  diseases?: DiseaseEntry[]; // múltiplas doenças cada uma com sua gravidade
+  zones?: Zone[];
+  diseases?: DiseaseEntry[];
   treatments?: TreatmentCode[];
-  comments?: CommentCode[];  // códigos D1–D6
+  comments?: CommentCode[];
   recheck?: boolean;
-  resolved?: boolean;        // marca casco como curado/resolvido
-  photo?: string;            // dataURL — armazenada localmente, funciona offline
+  recheckDate?: string; // ISO yyyy-mm-dd para o calendário
+  resolved?: boolean;
+  photo?: string;
 }
 
 export interface Visit {
@@ -315,6 +316,32 @@ export function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+// Agrupa animais com recheck ativo por data de revisão (para o calendário)
+export function rechecksByDate(): Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]> {
+  const visits = loadVisits().sort((a, b) => b.createdAt - a.createdAt);
+  const map = new Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]>();
+  const seen = new Set<string>();
+  for (const v of visits) {
+    const key = v.tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const recheckFeet: FootKey[] = [];
+    let recheckDate = "";
+    for (const f of v.feet) {
+      if (f.recheck && !f.resolved && f.recheckDate) {
+        recheckFeet.push(f.foot);
+        if (!recheckDate) recheckDate = f.recheckDate;
+      }
+    }
+    if (recheckFeet.length > 0 && recheckDate) {
+      const existing = map.get(recheckDate) ?? [];
+      existing.push({ tag: v.tag, sex: v.sex, feet: recheckFeet });
+      map.set(recheckDate, existing);
+    }
+  }
+  return map;
+}
+
 export function seedMockData(replace = false) {
   const existing = loadVisits();
   if (existing.length > 0 && !replace) return;
@@ -344,7 +371,7 @@ export function seedMockData(replace = false) {
       f("TD"),
     ]},
     { id: uid(), date: mkDate(14), createdAt: mkTs(14), tag: "1284", sex: "vaca", feet: [
-      f("FE", { ok: false, diseases: [{ code: "DD", severity: 2, zones: [6] }], treatments: ["SPRAY", "BAND_ON"], recheck: true }),
+      f("FE", { ok: false, diseases: [{ code: "DD", severity: 2, zones: [6] }], treatments: ["SPRAY", "BAND_ON"], recheck: true, recheckDate: mkDate(-7) }),
       f("FD"),
       f("TE", { ok: false, diseases: [{ code: "SH", severity: 1, zones: [0, 4] }], treatments: ["TRIM"] }),
       f("TD"),
@@ -384,7 +411,7 @@ export function seedMockData(replace = false) {
     // 2210 — FF grave, recheck
     { id: uid(), date: mkDate(3), createdAt: mkTs(3), tag: "2210", sex: "vaca", feet: [
       f("FE"), f("FD"),
-      f("TE", { ok: false, diseases: [{ code: "FF", severity: 4, zones: [0, 6, 7] }], treatments: ["TRIM", "BAND_ON"], recheck: true }),
+      f("TE", { ok: false, diseases: [{ code: "FF", severity: 4, zones: [0, 6, 7] }], treatments: ["TRIM", "BAND_ON"], recheck: true, recheckDate: mkDate(-2) }),
       f("TD", { ok: false, diseases: [{ code: "DD", severity: 2, zones: [8] }], treatments: ["SPRAY"] }),
     ]},
 
@@ -398,7 +425,7 @@ export function seedMockData(replace = false) {
     // 1033 — HI recheck
     { id: uid(), date: mkDate(12), createdAt: mkTs(12), tag: "1033", sex: "vaca", feet: [
       f("FE"), f("FD"),
-      f("TE", { ok: false, diseases: [{ code: "HI", severity: 3, zones: [0] }], treatments: ["TRIM", "BAND_ON"], recheck: true }),
+      f("TE", { ok: false, diseases: [{ code: "HI", severity: 3, zones: [0] }], treatments: ["TRIM", "BAND_ON"], recheck: true, recheckDate: mkDate(-5) }),
       f("TD"),
     ]},
 
@@ -424,7 +451,7 @@ export function seedMockData(replace = false) {
     // 2756 — TU ponta recheck
     { id: uid(), date: mkDate(6), createdAt: mkTs(6), tag: "2756", sex: "vaca", feet: [
       f("FE"),
-      f("FD", { ok: false, diseases: [{ code: "TU", severity: 3, zones: [1] }], treatments: ["TRIM", "BAND_ON"], recheck: true }),
+      f("FD", { ok: false, diseases: [{ code: "TU", severity: 3, zones: [1] }], treatments: ["TRIM", "BAND_ON"], recheck: true, recheckDate: mkDate(-3) }),
       f("TE"),
       f("TD", { ok: false, diseases: [{ code: "TU", severity: 2, zones: [1] }], treatments: ["TRIM"] }),
     ]},
@@ -435,9 +462,9 @@ export function seedMockData(replace = false) {
       f("FD"), f("TE"), f("TD"),
     ]},
 
-    // 1100 — SH laminite 4 pés
+    // 1100 — SH laminite 4 pés + recheck atrasado (2 dias atrás)
     { id: uid(), date: mkDate(4), createdAt: mkTs(4), tag: "1100", sex: "vaca", feet: [
-      f("FE", { ok: false, diseases: [{ code: "SH", severity: 2, zones: [0, 4] }], treatments: ["ALIVIO"] }),
+      f("FE", { ok: false, diseases: [{ code: "SH", severity: 2, zones: [0, 4] }], treatments: ["ALIVIO"], recheck: true, recheckDate: mkDate(2) }),
       f("FD", { ok: false, diseases: [{ code: "SH", severity: 2, zones: [0, 5] }], treatments: ["ALIVIO"] }),
       f("TE", { ok: false, diseases: [{ code: "SH", severity: 1, zones: [0] }], treatments: ["ALIVIO"] }),
       f("TD", { ok: false, diseases: [{ code: "SH", severity: 1, zones: [0] }], treatments: ["ALIVIO"] }),
