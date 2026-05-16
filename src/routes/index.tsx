@@ -23,6 +23,7 @@ import {
   FOOT_LABEL,
   LESIONS,
   TREATMENTS,
+  COMMENTS,
   addVisit,
   deleteVisit,
   loadFarm,
@@ -42,6 +43,7 @@ import {
   type FarmConfig,
   type FootEntry,
   type FootKey,
+  type LesionCode,
   type Sex,
   type Severity,
   type Visit,
@@ -513,9 +515,31 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
 /* ───────────── Animals ───────────── */
 function AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "recheck" | "recent" | "severe">("all");
+  const [filter, setFilter] = useState<"all" | "recheck" | "recent" | "severe" | "curado">("all");
+  const [diseaseFilter, setDiseaseFilter] = useState<LesionCode | null>(null);
 
   const animals = useMemo(() => allAnimals(), []);
+
+  // Mapa brinco → doenças ativas mais recentes
+  const tagDiseases = useMemo(() => {
+    const visits = loadVisits();
+    const m = new Map<string, { code: LesionCode; severity: Severity; emoji: string }[]>();
+    for (const v of visits) {
+      const key = v.tag.toLowerCase();
+      if (m.has(key)) continue; // já processou o mais recente (visits está ordenado por createdAt desc)
+      const diseases: { code: LesionCode; severity: Severity; emoji: string }[] = [];
+      for (const f of v.feet) {
+        for (const d of f.diseases ?? []) {
+          if (d.severity > 0 && !diseases.find((x) => x.code === d.code)) {
+            const l = LESIONS.find((x) => x.code === d.code);
+            if (l) diseases.push({ code: d.code, severity: d.severity, emoji: l.emoji });
+          }
+        }
+      }
+      m.set(key, diseases.sort((a, b) => b.severity - a.severity));
+    }
+    return m;
+  }, [animals]);
 
   const filtered = useMemo(() => {
     let list = animals;
@@ -524,23 +548,44 @@ function AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void
     }
     if (filter === "recheck") list = list.filter((a) => a.hasRecheck);
     if (filter === "severe") list = list.filter((a) => a.worstSeverity >= 3);
+    if (filter === "curado") list = list.filter((a) => a.hasResolved);
     if (filter === "recent") {
       const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
       list = list.filter((a) => a.lastVisit >= cutoff);
     }
+    if (diseaseFilter) {
+      list = list.filter((a) =>
+        tagDiseases.get(a.tag.toLowerCase())?.some((d) => d.code === diseaseFilter)
+      );
+    }
     return list;
-  }, [animals, search, filter]);
+  }, [animals, search, filter, diseaseFilter, tagDiseases]);
+
+  // Top 5 doenças mais frequentes para chips de filtro rápido
+  const topDiseaseCodes = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const diseases of tagDiseases.values()) {
+      for (const d of diseases) counts[d.code] = (counts[d.code] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([code]) => LESIONS.find((l) => l.code === code)!)
+      .filter(Boolean);
+  }, [tagDiseases]);
 
   return (
     <div className="space-y-4">
+      {/* Campo de busca */}
       <div className="relative">
         <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar brinco…"
+          placeholder="Buscar pelo brinco (número)…"
           inputMode="numeric"
           className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 font-display text-xl uppercase outline-none focus:border-primary"
+          style={{ height: 56 }}
         />
         {search && (
           <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
@@ -549,59 +594,115 @@ function AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void
         )}
       </div>
 
+      {/* Filtros de status */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <FilterChip label="Todos" active={filter === "all"} onClick={() => setFilter("all")} />
+        <FilterChip label="Todos" active={filter === "all" && !diseaseFilter} onClick={() => { setFilter("all"); setDiseaseFilter(null); }} />
         <FilterChip label="⏰ Revisão" active={filter === "recheck"} onClick={() => setFilter("recheck")} />
         <FilterChip label="🚨 Graves" active={filter === "severe"} onClick={() => setFilter("severe")} />
+        <FilterChip label="✅ Curados" active={filter === "curado"} onClick={() => setFilter("curado")} />
         <FilterChip label="📅 7 dias" active={filter === "recent"} onClick={() => setFilter("recent")} />
       </div>
 
+      {/* Filtros rápidos por doença */}
+      {topDiseaseCodes.length > 0 && (
+        <div>
+          <p className="mb-1.5 px-1 text-[10px] font-bold uppercase text-muted-foreground">
+            Filtrar por doença
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {topDiseaseCodes.map((l) => (
+              <FilterChip
+                key={l.code}
+                label={`${l.emoji} ${l.code}`}
+                active={diseaseFilter === l.code}
+                onClick={() => setDiseaseFilter(diseaseFilter === l.code ? null : l.code as LesionCode)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="px-1 text-xs text-muted-foreground">
-        {filtered.length} animal(is) encontrado(s)
+        {filtered.length} animal(is) encontrado(s) · {animals.length} total
       </p>
 
       {filtered.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
           <p className="text-4xl">🔍</p>
           <p className="mt-2 font-display text-lg uppercase">Nenhum resultado</p>
+          <button
+            onClick={() => { setSearch(""); setFilter("all"); setDiseaseFilter(null); }}
+            className="mt-3 rounded-full bg-muted px-4 py-2 text-sm font-display uppercase text-muted-foreground"
+          >
+            Limpar filtros
+          </button>
         </div>
       ) : (
         <ul className="space-y-2">
-          {filtered.map((a) => (
-            <li key={a.tag}>
-              <button
-                onClick={() => onOpenHistory(a.tag)}
-                className="tap-lg flex w-full items-center gap-4 rounded-2xl border-2 border-border bg-card px-4 text-left active:scale-[0.99] transition-transform"
-              >
-                <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface">
-                  <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
-                  <span className="font-display text-xl font-black leading-none">{a.tag}</span>
-                  <span className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</span>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-display text-base uppercase">{a.totalVisits} visita(s)</p>
-                    {a.worstSeverity >= 3 && (
-                      <span className="rounded bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">
-                        Grave
-                      </span>
-                    )}
+          {filtered.map((a) => {
+            const diseases = tagDiseases.get(a.tag.toLowerCase()) ?? [];
+            return (
+              <li key={a.tag}>
+                <button
+                  onClick={() => onOpenHistory(a.tag)}
+                  className="tap-lg flex w-full items-center gap-4 rounded-2xl border-2 border-border bg-card px-4 text-left active:scale-[0.99] transition-transform"
+                  style={{
+                    borderColor: a.worstSeverity >= 3 ? "var(--color-danger)" :
+                      a.worstSeverity >= 1 ? "var(--color-warn)" : undefined,
+                  }}
+                >
+                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface">
+                    <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
+                    <span className="font-display text-xl font-black leading-none">{a.tag}</span>
+                    <span className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Última:{" "}
-                    {new Date(a.lastVisit).toLocaleDateString("pt-BR", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "2-digit",
-                    })}
-                    {a.hasRecheck && " · ⏰ Revisão"}
-                    {a.hasResolved && " · ✅ Curado"}
-                  </p>
-                </div>
-                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-              </button>
-            </li>
-          ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {a.worstSeverity >= 3 && (
+                        <span className="rounded bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">
+                          🚨 Grave
+                        </span>
+                      )}
+                      {a.worstSeverity > 0 && a.worstSeverity < 3 && (
+                        <span className="rounded bg-warn/30 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
+                          ⚠️ G{a.worstSeverity}
+                        </span>
+                      )}
+                      {a.hasResolved && (
+                        <span className="rounded bg-good/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-good">
+                          ✅ Curado
+                        </span>
+                      )}
+                      {a.hasRecheck && (
+                        <span className="rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
+                          ⏰
+                        </span>
+                      )}
+                    </div>
+                    {/* Doenças ativas */}
+                    {diseases.length > 0 && (
+                      <div className="mt-0.5 flex flex-wrap gap-1">
+                        {diseases.slice(0, 4).map((d) => (
+                          <span key={d.code} className="text-xs text-muted-foreground">
+                            {d.emoji}{d.code}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {a.totalVisits} visita(s) · última{" "}
+                      {new Date(a.lastVisit).toLocaleDateString("pt-BR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -747,6 +848,111 @@ function RegisterScreen({
   );
 }
 
+/* ── Linha do tempo de doenças por animal ── */
+function DiseaseTimeline({ visits }: { visits: Visit[] }) {
+  // visits ordenadas do mais recente para mais antigo
+  const sorted = [...visits].sort((a, b) => b.createdAt - a.createdAt);
+
+  // Coletar todos os códigos de doenças que apareceram em qualquer visita
+  const allCodes = new Set<LesionCode>();
+  for (const v of visits) {
+    for (const f of v.feet) {
+      for (const d of f.diseases ?? []) {
+        if (d.severity > 0) allCodes.add(d.code);
+      }
+    }
+  }
+  if (allCodes.size === 0) return null;
+
+  // Para cada doença, calcular: primeira aparição, pior gravidade, gravidade atual
+  type DiseaseRow = {
+    code: LesionCode;
+    emoji: string;
+    full: string;
+    firstDate: number;
+    worstSev: Severity;
+    currentSev: Severity;    // na visita mais recente
+    isCured: boolean;        // na visita mais recente: severity=0 ou foot.resolved
+  };
+
+  const rows: DiseaseRow[] = [];
+  for (const code of allCodes) {
+    const lesion = LESIONS.find((l) => l.code === code)!;
+    let firstDate = Infinity;
+    let worstSev: Severity = 0;
+    let currentSev: Severity = 0;
+    let curedInLatest = false;
+
+    for (const v of visits) {
+      for (const f of v.feet) {
+        const d = f.diseases?.find((x) => x.code === code);
+        if (d && d.severity > 0) {
+          if (v.createdAt < firstDate) firstDate = v.createdAt;
+          if (d.severity > worstSev) worstSev = d.severity as Severity;
+        }
+      }
+    }
+    // Gravidade na visita mais recente
+    const latestVisit = sorted[0];
+    if (latestVisit) {
+      for (const f of latestVisit.feet) {
+        const d = f.diseases?.find((x) => x.code === code);
+        if (d && d.severity > 0) currentSev = d.severity as Severity;
+        if (f.resolved) curedInLatest = true;
+      }
+    }
+    const isCured = currentSev === 0 || curedInLatest;
+    rows.push({ code, emoji: lesion.emoji, full: lesion.full, firstDate, worstSev, currentSev, isCured });
+  }
+  rows.sort((a, b) => (a.isCured ? 1 : -1) || b.currentSev - a.currentSev);
+
+  return (
+    <div className="rounded-2xl border-2 border-border bg-card p-4">
+      <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        Evolução das Doenças
+      </p>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.code} className="flex items-center gap-3">
+            <span className="text-xl leading-none">{r.emoji}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-display text-sm font-black uppercase">{r.code}</span>
+                <span className="truncate text-xs text-muted-foreground">{r.full}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                1ª vez:{" "}
+                {new Date(r.firstDate).toLocaleDateString("pt-BR", {
+                  day: "2-digit", month: "2-digit", year: "2-digit",
+                })}
+                {r.worstSev > 0 && ` · pior G${r.worstSev}`}
+              </p>
+            </div>
+            {r.isCured ? (
+              <span className="shrink-0 rounded-lg bg-good/20 px-2 py-1 text-[11px] font-black text-good">
+                ✅ Curada
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  "shrink-0 rounded-lg px-2 py-1 text-[11px] font-black",
+                  r.currentSev >= 3
+                    ? "bg-danger/20 text-danger"
+                    : r.currentSev >= 1
+                      ? "bg-warn/30 text-warn-foreground"
+                      : "bg-muted text-muted-foreground",
+                )}
+              >
+                Ativa G{r.currentSev}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ───────────── History ───────────── */
 function HistoryScreen({
   tag,
@@ -782,6 +988,9 @@ function HistoryScreen({
           )}
         </div>
       </div>
+
+      {/* ── Resumo de doenças (timeline de cura) ── */}
+      {items.length > 0 && <DiseaseTimeline visits={items} />}
 
       {items.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
@@ -925,9 +1134,21 @@ function HistoryScreen({
                                 );
                               })}
                               {treats && (
-                                <span className="ml-auto text-muted-foreground">{treats}</span>
+                                <span className="text-muted-foreground">{treats}</span>
                               )}
                             </div>
+                            {(f.comments ?? []).length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {(f.comments ?? []).map((c) => {
+                                  const cm = COMMENTS.find((x) => x.code === c);
+                                  return cm ? (
+                                    <span key={c} className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                                      {c}: {cm.label}
+                                    </span>
+                                  ) : null;
+                                })}
+                              </div>
+                            )}
                           </li>
                         );
                       })}
