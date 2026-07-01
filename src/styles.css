@@ -57,7 +57,7 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.22 0.03 60);
 
-  --primary: oklch(0.42 0.09 145);          /* verde pasto profundo */
+  --primary: oklch(0.42 0.09 145); /* verde pasto profundo */
   --primary-foreground: oklch(0.98 0.01 90);
 
   --secondary: oklch(0.88 0.04 85);
@@ -66,7 +66,7 @@
   --muted: oklch(0.92 0.02 85);
   --muted-foreground: oklch(0.45 0.03 65);
 
-  --accent: oklch(0.78 0.16 70);            /* âmbar */
+  --accent: oklch(0.78 0.16 70); /* âmbar */
   --accent-foreground: oklch(0.2 0.05 60);
 
   --good: oklch(0.62 0.15 145);
@@ -116,28 +116,114 @@
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html, body { background-color: var(--color-background); color: var(--color-foreground); }
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    overflow-x: hidden;
+  }
+  html {
+    color-scheme: light;
+  }
   body {
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
     -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+    touch-action: manipulation;
   }
-  h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
+  .dark {
+    color-scheme: dark;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 3px solid var(--color-ring);
+    outline-offset: 3px;
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  img {
+    max-width: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 
   /* Papel de caderno sutil */
   .paper {
-    background-image:
-      linear-gradient(to bottom, color-mix(in oklab, var(--color-border) 35%, transparent) 1px, transparent 1px);
+    background-image: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-border) 35%, transparent) 1px,
+      transparent 1px
+    );
     background-size: 100% 28px;
   }
 }
 
 @layer utilities {
-  .tap { min-height: 56px; }
-  .tap-lg { min-height: 72px; }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .app-bottom-space {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+  .skip-link {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: 60;
+    transform: translateY(-150%);
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    padding: 0.75rem 1rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+  .tap {
+    min-height: 56px;
+  }
+  .tap-lg {
+    min-height: 72px;
+  }
   .stamp {
-    box-shadow: 0 1px 0 0 color-mix(in oklab, var(--color-foreground) 10%, transparent),
-                0 6px 16px -8px color-mix(in oklab, var(--color-foreground) 25%, transparent);
+    box-shadow:
+      0 1px 0 0 color-mix(in oklab, var(--color-foreground) 10%, transparent),
+      0 6px 16px -8px color-mix(in oklab, var(--color-foreground) 25%, transparent);
   }
 }

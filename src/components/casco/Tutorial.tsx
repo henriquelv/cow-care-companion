@@ -34,7 +34,7 @@ const SLIDES: Slide[] = [
           </div>
         </div>
         <div className="w-full rounded-xl bg-primary py-3 text-center font-display text-sm uppercase text-primary-foreground">
-          + Nova Vaca
+          + Nova
         </div>
       </div>
     ),
@@ -53,9 +53,7 @@ const SLIDES: Slide[] = [
           <div className="rounded-xl border-2 border-primary bg-primary py-2 text-center text-xl">
             🐄 Vaca
           </div>
-          <div className="rounded-xl border-2 border-border py-2 text-center text-xl">
-            🐂 Touro
-          </div>
+          <div className="rounded-xl border-2 border-border py-2 text-center text-xl">🐂 Touro</div>
         </div>
       </div>
     ),
@@ -92,46 +90,10 @@ const SLIDES: Slide[] = [
           <div className="rounded-full bg-muted p-1.5">
             <span className="text-lg leading-none text-muted-foreground">?</span>
           </div>
-          <span className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">Trás Dir.</span>
-          <span className="text-[9px] text-muted-foreground">Tocar...</span>
-        </div>
-      </div>
-    ),
-  },
-  {
-    icon: "🗺️",
-    title: "Zona do Casco",
-    body: "Toque na parte do casco onde está o problema. Pode escolher mais de uma zona.",
-    tip: "A cor muda conforme a gravidade da doença escolhida.",
-    visual: (
-      <div className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-4">
-        <div className="relative w-32">
-          {/* Mini representação do casco */}
-          <svg viewBox="0 0 100 148" className="w-full">
-            <path
-              d="M 50,4 C 80,4 94,20 94,50 L 94,100 Q 94,138 70,143 Q 50,148 30,143 Q 6,138 6,100 L 6,50 C 6,20 20,4 50,4 Z"
-              fill="#f3f4f6"
-              stroke="#9ca3af"
-              strokeWidth="1.5"
-            />
-            <path d="M 38,8 L 62,8 L 60,33 L 40,33 Z" fill="#fef9c3" stroke="#ca8a04" strokeWidth="1.5" />
-            <path d="M 13,57 L 87,57 L 87,90 L 13,90 Z" fill="#fecaca" stroke="#dc2626" strokeWidth="1.5" />
-            <text x="50" y="22" textAnchor="middle" fontSize="7" fontWeight="800" fill="#713f12">1</text>
-            <text x="50" y="76" textAnchor="middle" fontSize="7" fontWeight="800" fill="#7f1d1d">0</text>
-          </svg>
-        </div>
-        <div className="grid grid-cols-7 gap-1 w-full">
-          {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(z => (
-            <div
-              key={z}
-              className={cn(
-                "flex aspect-square items-center justify-center rounded-lg border-2 font-display text-[10px] font-black",
-                z === 0 || z === 1 ? "border-danger/50 bg-danger/20 text-danger" : "border-border bg-card"
-              )}
-            >
-              {z}
-            </div>
-          ))}
+          <span className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">
+            Trás Dir.
+          </span>
+          <span className="text-[9px] text-muted-foreground">Tocar…</span>
         </div>
       </div>
     ),
@@ -139,7 +101,7 @@ const SLIDES: Slide[] = [
   {
     icon: "🔍",
     title: "Doença e Gravidade",
-    body: "Para cada doença, escolha a gravidade de 0 a 4. Zero significa que não tem esse problema.",
+    body: "Para cada doença, escolha a gravidade de 0 a 3. Zero significa que não tem esse problema.",
     tip: "Pode marcar mais de uma doença no mesmo pé.",
     visual: (
       <div className="space-y-1.5 rounded-2xl bg-surface p-3">
@@ -161,14 +123,20 @@ const SLIDES: Slide[] = [
               <span className="text-[9px] text-muted-foreground flex-1 truncate">{full}</span>
               {sev > 0 && <span className="text-[9px] font-black text-danger">Grav.{sev}</span>}
             </div>
-            <div className="grid grid-cols-5 gap-0.5">
-              {[0,1,2,3,4].map(s => (
+            <div className="grid grid-cols-4 gap-0.5">
+              {[0, 1, 2, 3].map((s) => (
                 <div
                   key={s}
                   className={cn(
                     "rounded-md py-1 text-center font-display text-[10px] font-black",
                     s === sev
-                      ? s === 0 ? "bg-muted" : s <= 1 ? "bg-warn" : s === 2 ? "bg-accent" : "bg-danger text-white"
+                      ? s === 0
+                        ? "bg-muted"
+                        : s <= 1
+                          ? "bg-warn"
+                          : s === 2
+                            ? "bg-accent"
+                            : "bg-danger text-white"
                       : "bg-muted/40 text-muted-foreground",
                   )}
                 >
@@ -251,8 +219,8 @@ export const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
     title: "Tela Inicial",
     steps: [
       "📊 Os números mostram: animais atendidos, pés com problema e casos graves",
-      "🐄 Toque em NOVA VACA para registrar uma nova visita",
-      "📋 Toque em TODOS OS ANIMAIS para ver o histórico completo",
+      "🐄 Toque em NOVA para registrar uma nova visita",
+      "📋 Use as abas Revisão, Problema, OK e Cadastrados para organizar a fila",
       "📊 Toque em RESUMO DO DIA para ver estatísticas detalhadas",
       "🔍 Use a busca para encontrar um animal pelo número do brinco",
     ],
@@ -263,15 +231,14 @@ export const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
       "1️⃣ Digite o número do brinco da vaca no campo grande",
       "2️⃣ Toque em VACA 🐄 ou TOURO 🐂",
       "3️⃣ Toque em cada pé: 1º toque = BOM ✅, 2º toque = COM PROBLEMA ⚠️",
-      "4️⃣ Para cada pé com problema: escolha a zona, a doença e o tratamento",
+      "4️⃣ Para cada pé com problema: escolha a doença, a gravidade e o tratamento",
       "5️⃣ Toque SALVAR VISITA quando terminar todos os pés",
     ],
   },
   foot: {
     title: "Detalhe do Pé",
     steps: [
-      "🗺️ Toque nas zonas do casco onde está o problema (pode marcar várias)",
-      "🔍 Para cada doença, escolha a gravidade de 0 (não tem) a 4 (muito grave)",
+      "🔍 Para cada doença, escolha a gravidade de 0 (não tem) a 3 (grave)",
       "💊 Marque os tratamentos aplicados (pode marcar vários)",
       "✅ Se o problema foi resolvido, toque em MARCAR COMO CURADO",
       "⏰ Se precisar de revisão futura, toque em MARCAR REVISÃO",
@@ -285,7 +252,7 @@ export const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
       "🟢 Verde = tudo bom · 🟡 Amarelo = problema · 🔴 Vermelho = caso grave",
       "✅ CURADO aparece quando o problema foi marcado como resolvido",
       "⏰ REVISÃO aparece quando foi marcado que o animal precisa ser visto",
-      "🗑️ Toque no botão de lixeira para apagar uma visita",
+      "✏️ Use Registrar correção quando precisar ajustar um histórico",
     ],
   },
   animals: {
@@ -293,11 +260,11 @@ export const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
     steps: [
       "🔍 Use a busca para encontrar um animal pelo número do brinco",
       "Filtros disponíveis:",
-      "  • TODOS — mostra todos os animais",
-      "  • ⏰ REVISÃO — mostra só os que precisam de revisão",
-      "  • 📅 ÚLTIMA SEMANA — mostra animais atendidos na última semana",
-      "  • 🔴 GRAVES — mostra só casos com gravidade 3 ou 4",
-      "Toque em um animal para ver o histórico completo",
+      "  • ⏰ REVISÃO — mostra animais que precisam voltar",
+      "  • ⚠️ PROBLEMA — mostra animais com problema ativo",
+      "  • ✅ OK — mostra animais atendidos sem problema",
+      "  • 📋 CADASTRADOS — mostra animais ainda sem visita",
+      "Toque no card para abrir registro e em Ver Histórico para consultar visitas",
     ],
   },
   summary: {

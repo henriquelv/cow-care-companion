@@ -30,3 +30,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local agent tooling and discarded prototypes
+skills/
+Casco.cod

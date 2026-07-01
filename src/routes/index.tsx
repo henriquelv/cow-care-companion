@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Plus,
@@ -8,10 +8,8 @@ import {
   Trash2,
   Cog,
   History,
-  Hash,
   Calendar,
   CalendarDays,
-  Footprints,
   Clock,
   X,
   ChevronRight,
@@ -21,18 +19,33 @@ import {
   SlidersHorizontal,
   BarChart3,
   Users,
+  Scissors,
+  CheckCircle2,
+  Camera,
+  User,
+  Pencil,
+  Download,
+  Upload,
+  Database,
+  ShieldCheck,
+  RefreshCw,
+  LogOut,
 } from "lucide-react";
 import {
   FOOT_LABEL,
   LESIONS,
   TREATMENTS,
   COMMENTS,
+  QUICK_RECHECK_OPTIONS,
   addVisit,
-  deleteVisit,
+  createPreventiveVisit,
+  dateAfterDays,
+  exportBackupJson,
+  importBackupJson,
+  loadLastBackupAt,
   loadFarm,
   loadVisits,
   saveFarm,
-  saveVisits,
   seedMockData,
   rechecksByDate,
   severityBucket,
@@ -44,21 +57,33 @@ import {
   footWorstSeverity,
   footsWorstSeverity,
   isTutorialDone,
-  ZONE_SEVERITY_COLOR,
+  preventiveList,
   type DiseaseEntry,
   type FarmConfig,
   type FootEntry,
   type FootKey,
+  type Funcionario,
   type LesionCode,
+  type PreventiveAnimal,
+  type RegisteredAnimal,
   type Sex,
   type Severity,
   type TreatmentCode,
   type Visit,
 } from "@/lib/casco-store";
-import { HoofMap } from "@/components/casco/HoofMap";
-import { FootDetail } from "@/components/casco/FootDetail";
+import { DiseasePicker } from "@/components/casco/DiseasePicker";
 import { TutorialModal, HelpModal } from "@/components/casco/Tutorial";
 import { cn } from "@/lib/utils";
+import {
+  activationService,
+  type RemoteClient,
+  type RemoteEmployee,
+  type RemoteFarm,
+} from "@/services/activation.service";
+import { farmContextService } from "@/services/farm-context.service";
+import { isSupabaseConfigured } from "@/services/supabase";
+import { syncService } from "@/services/sync.service";
+import { getPhotoDisplayUrl, mediaRef, savePhotoBlob } from "@/services/media.service";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -86,28 +111,33 @@ const EMPTY_FILTERS: Filters = {
 
 function hasActiveFilters(f: Filters): boolean {
   return (
-    !!f.dateFrom || !!f.dateTo || f.diseases.length > 0 ||
-    f.feet.length > 0 || f.minSeverity > 0 ||
-    f.treatments.length > 0 || f.status !== "all"
+    !!f.dateFrom ||
+    !!f.dateTo ||
+    f.diseases.length > 0 ||
+    f.feet.length > 0 ||
+    f.minSeverity > 0 ||
+    f.treatments.length > 0 ||
+    f.status !== "all"
   );
 }
 
 type Screen =
   | { name: "today" }
-  | { name: "register"; visit: Visit; activeFoot: FootKey | null }
+  | { name: "register"; tag?: string }
   | { name: "history"; tag: string }
   | { name: "summary" }
   | { name: "config" }
   | { name: "filters" }
-  | { name: "calendar" };
+  | { name: "calendar" }
+  | { name: "preventivo" };
 
-function newDraft(tag = "", sex: Sex = "vaca"): Visit {
+function newDraft(tag = ""): Visit {
   return {
     id: uid(),
     date: todayISO(),
     createdAt: Date.now(),
     tag,
-    sex,
+    sex: "vaca",
     feet: (["FE", "FD", "TE", "TD"] as FootKey[]).map((f) => ({
       foot: f,
       ok: true,
@@ -120,6 +150,8 @@ function newDraft(tag = "", sex: Sex = "vaca"): Visit {
 
 function Index() {
   const [farm, setFarm] = useState<FarmConfig>(() => loadFarm());
+  const [activated, setActivated] = useState(() => farmContextService.isActivated());
+  const [syncInfo, setSyncInfo] = useState<"idle" | "syncing" | "ok" | "error" | "offline">("idle");
   const [screen, setScreen] = useState<Screen>({ name: "today" });
   const [tick, setTick] = useState(() => {
     if (loadVisits().length === 0) seedMockData(false);
@@ -128,24 +160,89 @@ function Index() {
   const [showTutorial, setShowTutorial] = useState(() => !isTutorialDone());
   const [showHelp, setShowHelp] = useState(false);
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [toast, setToast] = useState<string | null>(null);
 
   const refresh = () => setTick((t) => t + 1);
   const goToday = () => setScreen({ name: "today" });
 
-  function openEdit(tag: string, sex: Sex) {
-    setScreen({ name: "register", visit: newDraft(tag, sex), activeFoot: null });
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
   }
 
-  const isHomeLevel = screen.name === "today" || screen.name === "calendar" || screen.name === "summary";
+  function openEdit(tag: string) {
+    setScreen({ name: "register", tag });
+  }
+
+  async function runSync() {
+    if (!isSupabaseConfigured) {
+      setSyncInfo("ok");
+      return;
+    }
+    if (!farmContextService.isActivated()) return;
+    if (!navigator.onLine) {
+      setSyncInfo("offline");
+      return;
+    }
+    setSyncInfo("syncing");
+    try {
+      const result = await syncService.syncAll();
+      setSyncInfo(result.ok ? "ok" : "error");
+      if (!result.ok && result.message) showToast(result.message);
+      refresh();
+    } catch (error) {
+      setSyncInfo("error");
+      showToast(error instanceof Error ? error.message : "Falha ao sincronizar.");
+    }
+  }
+
+  useEffect(() => {
+    if (activated) void runSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activated]);
+
+  if (!activated) {
+    return (
+      <ActivationScreen
+        onActivated={() => {
+          const ctx = farmContextService.getContext();
+          const nextFarm = {
+            ...loadFarm(),
+            farmName: ctx?.farm_name ?? "",
+            worker: ctx?.employee_name ?? "",
+            configured: true,
+          };
+          saveFarm(nextFarm);
+          setFarm(nextFarm);
+          setActivated(true);
+          refresh();
+        }}
+      />
+    );
+  }
+
+  const isHomeLevel =
+    screen.name === "today" ||
+    screen.name === "calendar" ||
+    screen.name === "summary" ||
+    screen.name === "preventivo";
 
   const helpScreen =
-    screen.name === "register" ? "register" :
-    screen.name === "history" ? "history" :
-    screen.name === "summary" ? "summary" :
-    "today";
+    screen.name === "register"
+      ? "register"
+      : screen.name === "history"
+        ? "history"
+        : screen.name === "summary"
+          ? "summary"
+          : screen.name === "preventivo"
+            ? "today"
+            : "today";
 
   return (
-    <div className="min-h-screen pb-24">
+    <div className="app-bottom-space min-h-screen overflow-x-hidden">
+      <a href="#conteudo-principal" className="skip-link">
+        Pular para conteúdo
+      </a>
       <Header
         farm={farm}
         onConfig={() => setScreen({ name: "config" })}
@@ -153,13 +250,25 @@ function Index() {
         onBack={goToday}
         screen={screen.name}
         onHelp={() => setShowHelp(true)}
+        syncInfo={syncInfo}
+        onSync={runSync}
+        onDeactivate={
+          isSupabaseConfigured
+            ? () => {
+                if (!confirm("Desativar este aparelho e voltar para a tela de código da fazenda?"))
+                  return;
+                farmContextService.clearContext();
+                setActivated(false);
+              }
+            : undefined
+        }
       />
 
-      <main className="mx-auto max-w-2xl px-4 pt-4" key={tick}>
+      <main id="conteudo-principal" className="mx-auto max-w-2xl px-4 pt-4" key={tick}>
         {screen.name === "today" && (
           <TodayScreen
-            onNew={() => setScreen({ name: "register", visit: newDraft(), activeFoot: null })}
-            onEdit={openEdit}
+            onNew={() => setScreen({ name: "register" })}
+            onEdit={(tag) => openEdit(tag)}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
             onSummary={() => setScreen({ name: "summary" })}
             onFilters={() => setScreen({ name: "filters" })}
@@ -169,14 +278,20 @@ function Index() {
         )}
         {screen.name === "register" && (
           <RegisterScreen
-            visit={screen.visit}
-            activeFoot={screen.activeFoot}
-            onChange={(v, f = null) => setScreen({ name: "register", visit: v, activeFoot: f })}
+            initialTag={screen.tag ?? ""}
+            farm={farm}
             onSave={(v) => {
               addVisit(v);
+              void runSync();
               refresh();
+              showToast(
+                v.preventivo
+                  ? "Casqueamento preventivo registrado! ✂️"
+                  : "Visita registrada com sucesso! 🐄",
+              );
               goToday();
             }}
+            onCancel={goToday}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
           />
         )}
@@ -184,10 +299,7 @@ function Index() {
           <HistoryScreen
             tag={screen.tag}
             onBack={goToday}
-            onDelete={(id) => {
-              deleteVisit(id);
-              refresh();
-            }}
+            onCorrect={(tag) => setScreen({ name: "register", tag })}
           />
         )}
         {screen.name === "summary" && <SummaryScreen />}
@@ -197,7 +309,10 @@ function Index() {
         {screen.name === "filters" && (
           <FiltersScreen
             current={homeFilters}
-            onApply={(f) => { setHomeFilters(f); goToday(); }}
+            onApply={(f) => {
+              setHomeFilters(f);
+              goToday();
+            }}
             onBack={goToday}
           />
         )}
@@ -216,46 +331,548 @@ function Index() {
               refresh();
               goToday();
             }}
+            onImport={() => {
+              setFarm(loadFarm());
+              refresh();
+              showToast("Backup importado neste aparelho.");
+              goToday();
+            }}
+          />
+        )}
+        {screen.name === "preventivo" && (
+          <PreventiveScreen
+            diasThreshold={farm.dias_para_preventivo}
+            onNew={(tag) => setScreen({ name: "register", tag })}
+            onQuickPreventive={(animal) => {
+              addVisit(
+                createPreventiveVisit({
+                  tag: animal.tag,
+                  sex: animal.sex,
+                  lote: animal.lote,
+                  visitante_nome: farm.worker || undefined,
+                }),
+              );
+              void runSync();
+              refresh();
+              showToast(`Preventivo OK registrado: ${animal.tag}`);
+            }}
           />
         )}
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t-2 border-border bg-background/95 backdrop-blur-sm">
+      <nav
+        aria-label="Navegação principal"
+        className="safe-bottom fixed bottom-0 left-0 right-0 z-20 border-t-2 border-border bg-background/95 backdrop-blur-sm"
+      >
         <div className="mx-auto flex max-w-2xl items-stretch">
           <NavTab
             icon={<Users className="h-5 w-5" />}
             label="Animais"
             active={screen.name === "today"}
             onClick={goToday}
+            ariaLabel="Tela de animais"
+          />
+          <NavTab
+            icon={<Scissors className="h-5 w-5" />}
+            label="Preventivo"
+            active={screen.name === "preventivo"}
+            onClick={() => setScreen({ name: "preventivo" })}
+            ariaLabel="Lista de casqueamento preventivo"
           />
           <button
-            onClick={() => setScreen({ name: "register", visit: newDraft(), activeFoot: null })}
+            aria-label="Nova visita"
+            onClick={() => setScreen({ name: "register" })}
             className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground stamp shadow-lg transition-transform active:scale-95">
-              <Plus className="h-7 w-7" strokeWidth={3} />
+              <Plus className="h-7 w-7" strokeWidth={3} aria-hidden="true" />
             </div>
-            <span className="text-[10px] font-bold uppercase text-primary">Nova Vaca</span>
+            <span className="text-[10px] font-bold uppercase text-primary">Nova</span>
           </button>
           <NavTab
             icon={<CalendarDays className="h-5 w-5" />}
             label="Calendário"
             active={screen.name === "calendar"}
             onClick={() => setScreen({ name: "calendar" })}
+            ariaLabel="Calendário de revisões"
           />
           <NavTab
             icon={<BarChart3 className="h-5 w-5" />}
             label="Resumo"
             active={screen.name === "summary"}
             onClick={() => setScreen({ name: "summary" })}
+            ariaLabel="Resumo estatístico"
           />
         </div>
       </nav>
 
       {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} />}
       {showHelp && <HelpModal screen={helpScreen} onClose={() => setShowHelp(false)} />}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] left-4 right-4 z-50 flex items-center gap-3 rounded-2xl bg-foreground/95 px-4 py-3.5 text-background shadow-2xl"
+        >
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-good" aria-hidden="true" />
+          <p className="font-display text-sm uppercase">{toast}</p>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ───────────── Ativação ───────────── */
+function localActivationCode(input: string) {
+  const raw = input.trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    const fromQuery =
+      url.searchParams.get("codigo") ??
+      url.searchParams.get("code") ??
+      url.searchParams.get("fazenda") ??
+      url.searchParams.get("farm");
+    if (fromQuery) return fromQuery.trim().toUpperCase();
+    const pathCode = url.pathname
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    if (pathCode) return pathCode.toUpperCase();
+  } catch {
+    // Pode ser apenas o código curto.
+  }
+  return raw
+    .replace(/^.*[/?#=]/, "")
+    .trim()
+    .toUpperCase();
+}
+
+function ActivationScreen({ onActivated }: { onActivated: () => void }) {
+  const [code, setCode] = useState("");
+  const [client, setClient] = useState<RemoteClient | null>(null);
+  const [farms, setFarms] = useState<RemoteFarm[]>([]);
+  const [farm, setFarm] = useState<RemoteFarm | null>(null);
+  const [employees, setEmployees] = useState<RemoteEmployee[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [newFarmName, setNewFarmName] = useState("");
+  const [showNewFarm, setShowNewFarm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function applyLocalMockup(inputCode = code) {
+    const normalized = localActivationCode(inputCode) || "STARMILK";
+    const localClient: RemoteClient = {
+      id: `local-client-${normalized}`,
+      name: normalized === "STARMILK" ? "StarMilk" : `Cliente ${normalized}`,
+      activation_code: normalized,
+      status: "active",
+    };
+    const localFarm: RemoteFarm = {
+      id: `local-farm-${normalized}`,
+      name: normalized === "STARMILK" ? "StarMilk" : `Fazenda ${normalized}`,
+      client_id: localClient.id,
+      status: "active",
+    };
+    const localEmployees: RemoteEmployee[] = [
+      {
+        id: `local-employee-${normalized}`,
+        farm_id: localFarm.id,
+        name: "Teste",
+        status: "active",
+      },
+    ];
+    setCode(normalized);
+    setClient(localClient);
+    setFarms([localFarm]);
+    setFarm(localFarm);
+    setEmployees(localEmployees);
+    setSelectedEmployeeId(localEmployees[0].id);
+    setShowNewFarm(false);
+    setError("");
+  }
+
+  async function validateCode() {
+    setError("");
+    setLoading(true);
+    try {
+      if (!isSupabaseConfigured) {
+        if (!localActivationCode(code)) throw new Error("Informe o link ou código da fazenda.");
+        applyLocalMockup(code);
+        return;
+      }
+
+      const result = await activationService.validateActivationCode(code);
+      setClient(result.client);
+      setFarms(result.farms);
+      const firstFarm = result.legacyFarm ?? result.farms[0] ?? null;
+      setFarm(firstFarm);
+      setShowNewFarm(result.farms.length === 0);
+      if (firstFarm) {
+        const nextEmployees =
+          result.legacyFarm && result.employees
+            ? result.employees
+            : await activationService.listEmployees(firstFarm.id);
+        setEmployees(nextEmployees);
+        setSelectedEmployeeId(nextEmployees[0]?.id ?? "");
+      } else {
+        setEmployees([]);
+        setSelectedEmployeeId("");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("Supabase não configurado")) {
+        applyLocalMockup(code || "STARMILK");
+        return;
+      }
+      setClient(null);
+      setFarms([]);
+      setFarm(null);
+      setEmployees([]);
+      setError(message || "Não foi possível validar o código.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function selectFarm(nextFarm: RemoteFarm) {
+    setError("");
+    setFarm(nextFarm);
+    setLoading(true);
+    try {
+      const nextEmployees = await activationService.listEmployees(nextFarm.id);
+      setEmployees(nextEmployees);
+      setSelectedEmployeeId(nextEmployees[0]?.id ?? "");
+      if (!nextEmployees.length) setError("Nenhum funcionário ativo encontrado nesta fazenda.");
+    } catch (err) {
+      setEmployees([]);
+      setSelectedEmployeeId("");
+      setError(err instanceof Error ? err.message : "Não foi possível buscar funcionários.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createFarm() {
+    if (!client) return;
+    setError("");
+    setLoading(true);
+    try {
+      if (!isSupabaseConfigured) {
+        const id = `local-farm-${localActivationCode(newFarmName) || uid()}`;
+        const created: RemoteFarm = {
+          id,
+          name: newFarmName.trim(),
+          client_id: client.id,
+          status: "active",
+        };
+        const nextFarms = [...farms, created].sort((a, b) => a.name.localeCompare(b.name));
+        setFarms(nextFarms);
+        setNewFarmName("");
+        setShowNewFarm(false);
+        setFarm(created);
+        const nextEmployees: RemoteEmployee[] = [
+          {
+            id: `local-employee-${id}`,
+            farm_id: id,
+            name: "Teste",
+            status: "active",
+          },
+        ];
+        setEmployees(nextEmployees);
+        setSelectedEmployeeId(nextEmployees[0].id);
+        return;
+      }
+
+      const created = await activationService.createFarmForClient(client, newFarmName);
+      const nextFarms = [...farms, created].sort((a, b) => a.name.localeCompare(b.name));
+      setFarms(nextFarms);
+      setNewFarmName("");
+      setShowNewFarm(false);
+      await selectFarm(created);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível criar a fazenda.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function activate() {
+    if (!farm || !selectedEmployeeId) return;
+    const employee = employees.find((item) => item.id === selectedEmployeeId);
+    if (!employee) return;
+    setError("");
+    setLoading(true);
+    try {
+      if (isSupabaseConfigured) {
+        await activationService.activate(farm, employee, client ?? undefined);
+      } else {
+        const now = new Date().toISOString();
+        farmContextService.saveContext({
+          client_id: client?.id,
+          client_name: client?.name,
+          client_code: client?.activation_code,
+          farm_id: farm.id,
+          farm_name: farm.name,
+          employee_id: employee.id,
+          employee_name: employee.name,
+          device_id: farmContextService.getDeviceId(),
+          last_license_check_at: now,
+          grace_period_days: 7,
+        });
+      }
+      onActivated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível ativar este aparelho.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-background px-4 py-5">
+      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-2xl flex-col justify-center">
+        <section className="rounded-3xl border-2 border-border bg-card p-5 shadow-sm stamp sm:p-6">
+          <div className="mb-6 flex items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground stamp">
+              <ShieldCheck className="h-8 w-8" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="font-display text-2xl font-black uppercase leading-none">
+                Adicionar Fazenda
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Use o link ou código da fazenda que você faz parte.
+              </p>
+            </div>
+          </div>
+
+          {!isSupabaseConfigured && (
+            <div className="mb-5 rounded-2xl border-2 border-warn/40 bg-warn/10 px-4 py-3">
+              <p className="font-display text-sm font-black uppercase text-warn-foreground">
+                Modo demo ativo
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use o mockup `STARMILK` enquanto o Supabase real não estiver configurado.
+              </p>
+            </div>
+          )}
+
+          <div className="mb-5 grid grid-cols-3 gap-2 text-center">
+            {["Link", "Fazenda", "Funcionário"].map((label, index) => {
+              const active =
+                index === 0 ? !client : index === 1 ? Boolean(client && !farm) : Boolean(farm);
+              const done = index === 0 ? Boolean(client) : index === 1 ? Boolean(farm) : false;
+              return (
+                <div
+                  key={label}
+                  className={cn(
+                    "rounded-xl border px-2 py-2 text-[10px] font-black uppercase",
+                    done
+                      ? "border-good/40 bg-good/10 text-good"
+                      : active
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  {index + 1}. {label}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Link ou código da fazenda
+              </span>
+              <input
+                name="link-fazenda"
+                aria-label="Link ou código da fazenda"
+                value={code}
+                onChange={(event) => {
+                  setCode(event.target.value.toUpperCase());
+                  setClient(null);
+                  setFarms([]);
+                  setFarm(null);
+                  setEmployees([]);
+                  setSelectedEmployeeId("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void validateCode();
+                }}
+                placeholder="STARMILK ou link recebido"
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full rounded-2xl border-2 border-border bg-surface px-4 py-4 text-center font-display text-3xl font-black uppercase outline-none focus:border-primary"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={validateCode}
+              disabled={!code.trim() || loading}
+              className={cn(
+                "tap-lg flex w-full items-center justify-center gap-2 rounded-2xl py-4 font-display text-lg uppercase",
+                code.trim() && !loading
+                  ? "bg-primary text-primary-foreground stamp"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
+              Buscar Fazenda
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyLocalMockup("STARMILK")}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 py-3 font-display text-sm uppercase text-primary"
+            >
+              <Database className="h-4 w-4" aria-hidden="true" />
+              Usar mockup StarMilk
+            </button>
+          </div>
+
+          {client && (
+            <div className="mt-5 space-y-4 rounded-2xl border-2 border-primary/30 bg-primary/5 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-primary">Cliente</p>
+                  <p className="font-display text-xl font-black uppercase">{client.name}</p>
+                </div>
+                <span className="rounded-full bg-card px-2.5 py-1 text-[10px] font-black uppercase text-muted-foreground">
+                  {client.activation_code}
+                </span>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Fazenda que você faz parte
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewFarm((value) => !value)}
+                    className="flex items-center gap-1 rounded-full bg-card px-3 py-1.5 text-xs font-black uppercase text-primary"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Adicionar
+                  </button>
+                </div>
+
+                {farms.length > 0 && (
+                  <div className="grid gap-2">
+                    {farms.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => void selectFarm(item)}
+                        className={cn(
+                          "flex min-h-14 items-center justify-between rounded-2xl border-2 px-4 py-3 text-left",
+                          farm?.id === item.id
+                            ? "border-primary bg-card text-foreground"
+                            : "border-border bg-surface text-muted-foreground",
+                        )}
+                      >
+                        <span className="font-display text-base font-black uppercase">
+                          {item.name}
+                        </span>
+                        {farm?.id === item.id ? (
+                          <CheckCircle2 className="h-5 w-5 text-good" aria-hidden="true" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {showNewFarm && (
+                  <div className="mt-3 rounded-2xl border-2 border-dashed border-border bg-card p-3">
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Nome da fazenda
+                      </span>
+                      <input
+                        value={newFarmName}
+                        onChange={(event) => setNewFarmName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") void createFarm();
+                        }}
+                        placeholder="Ex.: Fazenda 2"
+                        className="w-full rounded-2xl border-2 border-border bg-surface px-4 py-3 font-display text-lg outline-none focus:border-primary"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={createFarm}
+                      disabled={!newFarmName.trim() || loading}
+                      className={cn(
+                        "mt-3 flex w-full items-center justify-center gap-2 rounded-2xl py-3 font-display uppercase",
+                        newFarmName.trim() && !loading
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      Adicionar Fazenda
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {farm && (
+                <div className="rounded-2xl border-2 border-border bg-card p-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Funcionário deste aparelho
+                  </p>
+                  <label className="block">
+                    <select
+                      name="funcionario-ativacao"
+                      aria-label="Funcionário deste aparelho"
+                      value={selectedEmployeeId}
+                      onChange={(event) => setSelectedEmployeeId(event.target.value)}
+                      className="w-full rounded-2xl border-2 border-border bg-card px-4 py-4 font-display text-lg outline-none focus:border-primary"
+                    >
+                      {employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={activate}
+                    disabled={!selectedEmployeeId || loading}
+                    className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-good py-4 font-display text-lg uppercase text-good-foreground stamp"
+                  >
+                    {loading ? (
+                      <RefreshCw className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-5 w-5" />
+                    )}
+                    Ativar Aparelho
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger"
+            >
+              {error}
+            </p>
+          )}
+        </section>
+      </div>
+    </main>
   );
 }
 
@@ -267,6 +884,9 @@ function Header({
   onBack,
   screen,
   onHelp,
+  syncInfo,
+  onSync,
+  onDeactivate,
 }: {
   farm: FarmConfig;
   onConfig: () => void;
@@ -274,6 +894,9 @@ function Header({
   onBack: () => void;
   screen: string;
   onHelp: () => void;
+  syncInfo: "idle" | "syncing" | "ok" | "error" | "offline";
+  onSync: () => void;
+  onDeactivate?: () => void;
 }) {
   const titles: Record<string, string> = {
     today: "",
@@ -283,6 +906,7 @@ function Header({
     summary: "Resumo",
     config: "Configuração",
     filters: "Filtros",
+    preventivo: "Casqueamento Preventivo",
   };
 
   return (
@@ -301,13 +925,19 @@ function Header({
             🐄
           </div>
         )}
-        <div className="flex-1 leading-tight">
+        <div className="flex-1 min-w-0 leading-tight">
           {titles[screen] ? (
             <p className="font-display text-lg uppercase">{titles[screen]}</p>
           ) : (
-            <>
-              <p className="font-display text-base uppercase">{farm.farmName || "Fazenda"}</p>
-              <p className="text-xs text-muted-foreground">
+            <button
+              onClick={onConfig}
+              aria-label="Abrir configuração da fazenda"
+              className="text-left w-full"
+            >
+              <p className="font-display text-base uppercase leading-tight truncate">
+                {farm.farmName || "Toque para configurar"}
+              </p>
+              <p className="text-xs text-muted-foreground leading-tight">
                 {farm.worker ? `${farm.worker} · ` : ""}
                 {new Date().toLocaleDateString("pt-BR", {
                   weekday: "short",
@@ -315,9 +945,40 @@ function Header({
                   month: "short",
                 })}
               </p>
-            </>
+            </button>
           )}
         </div>
+        <button
+          onClick={onSync}
+          className={cn(
+            "tap flex h-12 w-12 items-center justify-center rounded-full bg-surface",
+            syncInfo === "ok" && "text-good-foreground",
+            syncInfo === "error" && "text-danger",
+            syncInfo === "offline" && "text-warn-foreground",
+          )}
+          aria-label="Sincronizar dados da fazenda"
+          title={
+            syncInfo === "syncing"
+              ? "Sincronizando"
+              : syncInfo === "ok"
+                ? "Tudo salvo"
+                : syncInfo === "offline"
+                  ? "Offline"
+                  : "Sincronizar"
+          }
+        >
+          <RefreshCw className={cn("h-5 w-5", syncInfo === "syncing" && "animate-spin")} />
+        </button>
+        {onDeactivate && (
+          <button
+            onClick={onDeactivate}
+            className="tap flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted-foreground"
+            aria-label="Desativar aparelho"
+            title="Desativar aparelho"
+          >
+            <LogOut className="h-5 w-5" />
+          </button>
+        )}
         <button
           onClick={onHelp}
           className="tap flex h-12 w-12 items-center justify-center rounded-full bg-surface text-primary"
@@ -348,7 +1009,7 @@ function TodayScreen({
   onClearFilters,
 }: {
   onNew: () => void;
-  onEdit: (tag: string, sex: Sex) => void;
+  onEdit: (tag: string) => void;
   onOpenHistory: (tag: string) => void;
   onSummary: () => void;
   onFilters: () => void;
@@ -356,6 +1017,7 @@ function TodayScreen({
   onClearFilters: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"revisao" | "com_problema" | "ok" | "cadastrados">("revisao");
 
   const visits = useMemo(() => loadVisits().sort((a, b) => b.createdAt - a.createdAt), []);
   const animals = useMemo(() => allAnimals(), []);
@@ -372,6 +1034,24 @@ function TodayScreen({
   const totalWithProblem = animals.filter((a) => a.worstSeverity > 0).length;
   const totalSevere = animals.filter((a) => a.worstSeverity >= 3).length;
   const totalRecheck = animals.filter((a) => a.hasRecheck).length;
+  const totalRegisteredOnly = animals.filter((a) => a.totalVisits === 0).length;
+  const recheckAnimals = useMemo(() => {
+    const today = todayISO();
+    return animals
+      .filter((a) => a.hasRecheck)
+      .map((a) => {
+        const lv = latestVisit.get(a.tag.toLowerCase());
+        const nextDate = lv?.feet
+          .filter((f) => f.recheck && !f.resolved && !f.data_liberacao && f.recheckDate)
+          .map((f) => f.recheckDate!)
+          .sort()[0];
+        return { ...a, nextDate, overdue: Boolean(nextDate && nextDate < today) };
+      })
+      .sort((a, b) => {
+        if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+        return (a.nextDate ?? "9999-12-31").localeCompare(b.nextDate ?? "9999-12-31");
+      });
+  }, [animals, latestVisit]);
 
   const filtered = useMemo(() => {
     let list = animals;
@@ -387,7 +1067,7 @@ function TodayScreen({
       list = list.filter((a) => {
         const lv = latestVisit.get(a.tag.toLowerCase());
         return lv?.feet.some((f) =>
-          f.diseases?.some((d) => d.severity > 0 && filters.diseases.includes(d.code))
+          f.diseases?.some((d) => d.severity > 0 && filters.diseases.includes(d.code)),
         );
       });
     }
@@ -401,7 +1081,7 @@ function TodayScreen({
       list = list.filter((a) => {
         const lv = latestVisit.get(a.tag.toLowerCase());
         return lv?.feet.some((f) =>
-          (f.treatments ?? []).some((t) => filters.treatments.includes(t))
+          (f.treatments ?? []).some((t) => filters.treatments.includes(t)),
         );
       });
     }
@@ -413,26 +1093,70 @@ function TodayScreen({
       const to = new Date(filters.dateTo + "T23:59:59").getTime();
       list = list.filter((a) => a.lastVisit <= to);
     }
+    if (tab === "revisao") list = list.filter((a) => a.hasRecheck);
+    if (tab === "com_problema") list = list.filter((a) => a.worstSeverity > 0 && !a.hasRecheck);
+    if (tab === "ok") list = list.filter((a) => a.worstSeverity === 0 && a.totalVisits > 0);
+    if (tab === "cadastrados") list = list.filter((a) => a.totalVisits === 0);
     return list;
-  }, [animals, search, filters, latestVisit]);
+  }, [animals, search, filters, latestVisit, tab]);
 
   const filtersActive = hasActiveFilters(filters);
 
   return (
     <div className="space-y-4">
-      {/* Estatísticas */}
+      <LocalDataNotice />
+
+      {/* Estatísticas clicáveis */}
       <div className="grid grid-cols-3 gap-3">
-        <BigStat emoji="🐄" label="Animais" value={animals.length} tone="neutral" />
-        <BigStat emoji="🦶" label="c/ Problema" value={totalWithProblem} tone="warn" />
-        <BigStat emoji="🚨" label="Graves" value={totalSevere} tone="danger" />
+        <BigStat
+          emoji="🐄"
+          label="Animais"
+          value={animals.length}
+          tone="neutral"
+          onClick={() => setTab("ok")}
+          active={tab === "ok"}
+        />
+        <BigStat
+          emoji="🦶"
+          label="c/ Problema"
+          value={totalWithProblem}
+          tone="warn"
+          onClick={() => setTab("com_problema")}
+          active={tab === "com_problema"}
+        />
+        <BigStat
+          emoji="🚨"
+          label="Graves"
+          value={totalSevere}
+          tone="danger"
+          onClick={() => setTab("com_problema")}
+          active={false}
+        />
       </div>
 
       {totalRecheck > 0 && (
-        <div className="flex items-center gap-3 rounded-2xl border-2 border-warn bg-warn/10 px-4 py-3">
-          <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
-          <p className="font-display text-sm uppercase text-warn-foreground">
-            {totalRecheck} pé(s) aguardando revisão
-          </p>
+        <div className="sticky top-[73px] z-10 -mx-4 px-4 py-2 bg-background/95 backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={() => setTab("revisao")}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left shadow-sm",
+              recheckAnimals.some((a) => a.overdue)
+                ? "border-danger bg-danger/10"
+                : "border-warn bg-warn/10",
+            )}
+          >
+            <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
+            <div className="flex-1">
+              <p className="font-display text-sm font-black uppercase text-warn-foreground">
+                {totalRecheck} animal(is) aguardando revisão
+              </p>
+              {recheckAnimals.some((a) => a.overdue) && (
+                <p className="text-xs font-bold text-danger">Há revisões atrasadas</p>
+              )}
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </button>
         </div>
       )}
 
@@ -441,15 +1165,24 @@ function TodayScreen({
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           <input
+            name="busca-brinco"
+            aria-label="Buscar pelo brinco"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar pelo brinco…"
             inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            spellCheck={false}
             className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 font-display text-xl uppercase outline-none focus:border-primary"
             style={{ height: 56 }}
           />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
+              aria-label="Limpar busca"
+            >
               <X className="h-4 w-4 text-muted-foreground" />
             </button>
           )}
@@ -480,135 +1213,270 @@ function TodayScreen({
         </div>
       )}
 
-      {/* Resumo */}
-      <ActionButton emoji="📊" label="Resumo do Dia" onClick={onSummary} />
+      {/* Resumo do Dia — antes das abas, claramente separado */}
+      <button
+        onClick={onSummary}
+        className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 text-left active:scale-[0.99] transition-transform"
+        aria-label="Ver resumo do dia"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xl">
+          📊
+        </span>
+        <div>
+          <p className="font-display text-base font-black uppercase">Resumo do Dia</p>
+          <p className="text-xs text-muted-foreground">Visitas, gravidade e lesões de hoje</p>
+        </div>
+        <ChevronRight className="ml-auto h-5 w-5 shrink-0 text-muted-foreground" />
+      </button>
 
-      <p className="px-1 text-xs text-muted-foreground">
-        {filtered.length} animal(is) · {animals.length} total
-      </p>
+      {/* Abas operacionais */}
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            ["revisao", `Revisão (${totalRecheck})`, "⏰"],
+            ["com_problema", `Problema (${totalWithProblem})`, "⚠️"],
+            ["ok", "OK", "✅"],
+            ["cadastrados", `Cadastrados (${totalRegisteredOnly})`, "📋"],
+          ] as [typeof tab, string, string][]
+        ).map(([val, label, emoji]) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => setTab(val)}
+            aria-pressed={tab === val}
+            className={cn(
+              "tap rounded-xl border-2 px-2 py-3 font-display text-sm uppercase",
+              tab === val
+                ? "border-primary bg-primary text-primary-foreground stamp"
+                : "border-border bg-surface",
+            )}
+          >
+            {emoji} {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Separador: Lista de Animais */}
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-border" />
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Lista de Animais
+        </p>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+
+      <div className="flex items-center justify-between px-1">
+        <p className="text-xs text-muted-foreground">
+          {filtered.length} de {animals.length} animal(is)
+        </p>
+        {/* Legenda dos pés */}
+        <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+          <div className="grid grid-cols-2 gap-0.5">
+            <span className="flex h-4 w-4 items-center justify-center rounded bg-border/60 font-black">
+              FE
+            </span>
+            <span className="flex h-4 w-4 items-center justify-center rounded bg-border/60 font-black">
+              FD
+            </span>
+            <span className="flex h-4 w-4 items-center justify-center rounded bg-border/60 font-black">
+              TE
+            </span>
+            <span className="flex h-4 w-4 items-center justify-center rounded bg-border/60 font-black">
+              TD
+            </span>
+          </div>
+          <span className="leading-tight">
+            F=Frente T=Trás
+            <br />
+            E=Esq. D=Dir.
+          </span>
+        </div>
+      </div>
 
       {/* Lista */}
       {animals.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
           <p className="text-4xl">🐄</p>
           <p className="mt-2 font-display text-lg uppercase">Nenhum animal cadastrado</p>
-          <p className="mt-1 text-sm text-muted-foreground">Toque em Nova Vaca para começar</p>
+          <p className="mt-1 text-sm text-muted-foreground">Toque em Nova para começar</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
           <p className="text-4xl">🔍</p>
           <p className="mt-2 font-display text-base uppercase">Nenhum resultado</p>
           <button
-            onClick={() => { setSearch(""); onClearFilters(); }}
+            onClick={() => {
+              setSearch("");
+              onClearFilters();
+            }}
             className="mt-3 rounded-full bg-muted px-4 py-2 text-sm font-display uppercase text-muted-foreground"
           >
             Limpar filtros
           </button>
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {filtered.map((a) => {
             const lv = latestVisit.get(a.tag.toLowerCase());
-            const badFeet = lv?.feet.filter((f) => !f.ok) ?? [];
-            const treatSet = new Set<string>();
-            for (const ft of badFeet) {
-              for (const c of ft.treatments ?? []) {
-                const t = TREATMENTS.find((x) => x.code === c);
-                if (t) treatSet.add(`${t.emoji} ${t.label}`);
-              }
-            }
-            const accentColor =
-              a.worstSeverity >= 3 ? "bg-danger" :
-              a.worstSeverity >= 1 ? "bg-warn" : "bg-good";
+            const badFeet = lv?.feet.filter((f) => !f.ok && !f.resolved && !f.data_liberacao) ?? [];
+            const hasProblema = a.worstSeverity > 0;
+            const recheckDates =
+              lv?.feet
+                .filter((f) => f.recheck && !f.resolved && !f.data_liberacao && f.recheckDate)
+                .map((f) => f.recheckDate!)
+                .sort() ?? [];
+            const nextRecheck = recheckDates[0];
+            const recheckOverdue = Boolean(nextRecheck && nextRecheck < todayISO());
+            const registeredOnly = a.totalVisits === 0;
 
             return (
-              <li key={a.tag} className="overflow-hidden rounded-2xl shadow-sm border border-border/60">
-                {/* Accent bar + main button */}
-                <div className="relative">
-                  <div className={cn("absolute inset-y-0 left-0 w-1.5 rounded-l-2xl", accentColor)} />
-                  <button
-                    onClick={() => onEdit(a.tag, a.sex)}
-                    className="flex w-full items-center gap-3 bg-card pl-5 pr-3 py-3 text-left active:bg-surface transition-colors"
-                  >
-                    {/* Tag + sex */}
-                    <div className="shrink-0 text-center min-w-[3rem]">
-                      <p className="font-display text-2xl font-black leading-none">{a.tag}</p>
-                      <p className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</p>
-                    </div>
+              <li
+                key={a.tag}
+                className="overflow-hidden rounded-2xl border-2 border-border/60 shadow-sm"
+              >
+                {/* Faixa de cor no topo */}
+                <div
+                  className={cn(
+                    "h-2 w-full",
+                    recheckOverdue
+                      ? "bg-danger"
+                      : a.hasRecheck
+                        ? "bg-warn"
+                        : a.worstSeverity >= 3
+                          ? "bg-danger"
+                          : a.worstSeverity >= 1
+                            ? "bg-warn"
+                            : "bg-good",
+                  )}
+                />
 
-                    {/* Divider */}
-                    <div className="h-10 w-px bg-border/50 shrink-0" />
+                {/* Conteúdo principal */}
+                <button
+                  onClick={() => onEdit(a.tag)}
+                  className="flex w-full items-center gap-4 bg-card px-4 py-4 text-left active:bg-surface transition-colors"
+                >
+                  {/* Brinco + sexo + lote */}
+                  <div className="shrink-0 text-center w-16">
+                    <p className="font-display text-4xl font-black leading-none">{a.tag}</p>
+                    <p className="text-2xl leading-none mt-1">{a.sex === "vaca" ? "🐄" : "🐂"}</p>
+                    {a.lote && (
+                      <span className="mt-1 inline-block rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-black uppercase text-primary">
+                        {a.lote}
+                      </span>
+                    )}
+                  </div>
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0 space-y-0.5">
-                      <div className="flex flex-wrap items-center gap-1">
-                        {a.worstSeverity >= 3 && (
-                          <span className="rounded-md bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">🚨 Grave</span>
-                        )}
-                        {a.worstSeverity > 0 && a.worstSeverity < 3 && (
-                          <span className="rounded-md bg-warn/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">⚠️ G{a.worstSeverity}</span>
-                        )}
-                        {a.hasResolved && (
-                          <span className="rounded-md bg-good/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-good">✅ Curado</span>
-                        )}
-                        {a.hasRecheck && (
-                          <span className="rounded-md bg-warn/10 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">⏰ Revisão</span>
-                        )}
-                      </div>
+                  {/* Divisor */}
+                  <div className="h-16 w-px shrink-0 bg-border/50" />
 
-                      {badFeet.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {badFeet.map((ft) => {
-                            const ws = footWorstSeverity(ft);
-                            const topD = ft.diseases?.filter((d) => d.severity > 0).sort((x, y) => y.severity - x.severity)[0];
+                  {/* Status */}
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={cn(
+                        "font-display text-xl font-black leading-tight",
+                        !hasProblema
+                          ? "text-good-foreground"
+                          : a.worstSeverity >= 3
+                            ? "text-danger"
+                            : "text-warn-foreground",
+                      )}
+                    >
+                      {registeredOnly
+                        ? "📋 Sem visita"
+                        : recheckOverdue
+                          ? "⏰ Revisão atrasada"
+                          : a.hasRecheck
+                            ? "⏰ Revisão marcada"
+                            : !hasProblema
+                              ? "✅ Tudo OK"
+                              : a.worstSeverity >= 3
+                                ? "🚨 Problema Grave"
+                                : "⚠️ Com Problema"}
+                    </p>
+
+                    {/* Pés com problema */}
+                    {badFeet.length > 0 && (
+                      <p className="mt-1 text-sm text-muted-foreground leading-snug">
+                        {badFeet
+                          .map((ft) => {
+                            const topD = ft.diseases
+                              ?.filter((d) => d.severity > 0)
+                              .sort((x, y) => y.severity - x.severity)[0];
                             const l = LESIONS.find((x) => x.code === topD?.code);
-                            return (
-                              <span key={ft.foot} className={cn(
-                                "rounded px-1 py-0.5 text-[10px] font-black uppercase",
-                                ws >= 3 ? "bg-danger/15 text-danger" : "bg-warn/15 text-warn-foreground",
-                              )}>
-                                {ft.foot}{l ? ` ${l.emoji}${l.code}` : ""} G{ws}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {treatSet.size > 0 && (
-                        <p className="text-[10px] text-muted-foreground truncate">
-                          {Array.from(treatSet).slice(0, 3).join(" · ")}
-                        </p>
-                      )}
-
-                      <p className="text-[10px] text-muted-foreground">
-                        {a.totalVisits} visita(s) · {new Date(a.lastVisit).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+                            return `${FOOT_LABEL[ft.foot]}${l ? ` · ${l.emoji} ${l.name}` : ""}`;
+                          })
+                          .join("\n")}
                       </p>
+                    )}
+
+                    {/* Badges */}
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {a.hasRecheck && (
+                        <span
+                          className={cn(
+                            "rounded-md px-2 py-0.5 text-[11px] font-bold uppercase",
+                            recheckOverdue
+                              ? "bg-danger/15 text-danger"
+                              : "bg-warn/20 text-warn-foreground",
+                          )}
+                        >
+                          {recheckOverdue ? "Atrasada" : "Revisão"}{" "}
+                          {nextRecheck
+                            ? new Date(`${nextRecheck}T12:00:00`).toLocaleDateString("pt-BR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                              })
+                            : ""}
+                        </span>
+                      )}
+                      {a.hasResolved && (
+                        <span className="rounded-md bg-good/20 px-2 py-0.5 text-[11px] font-bold uppercase text-good-foreground">
+                          ✅ Curado
+                        </span>
+                      )}
                     </div>
 
-                    {/* Foot dots */}
-                    <div className="flex shrink-0 flex-col items-center gap-1">
-                      {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
-                        const ft = lv?.feet.find((x) => x.foot === k);
-                        const ws = ft ? footWorstSeverity(ft) : 0;
-                        return (
-                          <span key={k} className={cn(
-                            "h-3.5 w-3.5 rounded-sm",
-                            !ft || ft.ok ? "bg-good/50" : ws >= 3 ? "bg-danger" : ws >= 1 ? "bg-warn" : "bg-danger/50",
-                          )} title={k} />
-                        );
-                      })}
-                    </div>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
-                </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {registeredOnly
+                        ? "Animal cadastrado, ainda sem visita"
+                        : `${a.totalVisits} visita(s) · ${new Date(a.lastVisit).toLocaleDateString(
+                            "pt-BR",
+                            {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "2-digit",
+                            },
+                          )}`}
+                    </p>
+                  </div>
 
-                {/* Histórico footer */}
+                  {/* Indicador 2×2 dos pés */}
+                  <div className="shrink-0 grid grid-cols-2 gap-1">
+                    {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
+                      const ft = lv?.feet.find((x) => x.foot === k);
+                      const ws = ft ? footWorstSeverity(ft) : 0;
+                      return (
+                        <div
+                          key={k}
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-lg text-[10px] font-black text-white",
+                            !ft || ft.ok ? "bg-good/80" : ws >= 3 ? "bg-danger" : "bg-warn",
+                          )}
+                        >
+                          {k}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </button>
+
+                {/* Botão histórico */}
                 <button
                   onClick={() => onOpenHistory(a.tag)}
-                  className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 bg-surface/60 py-1.5 text-[10px] font-bold uppercase text-muted-foreground active:bg-surface"
+                  className="flex w-full items-center justify-center gap-2 border-t border-border/40 bg-surface/60 py-2.5 text-sm font-bold uppercase text-muted-foreground active:bg-surface"
                 >
-                  <History className="h-3 w-3" />
-                  Ver Histórico
+                  <History className="h-4 w-4" />
+                  Ver Histórico · {a.totalVisits} visita(s)
                 </button>
               </li>
             );
@@ -624,21 +1492,31 @@ function NavTab({
   label,
   active,
   onClick,
+  ariaLabel,
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
+  ariaLabel?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      aria-label={ariaLabel ?? label}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "flex flex-1 flex-col items-center justify-center gap-1 py-3 transition-colors",
         active ? "text-primary" : "text-muted-foreground",
       )}
     >
-      <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl transition-all", active && "bg-primary/10")}>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex h-8 w-8 items-center justify-center rounded-xl transition-all",
+          active && "bg-primary/10",
+        )}
+      >
         {icon}
       </span>
       <span className="text-[10px] font-bold uppercase">{label}</span>
@@ -646,42 +1524,142 @@ function NavTab({
   );
 }
 
+function LocalDataNotice() {
+  const lastBackupAt = loadLastBackupAt();
+
+  return (
+    <aside
+      role="note"
+      className="flex items-start gap-3 rounded-2xl border-2 border-primary/25 bg-primary/10 px-4 py-3 text-primary"
+    >
+      <Database className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="font-display text-sm font-black uppercase leading-tight">
+          Dados salvos neste aparelho
+        </p>
+        <p className="mt-0.5 text-xs leading-snug text-foreground/75">
+          Use o modo gerente para exportar backup.
+          {lastBackupAt && (
+            <>
+              {" "}
+              Último backup automático:{" "}
+              {new Intl.DateTimeFormat("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(new Date(lastBackupAt))}
+              .
+            </>
+          )}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function CascoPhoto({
+  photo,
+  alt,
+  className,
+}: {
+  photo?: string;
+  alt: string;
+  className?: string;
+}) {
+  const [src, setSrc] = useState(photo ?? "");
+
+  useEffect(() => {
+    let objectUrl = "";
+    let cancelled = false;
+    setSrc(photo ?? "");
+    void getPhotoDisplayUrl(photo).then((url) => {
+      if (cancelled) {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+        return;
+      }
+      objectUrl = url.startsWith("blob:") ? url : "";
+      setSrc(url);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [photo]);
+
+  if (!src) {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface text-xs font-bold uppercase text-muted-foreground",
+          className,
+        )}
+      >
+        Sem foto
+      </div>
+    );
+  }
+
+  return <img src={src} alt={alt} loading="lazy" decoding="async" className={className} />;
+}
+
 function BigStat({
   emoji,
   label,
   value,
   tone,
+  onClick,
+  active,
 }: {
   emoji: string;
   label: string;
   value: number;
   tone: "neutral" | "warn" | "danger";
+  onClick?: () => void;
+  active?: boolean;
 }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
       className={cn(
-        "rounded-2xl p-4 text-center stamp",
-        tone === "neutral" && "bg-card",
-        tone === "warn" && value > 0 ? "bg-warn/10 border-2 border-warn/30" : "bg-card",
-        tone === "danger" && value > 0 ? "bg-danger/10 border-2 border-danger/30" : "bg-card",
+        "rounded-2xl border-2 p-4 text-center stamp w-full transition-all active:scale-95",
+        active && "ring-2 ring-primary ring-offset-1",
+        tone === "warn" && value > 0 ? "border-warn/40 bg-warn/10" : "border-border bg-card",
+        tone === "danger" && value > 0
+          ? "border-danger/40 bg-danger/10"
+          : tone !== "warn"
+            ? "border-border bg-card"
+            : "",
+        tone === "neutral" && "border-border bg-card",
       )}
     >
       <p className="text-2xl leading-none">{emoji}</p>
       <p
         className={cn(
-          "mt-1 font-display text-4xl leading-none",
+          "mt-1 font-display text-4xl font-black leading-none",
           tone === "warn" && value > 0 && "text-warn-foreground",
           tone === "danger" && value > 0 && "text-danger",
         )}
       >
         {value}
       </p>
-      <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-    </div>
+      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+    </button>
   );
 }
 
-function ActionButton({ emoji, label, onClick }: { emoji: string; label: string; onClick: () => void }) {
+function ActionButton({
+  emoji,
+  label,
+  onClick,
+}: {
+  emoji: string;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -693,7 +1671,15 @@ function ActionButton({ emoji, label, onClick }: { emoji: string; label: string;
   );
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -738,7 +1724,10 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
             {bad.length === 0 ? "✅ Tudo bom" : `${bad.length} pé(s) c/ problema`}
           </p>
           <p className="text-xs text-muted-foreground">
-            {new Date(v.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+            {new Date(v.createdAt).toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
             {hasRecheck && " · ⏰ Revisão"}
             {hasResolved && " · ✅ Curado"}
           </p>
@@ -746,7 +1735,9 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
             <div className="mt-1 flex flex-wrap gap-1">
               {bad.slice(0, 3).map((f) => {
                 const ws = footWorstSeverity(f);
-                const topDisease = f.diseases?.filter((d) => d.severity > 0).sort((a, b) => b.severity - a.severity)[0];
+                const topDisease = f.diseases
+                  ?.filter((d) => d.severity > 0)
+                  .sort((a, b) => b.severity - a.severity)[0];
                 const lesion = LESIONS.find((l) => l.code === topDisease?.code);
                 return (
                   <span
@@ -772,7 +1763,13 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
                 key={k}
                 className={cn(
                   "h-5 w-4 rounded-sm",
-                  f.ok ? "bg-good/70" : ws >= 3 ? "bg-danger" : ws >= 1 ? "bg-warn" : "bg-danger/50",
+                  f.ok
+                    ? "bg-good/70"
+                    : ws >= 3
+                      ? "bg-danger"
+                      : ws >= 1
+                        ? "bg-warn"
+                        : "bg-danger/50",
                 )}
               />
             );
@@ -796,32 +1793,56 @@ function FiltersScreen({
   const [f, setF] = useState<Filters>(current);
 
   function toggleDisease(code: LesionCode) {
-    setF((p) => ({ ...p, diseases: p.diseases.includes(code) ? p.diseases.filter((c) => c !== code) : [...p.diseases, code] }));
+    setF((p) => ({
+      ...p,
+      diseases: p.diseases.includes(code)
+        ? p.diseases.filter((c) => c !== code)
+        : [...p.diseases, code],
+    }));
   }
   function toggleFoot(key: FootKey) {
-    setF((p) => ({ ...p, feet: p.feet.includes(key) ? p.feet.filter((k) => k !== key) : [...p.feet, key] }));
+    setF((p) => ({
+      ...p,
+      feet: p.feet.includes(key) ? p.feet.filter((k) => k !== key) : [...p.feet, key],
+    }));
   }
   function toggleTreatment(code: TreatmentCode) {
-    setF((p) => ({ ...p, treatments: p.treatments.includes(code) ? p.treatments.filter((c) => c !== code) : [...p.treatments, code] }));
+    setF((p) => ({
+      ...p,
+      treatments: p.treatments.includes(code)
+        ? p.treatments.filter((c) => c !== code)
+        : [...p.treatments, code],
+    }));
   }
 
   return (
     <div className="space-y-5 pb-8">
       {/* Status */}
       <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Status
+        </p>
         <div className="grid grid-cols-3 gap-2">
-          {([
-            ["all", "Todos", ""],
-            ["problem", "Com Problema", "⚠️"],
-            ["ok", "Sem Problema", "✅"],
-            ["recheck", "Revisão", "⏰"],
-            ["curado", "Curado", "🟢"],
-          ] as [Filters["status"], string, string][]).map(([val, label, emoji]) => (
-            <button key={val} type="button" onClick={() => setF((p) => ({ ...p, status: val }))}
-              className={cn("tap rounded-xl border-2 px-3 py-2 font-display text-sm uppercase",
-                f.status === val ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
-              )}>
+          {(
+            [
+              ["all", "Todos", ""],
+              ["problem", "Com Problema", "⚠️"],
+              ["ok", "Sem Problema", "✅"],
+              ["recheck", "Revisão", "⏰"],
+              ["curado", "Curado", "🟢"],
+            ] as [Filters["status"], string, string][]
+          ).map(([val, label, emoji]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setF((p) => ({ ...p, status: val }))}
+              className={cn(
+                "tap rounded-xl border-2 px-3 py-2 font-display text-sm uppercase",
+                f.status === val
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
               {emoji} {label}
             </button>
           ))}
@@ -830,13 +1851,22 @@ function FiltersScreen({
 
       {/* Gravidade mínima */}
       <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Gravidade mínima</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Gravidade mínima
+        </p>
         <div className="grid grid-cols-5 gap-2">
-          {([0, 1, 2, 3, 4] as Severity[]).map((s) => (
-            <button key={s} type="button" onClick={() => setF((p) => ({ ...p, minSeverity: s }))}
-              className={cn("tap rounded-xl border-2 px-2 py-3 font-display text-sm uppercase",
-                f.minSeverity === s ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
-              )}>
+          {([0, 1, 2, 3] as Severity[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setF((p) => ({ ...p, minSeverity: s }))}
+              className={cn(
+                "tap rounded-xl border-2 px-2 py-3 font-display text-sm uppercase",
+                f.minSeverity === s
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
               {s === 0 ? "—" : `G${s}`}
             </button>
           ))}
@@ -845,13 +1875,22 @@ function FiltersScreen({
 
       {/* Pé */}
       <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Pé afetado</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Pé afetado
+        </p>
         <div className="grid grid-cols-4 gap-2">
           {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => (
-            <button key={k} type="button" onClick={() => toggleFoot(k)}
-              className={cn("tap rounded-xl border-2 px-3 py-4 font-display text-base uppercase",
-                f.feet.includes(k) ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
-              )}>
+            <button
+              key={k}
+              type="button"
+              onClick={() => toggleFoot(k)}
+              className={cn(
+                "tap rounded-xl border-2 px-3 py-4 font-display text-base uppercase",
+                f.feet.includes(k)
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
               {k}
             </button>
           ))}
@@ -860,15 +1899,24 @@ function FiltersScreen({
 
       {/* Doenças */}
       <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Doença</p>
-        <div className="grid grid-cols-3 gap-1.5">
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Doença
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
           {LESIONS.map((l) => (
-            <button key={l.code} type="button" onClick={() => toggleDisease(l.code)}
-              className={cn("tap flex items-center gap-1.5 rounded-xl border-2 px-2 py-2 text-left",
-                f.diseases.includes(l.code) ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
-              )}>
-              <span>{l.emoji}</span>
-              <span className="font-display text-xs font-black uppercase">{l.code}</span>
+            <button
+              key={l.code}
+              type="button"
+              onClick={() => toggleDisease(l.code)}
+              className={cn(
+                "tap flex items-center gap-2 rounded-xl border-2 px-2 py-2 text-left",
+                f.diseases.includes(l.code)
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
+              <span className="text-lg leading-none shrink-0">{l.emoji}</span>
+              <span className="font-display text-xs uppercase leading-tight">{l.name}</span>
             </button>
           ))}
         </div>
@@ -876,13 +1924,22 @@ function FiltersScreen({
 
       {/* Tratamento */}
       <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Tratamento</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Tratamento
+        </p>
         <div className="flex flex-col gap-1.5">
           {TREATMENTS.map((t) => (
-            <button key={t.code} type="button" onClick={() => toggleTreatment(t.code)}
-              className={cn("tap flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-left font-display text-sm uppercase",
-                f.treatments.includes(t.code) ? "border-primary bg-primary text-primary-foreground stamp" : "border-border bg-surface",
-              )}>
+            <button
+              key={t.code}
+              type="button"
+              onClick={() => toggleTreatment(t.code)}
+              className={cn(
+                "tap flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-left font-display text-sm uppercase",
+                f.treatments.includes(t.code)
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
               <span>{t.emoji}</span>
               <span>{t.label}</span>
             </button>
@@ -892,18 +1949,28 @@ function FiltersScreen({
 
       {/* Data */}
       <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Data da última visita</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Data da última visita
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-[10px] font-bold uppercase text-muted-foreground">De</span>
-            <input type="date" value={f.dateFrom}
+            <input
+              name="filtro-data-inicio"
+              aria-label="Data inicial da última visita"
+              type="date"
+              value={f.dateFrom}
               onChange={(e) => setF((p) => ({ ...p, dateFrom: e.target.value }))}
               className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
             />
           </label>
           <label className="block">
             <span className="text-[10px] font-bold uppercase text-muted-foreground">Até</span>
-            <input type="date" value={f.dateTo}
+            <input
+              name="filtro-data-fim"
+              aria-label="Data final da última visita"
+              type="date"
+              value={f.dateTo}
               onChange={(e) => setF((p) => ({ ...p, dateTo: e.target.value }))}
               className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
             />
@@ -913,12 +1980,21 @@ function FiltersScreen({
 
       {/* Ações */}
       <div className="flex gap-3 pt-2">
-        <button type="button" onClick={() => { setF(EMPTY_FILTERS); onApply(EMPTY_FILTERS); }}
-          className="tap flex-1 rounded-2xl border-2 border-border bg-surface font-display text-base uppercase py-4">
+        <button
+          type="button"
+          onClick={() => {
+            setF(EMPTY_FILTERS);
+            onApply(EMPTY_FILTERS);
+          }}
+          className="tap flex-1 rounded-2xl border-2 border-border bg-surface font-display text-base uppercase py-4"
+        >
           Limpar
         </button>
-        <button type="button" onClick={() => onApply(f)}
-          className="tap-lg flex-[2] rounded-2xl bg-primary font-display text-base uppercase text-primary-foreground stamp py-4">
+        <button
+          type="button"
+          onClick={() => onApply(f)}
+          className="tap-lg flex-[2] rounded-2xl bg-primary font-display text-base uppercase text-primary-foreground stamp py-4"
+        >
           Aplicar Filtros
         </button>
       </div>
@@ -940,17 +2016,24 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthName = new Date(year, month).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const monthName = new Date(year, month).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
 
   function isoDay(d: number) {
     return `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
 
   function prevMonth() {
-    setCurrentMonth(({ year, month }) => month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 });
+    setCurrentMonth(({ year, month }) =>
+      month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 },
+    );
   }
   function nextMonth() {
-    setCurrentMonth(({ year, month }) => month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 });
+    setCurrentMonth(({ year, month }) =>
+      month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 },
+    );
   }
 
   const selectedItems = recheckMap.get(selectedDate) ?? [];
@@ -961,10 +2044,14 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
     <div className="space-y-4">
       {/* Resumo pendências */}
       {pendingTotal > 0 && (
-        <div className={cn(
-          "flex items-center gap-3 rounded-2xl border-2 px-4 py-3",
-          allPending.some(([d]) => d < today) ? "border-danger/50 bg-danger/5" : "border-warn/50 bg-warn/5",
-        )}>
+        <div
+          className={cn(
+            "flex items-center gap-3 rounded-2xl border-2 px-4 py-3",
+            allPending.some(([d]) => d < today)
+              ? "border-danger/50 bg-danger/5"
+              : "border-warn/50 bg-warn/5",
+          )}
+        >
           <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
           <div>
             <p className="font-display text-sm font-black uppercase text-warn-foreground">
@@ -979,11 +2066,17 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
 
       {/* Navegação de mês */}
       <div className="flex items-center justify-between rounded-2xl bg-card px-4 py-3 stamp">
-        <button onClick={prevMonth} className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface">
+        <button
+          onClick={prevMonth}
+          className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface"
+        >
           <ChevronLeft className="h-5 w-5" />
         </button>
         <p className="font-display text-base font-black uppercase">{monthName}</p>
-        <button onClick={nextMonth} className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface">
+        <button
+          onClick={nextMonth}
+          className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface"
+        >
           <ChevronRight className="h-5 w-5" />
         </button>
       </div>
@@ -993,14 +2086,19 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
         {/* Cabeçalho dos dias */}
         <div className="mb-2 grid grid-cols-7 gap-1">
           {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => (
-            <div key={d} className="py-1 text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+            <div
+              key={d}
+              className="py-1 text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground"
+            >
               {d}
             </div>
           ))}
         </div>
 
         <div className="grid grid-cols-7 gap-1">
-          {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: firstDay }).map((_, i) => (
+            <div key={`e${i}`} />
+          ))}
           {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
             const dateStr = isoDay(day);
             const isToday = dateStr === today;
@@ -1022,11 +2120,16 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
               >
                 <span className="font-display text-sm font-black leading-none">{day}</span>
                 {count > 0 && (
-                  <span className={cn(
-                    "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black",
-                    isSel ? "bg-primary-foreground text-primary" :
-                    isPast ? "bg-danger text-danger-foreground" : "bg-warn text-warn-foreground",
-                  )}>
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black",
+                      isSel
+                        ? "bg-primary-foreground text-primary"
+                        : isPast
+                          ? "bg-danger text-danger-foreground"
+                          : "bg-warn text-warn-foreground",
+                    )}
+                  >
                     {count}
                   </span>
                 )}
@@ -1039,14 +2142,25 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
       {/* Detalhe do dia selecionado */}
       <div>
         <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          {new Date(selectedDate + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
+          {new Date(selectedDate + "T12:00:00").toLocaleDateString("pt-BR", {
+            weekday: "long",
+            day: "2-digit",
+            month: "long",
+          })}
           {selectedDate === today && <span className="ml-1 text-primary">(Hoje)</span>}
-          {selectedDate < today && selectedItems.length > 0 && <span className="ml-1 text-danger"> — Atrasada!</span>}
+          {selectedDate < today && selectedItems.length > 0 && (
+            <span className="ml-1 text-danger"> — Atrasada!</span>
+          )}
         </p>
         {selectedItems.length === 0 ? (
-          <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
-            <p className="text-3xl">📅</p>
-            <p className="mt-2 font-display text-sm uppercase text-muted-foreground">Nenhuma revisão neste dia</p>
+          <div className="rounded-2xl border-2 border-dashed border-border/50 bg-surface/50 p-8 text-center">
+            <p className="text-5xl">📅</p>
+            <p className="mt-3 font-display text-base font-black uppercase text-muted-foreground">
+              Nenhuma revisão neste dia
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sem animais agendados para esta data
+            </p>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -1056,416 +2170,805 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
                   onClick={() => onOpenHistory(item.tag)}
                   className={cn(
                     "tap-lg flex w-full items-center gap-4 rounded-2xl border-2 p-4 text-left",
-                    selectedDate < today ? "border-danger/40 bg-danger/5" : "border-warn/40 bg-warn/5",
+                    selectedDate < today
+                      ? "border-danger/40 bg-danger/5"
+                      : "border-warn/40 bg-warn/5",
                   )}
                 >
                   <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
                     <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
                     <span className="text-xl font-black leading-none">{item.tag}</span>
-                    <span className="text-base leading-none">{item.sex === "vaca" ? "🐄" : "🐂"}</span>
+                    <span className="text-base leading-none">
+                      {item.sex === "vaca" ? "🐄" : "🐂"}
+                    </span>
                   </div>
                   <div className="flex-1">
-                    <p className="font-display text-sm font-black uppercase text-warn-foreground">⏰ Revisão marcada</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Pé(s): {item.feet.join(" · ")}</p>
-                    {selectedDate < today && (
-                      <p className="mt-0.5 text-xs font-bold text-danger">⚠️ Atrasada — não realizada</p>
-                    )}
-                  </div>
-                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* Lista completa de pendências */}
-      {allPending.length > 0 && (
-        <section>
-          <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Todas as revisões pendentes
-          </p>
-          <ul className="space-y-1">
-            {allPending.map(([date, items]) => {
-              const isPast = date < today;
-              const isTdy = date === today;
-              return (
-                <li key={date}>
-                  <button
-                    onClick={() => setSelectedDate(date)}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
-                      selectedDate === date ? "bg-primary/10" : "bg-surface",
-                    )}
-                  >
-                    <span className={cn(
-                      "shrink-0 rounded-lg px-2 py-1 font-display text-xs font-black uppercase",
-                      isPast ? "bg-danger text-danger-foreground" :
-                      isTdy ? "bg-warn text-warn-foreground" :
-                      "bg-primary/10 text-primary",
-                    )}>
-                      {new Date(date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-                    </span>
-                    <span className="flex-1 truncate text-sm font-semibold">
-                      {items.map((x) => x.tag).join(", ")}
-                    </span>
-                    <span className={cn("shrink-0 text-xs font-bold", isPast ? "text-danger" : "text-muted-foreground")}>
-                      {isPast ? "⚠️ Atrasada" : `${items.length} animal(is)`}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-    </div>
-  );
-}
-
-/* ───────────── (Dead code removed) ───────────── */
-function _DEAD_AnimalsScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "recheck" | "recent" | "severe" | "curado">("all");
-  const [diseaseFilter, setDiseaseFilter] = useState<LesionCode | null>(null);
-
-  const animals = useMemo(() => allAnimals(), []);
-
-  // Mapa brinco → doenças ativas mais recentes
-  const tagDiseases = useMemo(() => {
-    const visits = loadVisits();
-    const m = new Map<string, { code: LesionCode; severity: Severity; emoji: string }[]>();
-    for (const v of visits) {
-      const key = v.tag.toLowerCase();
-      if (m.has(key)) continue; // já processou o mais recente (visits está ordenado por createdAt desc)
-      const diseases: { code: LesionCode; severity: Severity; emoji: string }[] = [];
-      for (const f of v.feet) {
-        for (const d of f.diseases ?? []) {
-          if (d.severity > 0 && !diseases.find((x) => x.code === d.code)) {
-            const l = LESIONS.find((x) => x.code === d.code);
-            if (l) diseases.push({ code: d.code, severity: d.severity, emoji: l.emoji });
-          }
-        }
-      }
-      m.set(key, diseases.sort((a, b) => b.severity - a.severity));
-    }
-    return m;
-  }, [animals]);
-
-  const filtered = useMemo(() => {
-    let list = animals;
-    if (search.trim()) {
-      list = list.filter((a) => a.tag.toLowerCase().includes(search.toLowerCase()));
-    }
-    if (filter === "recheck") list = list.filter((a) => a.hasRecheck);
-    if (filter === "severe") list = list.filter((a) => a.worstSeverity >= 3);
-    if (filter === "curado") list = list.filter((a) => a.hasResolved);
-    if (filter === "recent") {
-      const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-      list = list.filter((a) => a.lastVisit >= cutoff);
-    }
-    if (diseaseFilter) {
-      list = list.filter((a) =>
-        tagDiseases.get(a.tag.toLowerCase())?.some((d) => d.code === diseaseFilter)
-      );
-    }
-    return list;
-  }, [animals, search, filter, diseaseFilter, tagDiseases]);
-
-  // Top 5 doenças mais frequentes para chips de filtro rápido
-  const topDiseaseCodes = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const diseases of tagDiseases.values()) {
-      for (const d of diseases) counts[d.code] = (counts[d.code] ?? 0) + 1;
-    }
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([code]) => LESIONS.find((l) => l.code === code)!)
-      .filter(Boolean);
-  }, [tagDiseases]);
-
-  return (
-    <div className="space-y-4">
-      {/* Campo de busca */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar pelo brinco (número)…"
-          inputMode="numeric"
-          className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 font-display text-xl uppercase outline-none focus:border-primary"
-          style={{ height: 56 }}
-        />
-        {search && (
-          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
-        )}
-      </div>
-
-      {/* Filtros de status */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        <FilterChip label="Todos" active={filter === "all" && !diseaseFilter} onClick={() => { setFilter("all"); setDiseaseFilter(null); }} />
-        <FilterChip label="⏰ Revisão" active={filter === "recheck"} onClick={() => setFilter("recheck")} />
-        <FilterChip label="🚨 Graves" active={filter === "severe"} onClick={() => setFilter("severe")} />
-        <FilterChip label="✅ Curados" active={filter === "curado"} onClick={() => setFilter("curado")} />
-        <FilterChip label="📅 7 dias" active={filter === "recent"} onClick={() => setFilter("recent")} />
-      </div>
-
-      {/* Filtros rápidos por doença */}
-      {topDiseaseCodes.length > 0 && (
-        <div>
-          <p className="mb-1.5 px-1 text-[10px] font-bold uppercase text-muted-foreground">
-            Filtrar por doença
-          </p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {topDiseaseCodes.map((l) => (
-              <FilterChip
-                key={l.code}
-                label={`${l.emoji} ${l.code}`}
-                active={diseaseFilter === l.code}
-                onClick={() => setDiseaseFilter(diseaseFilter === l.code ? null : l.code as LesionCode)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="px-1 text-xs text-muted-foreground">
-        {filtered.length} animal(is) encontrado(s) · {animals.length} total
-      </p>
-
-      {filtered.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
-          <p className="text-4xl">🔍</p>
-          <p className="mt-2 font-display text-lg uppercase">Nenhum resultado</p>
-          <button
-            onClick={() => { setSearch(""); setFilter("all"); setDiseaseFilter(null); }}
-            className="mt-3 rounded-full bg-muted px-4 py-2 text-sm font-display uppercase text-muted-foreground"
-          >
-            Limpar filtros
-          </button>
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {filtered.map((a) => {
-            const diseases = tagDiseases.get(a.tag.toLowerCase()) ?? [];
-            return (
-              <li key={a.tag}>
-                <button
-                  onClick={() => onOpenHistory(a.tag)}
-                  className="tap-lg flex w-full items-center gap-4 rounded-2xl border-2 border-border bg-card px-4 text-left active:scale-[0.99] transition-transform"
-                  style={{
-                    borderColor: a.worstSeverity >= 3 ? "var(--color-danger)" :
-                      a.worstSeverity >= 1 ? "var(--color-warn)" : undefined,
-                  }}
-                >
-                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface">
-                    <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
-                    <span className="font-display text-xl font-black leading-none">{a.tag}</span>
-                    <span className="text-base leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {a.worstSeverity >= 3 && (
-                        <span className="rounded bg-danger px-1.5 py-0.5 text-[10px] font-black uppercase text-danger-foreground">
-                          🚨 Grave
-                        </span>
-                      )}
-                      {a.worstSeverity > 0 && a.worstSeverity < 3 && (
-                        <span className="rounded bg-warn/30 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
-                          ⚠️ G{a.worstSeverity}
-                        </span>
-                      )}
-                      {a.hasResolved && (
-                        <span className="rounded bg-good/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-good">
-                          ✅ Curado
-                        </span>
-                      )}
-                      {a.hasRecheck && (
-                        <span className="rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-warn-foreground">
-                          ⏰
-                        </span>
-                      )}
-                    </div>
-                    {/* Doenças ativas */}
-                    {diseases.length > 0 && (
-                      <div className="mt-0.5 flex flex-wrap gap-1">
-                        {diseases.slice(0, 4).map((d) => (
-                          <span key={d.code} className="text-xs text-muted-foreground">
-                            {d.emoji}{d.code}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {a.totalVisits} visita(s) · última{" "}
-                      {new Date(a.lastVisit).toLocaleDateString("pt-BR", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "2-digit",
-                      })}
+                    <p className="font-display text-sm font-black uppercase text-warn-foreground">
+                      ⏰ Revisão marcada
                     </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Pé(s): {item.feet.join(" · ")}
+                    </p>
+                    {selectedDate < today && (
+                      <p className="mt-0.5 text-xs font-bold text-danger">
+                        ⚠️ Atrasada — não realizada
+                      </p>
+                    )}
                   </div>
                   <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
                 </button>
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Zero pendências */}
+      {allPending.length === 0 && (
+        <div className="rounded-2xl border-2 border-dashed border-good/40 bg-good/5 p-8 text-center">
+          <p className="text-5xl">✅</p>
+          <p className="mt-3 font-display text-base font-black uppercase text-good-foreground">
+            Tudo em dia!
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Nenhum animal com revisão pendente.</p>
+        </div>
       )}
     </div>
   );
 }
 
-/* ───────────── Register ───────────── */
+/* ───────────── Register (multi-step) ───────────── */
+type RegStep = "worker" | "feet" | "disease" | "treatment" | "notes" | "review";
+
 function RegisterScreen({
-  visit,
-  activeFoot,
-  onChange,
+  initialTag,
+  farm,
   onSave,
+  onCancel,
   onOpenHistory,
 }: {
-  visit: Visit;
-  activeFoot: FootKey | null;
-  onChange: (v: Visit, f?: FootKey | null) => void;
+  initialTag: string;
+  farm: FarmConfig;
   onSave: (v: Visit) => void;
+  onCancel: () => void;
   onOpenHistory: (tag: string) => void;
 }) {
-  const status = useMemo(() => {
-    const s: Record<FootKey, "ok" | "bad" | null> = { FE: null, FD: null, TE: null, TD: null };
-    visit.feet.forEach((f) => (s[f.foot] = f.ok ? "ok" : "bad"));
-    return s;
-  }, [visit]);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [visit, setVisit] = useState<Visit>(() => newDraft(initialTag));
+  const [step, setStep] = useState<RegStep>("worker");
+  const [badFeet, setBadFeet] = useState<FootKey[]>([]);
+  const [footIdx, setFootIdx] = useState(0);
+  const [showVisitOptions, setShowVisitOptions] = useState(false);
+  const [showFootAdvanced, setShowFootAdvanced] = useState(false);
 
+  const currentFoot = badFeet[footIdx] ?? null;
+  const currentFootEntry = visit.feet.find((f) => f.foot === currentFoot);
   const previous = visit.tag.trim() ? visitsByTag(visit.tag.trim()) : [];
-  const active = visit.feet.find((f) => f.foot === activeFoot);
 
-  function toggleFoot(k: FootKey) {
-    const cur = visit.feet.find((f) => f.foot === k)!;
-    const next = visit.feet.map((f) =>
-      f.foot === k ? (cur.ok ? { ...f, ok: false } : { foot: f.foot, ok: true, zones: [], diseases: [], treatments: [] }) : f,
-    );
-    onChange({ ...visit, feet: next }, k);
+  function updateVisit(partial: Partial<Visit>) {
+    setVisit((v) => ({ ...v, ...partial }));
   }
 
-  function updateFoot(e: FootEntry) {
-    onChange(
-      { ...visit, feet: visit.feet.map((f) => (f.foot === e.foot ? e : f)) },
-      e.foot,
-    );
+  function updateCurrentFoot(partial: Partial<FootEntry>) {
+    if (!currentFoot) return;
+    setVisit((v) => ({
+      ...v,
+      feet: v.feet.map((f) => (f.foot === currentFoot ? { ...f, ...partial } : f)),
+    }));
   }
 
-  // Pé válido: ok, curado, ou com pelo menos uma doença marcada
-  const canSave =
-    visit.tag.trim().length > 0 &&
-    visit.feet.every(
-      (f) =>
-        f.ok ||
-        f.resolved ||
-        (f.diseases?.some((d) => d.severity > 0) ?? false),
-    );
+  function confirmFeet(selected: FootKey[]) {
+    setBadFeet(selected);
+    const updated = visit.feet.map((f) => ({ ...f, ok: !selected.includes(f.foot) }));
+    setVisit((v) => ({ ...v, feet: updated }));
+    if (selected.length === 0) {
+      setStep("review");
+    } else {
+      setFootIdx(0);
+      setStep("disease");
+    }
+  }
+
+  function advanceFromNotes() {
+    setShowFootAdvanced(false);
+    if (footIdx + 1 < badFeet.length) {
+      setFootIdx((i) => i + 1);
+      setStep("disease");
+    } else {
+      setStep("review");
+    }
+  }
+
+  function goBack() {
+    if (step === "worker") {
+      onCancel();
+      return;
+    }
+    if (step === "feet") {
+      setStep("worker");
+      return;
+    }
+    if (step === "disease" && footIdx === 0) {
+      setStep("feet");
+      return;
+    }
+    if (step === "disease" && footIdx > 0) {
+      setFootIdx((i) => i - 1);
+      setStep("notes");
+      return;
+    }
+    if (step === "treatment") {
+      setStep("disease");
+      return;
+    }
+    if (step === "notes") {
+      setStep("treatment");
+      return;
+    }
+    if (step === "review") {
+      if (badFeet.length === 0) {
+        setStep("feet");
+        return;
+      }
+      setFootIdx(badFeet.length - 1);
+      setStep("notes");
+    }
+  }
+
+  function pickPhoto(file: File) {
+    const r = new FileReader();
+    r.onload = () => {
+      const mediaId = uid();
+      const dataUrl = String(r.result);
+      void savePhotoBlob(mediaId, dataUrl, file.type || "image/jpeg");
+      updateCurrentFoot({
+        photo: mediaRef(mediaId),
+        photoPendingUpload: true,
+        photoStoragePath: undefined,
+      });
+    };
+    r.readAsDataURL(file);
+  }
+
+  const totalSteps = 2 + badFeet.length * 3 + 1;
+  const stepIdx =
+    step === "worker"
+      ? 0
+      : step === "feet"
+        ? 1
+        : step === "review"
+          ? Math.max(totalSteps - 1, 2)
+          : 2 + footIdx * 3 + (step === "disease" ? 0 : step === "treatment" ? 1 : 2);
+  const progress = Math.round((stepIdx / Math.max(totalSteps - 1, 2)) * 100);
+  const footStepLabel = currentFoot
+    ? FOOT_LABEL[currentFoot] + " · Pé " + (footIdx + 1) + " de " + badFeet.length
+    : "";
 
   return (
-    <div className="space-y-4">
-      {/* Brinco */}
-      <section className="rounded-2xl bg-card p-4 stamp">
-        <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-          <Hash className="h-4 w-4" /> Brinco
-        </label>
-        <input
-          autoFocus
-          inputMode="numeric"
-          value={visit.tag}
-          onChange={(e) => onChange({ ...visit, tag: e.target.value }, activeFoot)}
-          placeholder="Ex: 1284"
-          className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-center font-display text-5xl uppercase tracking-wider outline-none focus:border-primary"
-        />
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {(["vaca", "touro"] as Sex[]).map((s) => {
-            const isActive = visit.sex === s;
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onChange({ ...visit, sex: s }, activeFoot)}
-                className={cn(
-                  "tap-lg flex flex-col items-center justify-center gap-1 rounded-xl border-2 font-display uppercase transition-all",
-                  isActive
-                    ? "border-primary bg-primary text-primary-foreground stamp"
-                    : "border-border bg-surface",
-                )}
-              >
-                <span className="text-4xl">{s === "vaca" ? "🐄" : "🐂"}</span>
-                <span className="text-base">{s}</span>
-              </button>
-            );
-          })}
+    <div className="space-y-4 pb-6">
+      {/* Barra de progresso */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={goBack}
+          className="tap flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted"
+          aria-label="Voltar"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div className="flex-1">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-border">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-300"
+              style={{ width: progress + "%" }}
+            />
+          </div>
         </div>
-        {previous.length > 0 && (
-          <div className="mt-3 rounded-xl border-2 border-warn/60 bg-warn/10 p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 shrink-0 text-warn-foreground" />
-              <p className="font-display text-sm uppercase text-warn-foreground">
-                Animal já cadastrado! {previous.length} visita(s) anterior(es).
+        <button
+          onClick={onCancel}
+          className="tap flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          aria-label="Cancelar"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* ── ETAPA 1: Funcionário + Brinco ── */}
+      {step === "worker" && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Registro de campo
+            </p>
+            <h2 className="font-display text-3xl font-black uppercase">Brinco</h2>
+          </div>
+          <section className="rounded-2xl bg-card p-4 space-y-3 stamp">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Digite só o número
+            </p>
+            <input
+              name="brinco"
+              aria-label="Número do brinco"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={visit.tag}
+              onChange={(e) => updateVisit({ tag: e.target.value })}
+              placeholder="Ex: 1284…"
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-center font-display text-6xl uppercase tracking-wider outline-none focus:border-primary"
+            />
+            <button
+              type="button"
+              onClick={() => setShowVisitOptions((v) => !v)}
+              className="tap flex w-full items-center justify-between rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-sm uppercase text-muted-foreground"
+            >
+              Mais opções
+              <ChevronRight
+                className={cn("h-4 w-4 transition-transform", showVisitOptions && "rotate-90")}
+              />
+            </button>
+            {showVisitOptions && (
+              <div className="space-y-3 rounded-xl border-2 border-border bg-surface p-3">
+                <div>
+                  <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Quem está fazendo?
+                  </p>
+                  {farm.funcionarios.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {farm.funcionarios.map((fn) => (
+                        <button
+                          key={fn.id}
+                          type="button"
+                          onClick={() => updateVisit({ visitante_nome: fn.nome })}
+                          className={cn(
+                            "tap flex items-center justify-center gap-2 rounded-xl border-2 px-2 py-2 font-display text-xs uppercase transition-all",
+                            visit.visitante_nome === fn.nome
+                              ? "border-primary bg-primary text-primary-foreground stamp"
+                              : "border-border bg-card",
+                          )}
+                        >
+                          <User className="h-4 w-4" />
+                          {fn.nome}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <input
+                      name="visitante-nome"
+                      aria-label="Nome opcional do responsável"
+                      value={visit.visitante_nome ?? ""}
+                      onChange={(e) => updateVisit({ visitante_nome: e.target.value || undefined })}
+                      placeholder="Nome opcional…"
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="w-full rounded-xl border-2 border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+                    />
+                  )}
+                </div>
+                {farm.lotes.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Lote
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {farm.lotes.map((lt) => (
+                        <button
+                          key={lt}
+                          type="button"
+                          onClick={() => updateVisit({ lote: visit.lote === lt ? undefined : lt })}
+                          className={cn(
+                            "tap rounded-xl border-2 px-4 py-2 font-display text-sm uppercase",
+                            visit.lote === lt
+                              ? "border-primary bg-primary text-primary-foreground stamp"
+                              : "border-border bg-card",
+                          )}
+                        >
+                          {lt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => updateVisit({ preventivo: !visit.preventivo })}
+                  className={cn(
+                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
+                    visit.preventivo
+                      ? "border-good bg-good text-good-foreground stamp"
+                      : "border-border bg-card text-muted-foreground",
+                  )}
+                >
+                  <Scissors className="h-5 w-5 shrink-0" />
+                  {visit.preventivo ? "Casqueamento preventivo" : "Marcar preventivo"}
+                </button>
+              </div>
+            )}
+            {previous.length > 0 && (
+              <div className="rounded-xl border-2 border-warn/60 bg-warn/10 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 shrink-0 text-warn-foreground" />
+                  <p className="font-display text-sm uppercase text-warn-foreground">
+                    Animal já cadastrado — {previous.length} visita(s)
+                  </p>
+                </div>
+                <button
+                  onClick={() => onOpenHistory(visit.tag.trim())}
+                  className="tap flex w-full items-center justify-between rounded-lg border border-warn/40 bg-card px-3 py-2 text-left"
+                >
+                  <span className="flex items-center gap-2 font-display text-xs uppercase text-warn-foreground">
+                    <History className="h-4 w-4" /> Ver histórico
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+            )}
+          </section>
+          <button
+            type="button"
+            disabled={!visit.tag.trim()}
+            onClick={() => setStep("feet")}
+            className={cn(
+              "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl font-display text-xl uppercase py-5 transition-all",
+              visit.tag.trim()
+                ? "bg-primary text-primary-foreground stamp"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            Continuar <ChevronRight className="h-6 w-6" />
+          </button>
+        </div>
+      )}
+
+      {/* ── ETAPA 2: Seleção dos pés ── */}
+      {step === "feet" && <FeetStep visit={visit} onConfirm={confirmFeet} />}
+
+      {/* ── ETAPA 3: Doença ── */}
+      {step === "disease" && currentFoot && currentFootEntry && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {footStepLabel}
+            </p>
+            <h2 className="font-display text-2xl font-black uppercase">Doença e gravidade</h2>
+          </div>
+          <section className="rounded-2xl border-2 border-primary/25 bg-primary/10 p-4">
+            <p className="font-display text-base font-black uppercase text-primary">
+              {FOOT_LABEL[currentFoot]}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Selecione a doença e o grau para continuar o registro.
+            </p>
+          </section>
+          <button
+            type="button"
+            onClick={() => {
+              updateCurrentFoot({
+                resolved: true,
+                data_liberacao: todayISO(),
+                diseases: [],
+                ok: false,
+              });
+              advanceFromNotes();
+            }}
+            className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-good/60 bg-good/10 px-4 py-3 font-display text-base uppercase text-good-foreground"
+          >
+            <CheckCircle2 className="h-6 w-6 shrink-0" /> Este pé está CURADO
+          </button>
+          <DiseasePicker
+            diseases={currentFootEntry.diseases ?? []}
+            onChange={(d) => updateCurrentFoot({ diseases: d })}
+          />
+          <button
+            type="button"
+            onClick={() => setStep("treatment")}
+            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+          >
+            Confirmar <ChevronRight className="h-6 w-6" />
+          </button>
+        </div>
+      )}
+
+      {/* ── ETAPA 4: Tratamento ── */}
+      {step === "treatment" && currentFoot && currentFootEntry && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {footStepLabel}
+            </p>
+            <h2 className="font-display text-2xl font-black uppercase">Tratamento</h2>
+          </div>
+          <div className="flex flex-col gap-2">
+            {TREATMENTS.map((t) => {
+              const active = (currentFootEntry.treatments ?? []).includes(t.code);
+              return (
+                <button
+                  key={t.code}
+                  type="button"
+                  onClick={() => {
+                    const cur = currentFootEntry.treatments ?? [];
+                    if (t.code === "NADA") {
+                      updateCurrentFoot({ treatments: active ? [] : ["NADA"] });
+                      return;
+                    }
+                    const without = cur.filter((c) => c !== "NADA" && c !== t.code);
+                    updateCurrentFoot({ treatments: active ? without : [...without, t.code] });
+                  }}
+                  className={cn(
+                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
+                    active
+                      ? "border-primary bg-primary text-primary-foreground stamp"
+                      : "border-border bg-surface",
+                  )}
+                >
+                  <span className="text-2xl leading-none">{t.emoji}</span>
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => setStep("notes")}
+            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+          >
+            Confirmar <ChevronRight className="h-6 w-6" />
+          </button>
+        </div>
+      )}
+
+      {/* ── ETAPA 5: Observações + Foto ── */}
+      {step === "notes" && currentFoot && currentFootEntry && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {footStepLabel}
+            </p>
+            <h2 className="font-display text-2xl font-black uppercase">Revisão e foto</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              updateCurrentFoot({ recheck: !currentFootEntry.recheck, recheckDate: undefined })
+            }
+            className={cn(
+              "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
+              currentFootEntry.recheck
+                ? "border-warn bg-warn text-warn-foreground stamp"
+                : "border-border bg-surface text-muted-foreground",
+            )}
+          >
+            <Clock className="h-5 w-5 shrink-0" />
+            {currentFootEntry.recheck ? "Revisão marcada" : "Marcar revisão futura"}
+          </button>
+          {currentFootEntry.recheck && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                {QUICK_RECHECK_OPTIONS.map((option) => {
+                  const active = currentFootEntry.intervalo_revisao_dias === option.days;
+                  return (
+                    <button
+                      key={option.days}
+                      type="button"
+                      onClick={() =>
+                        updateCurrentFoot({
+                          recheck: true,
+                          recheckDate: dateAfterDays(option.days),
+                          intervalo_revisao_dias: option.days,
+                        })
+                      }
+                      className={cn(
+                        "tap min-h-12 rounded-xl border-2 px-3 py-2 font-display text-sm uppercase transition-colors active:scale-95",
+                        active
+                          ? "border-warn bg-warn text-warn-foreground stamp"
+                          : "border-warn/40 bg-warn/5 text-warn-foreground",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                name="data-revisao"
+                aria-label="Escolher data da revisão"
+                type="date"
+                min={todayISO()}
+                value={currentFootEntry.recheckDate ?? ""}
+                onChange={(e) =>
+                  updateCurrentFoot({
+                    recheckDate: e.target.value || undefined,
+                    intervalo_revisao_dias: undefined,
+                  })
+                }
+                className="w-full rounded-xl border-2 border-warn/40 bg-warn/5 px-3 py-3 font-display text-sm outline-none"
+              />
+            </div>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => e.target.files && e.target.files[0] && pickPhoto(e.target.files[0])}
+          />
+          {currentFootEntry.photo ? (
+            <div className="relative">
+              <CascoPhoto
+                photo={currentFootEntry.photo}
+                alt="Casco"
+                className="h-40 w-full rounded-xl object-cover"
+              />
+              {currentFootEntry.photoPendingUpload && (
+                <span className="absolute left-2 top-2 rounded-full bg-warn px-2 py-1 text-[10px] font-black uppercase text-warn-foreground">
+                  Foto pendente
+                </span>
+              )}
+              <button
+                onClick={() =>
+                  updateCurrentFoot({
+                    photo: undefined,
+                    photoPendingUpload: undefined,
+                    photoStoragePath: undefined,
+                  })
+                }
+                className="absolute right-2 top-2 rounded-full bg-background/90 p-2"
+                aria-label="Remover foto"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileRef.current && fileRef.current.click()}
+              className="tap flex w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border bg-surface py-4 font-display text-sm uppercase text-muted-foreground"
+            >
+              <Camera className="h-5 w-5" /> Foto (opcional)
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowFootAdvanced((v) => !v)}
+            className="tap flex w-full items-center justify-between rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-sm uppercase text-muted-foreground"
+          >
+            Observações avançadas
+            <ChevronRight
+              className={cn("h-4 w-4 transition-transform", showFootAdvanced && "rotate-90")}
+            />
+          </button>
+          {showFootAdvanced && (
+            <div className="space-y-2 rounded-xl border-2 border-border bg-card p-3">
+              <div className="flex flex-col gap-2">
+                {COMMENTS.map((c) => {
+                  const active = (currentFootEntry.comments ?? []).includes(c.code);
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => {
+                        const cur = currentFootEntry.comments ?? [];
+                        updateCurrentFoot({
+                          comments: active ? cur.filter((x) => x !== c.code) : [...cur, c.code],
+                        });
+                      }}
+                      className={cn(
+                        "tap flex w-full items-center gap-2 rounded-xl border-2 px-3 py-3 text-left font-display transition-all",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground stamp"
+                          : "border-border bg-surface",
+                      )}
+                    >
+                      <span className="shrink-0 font-black">{c.code}</span>
+                      <span className="text-sm">{c.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <textarea
+                rows={3}
+                value={currentFootEntry.nota ?? ""}
+                onChange={(e) => updateCurrentFoot({ nota: e.target.value || undefined })}
+                placeholder="Observações adicionais (opcional)…"
+                className="w-full rounded-xl border-2 border-border bg-surface px-3 py-3 text-sm outline-none focus:border-primary resize-none"
+              />
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={advanceFromNotes}
+            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+          >
+            {footIdx + 1 < badFeet.length ? "Próximo pé" : "Ver resumo"}{" "}
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        </div>
+      )}
+
+      {/* ── ETAPA 6: Resumo + Salvar ── */}
+      {step === "review" && (
+        <div className="space-y-4">
+          <h2 className="font-display text-2xl font-black uppercase">Resumo da Visita</h2>
+          <div className="rounded-2xl bg-card p-4 space-y-3 stamp">
+            <div className="flex items-center gap-3 rounded-xl bg-surface px-3 py-2">
+              <Clock className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="text-[10px] font-bold uppercase text-muted-foreground">
+                  Horario (definido pelo app)
+                </p>
+                <p className="font-display text-xl font-black">
+                  {new Date(visit.createdAt).toLocaleTimeString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {" — "}
+                  {new Date(visit.createdAt).toLocaleDateString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "2-digit",
+                  })}
+                </p>
+              </div>
+            </div>
+            {visit.visitante_nome && (
+              <div className="flex items-center gap-2 text-sm">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="font-display font-black uppercase">{visit.visitante_nome}</span>
+              </div>
+            )}
+            <div className="flex items-end gap-3">
+              <p className="font-display text-6xl font-black leading-none">{visit.tag}</p>
+              {visit.lote && (
+                <span className="rounded-lg bg-primary/15 px-3 py-1 font-display text-sm font-black uppercase text-primary">
+                  {visit.lote}
+                </span>
+              )}
+              {visit.preventivo && (
+                <span className="rounded-lg bg-good/20 px-3 py-1 font-display text-sm font-black uppercase text-good-foreground">
+                  Preventivo
+                </span>
+              )}
+            </div>
+          </div>
+          {visit.feet.filter((f) => !f.ok).length > 0 ? (
+            <div className="space-y-2">
+              {visit.feet
+                .filter((f) => !f.ok)
+                .map((f) => {
+                  const ws = footWorstSeverity(f);
+                  const activeDiseases = (f.diseases ?? []).filter((d) => d.severity > 0);
+                  return (
+                    <div
+                      key={f.foot}
+                      className={cn(
+                        "rounded-2xl border-2 p-4 space-y-2",
+                        f.resolved
+                          ? "border-good/40 bg-good/5"
+                          : ws >= 3
+                            ? "border-danger/40 bg-danger/5"
+                            : "border-warn/40 bg-warn/5",
+                      )}
+                    >
+                      <p className="font-display text-base font-black uppercase">
+                        {FOOT_LABEL[f.foot]}
+                      </p>
+                      {f.resolved && (
+                        <p className="text-sm font-bold text-good-foreground">
+                          Marcado como CURADO
+                        </p>
+                      )}
+                      {activeDiseases.map((d) => {
+                        const l = LESIONS.find((x) => x.code === d.code);
+                        return (
+                          <p key={d.code} className="flex items-center gap-2 text-sm">
+                            <span>{l && l.emoji}</span>
+                            <span className="font-bold">{l && l.name}</span>
+                            <span className="text-muted-foreground">Grau {d.severity}</span>
+                          </p>
+                        );
+                      })}
+                      {(f.treatments ?? []).length > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          Tratamento:{" "}
+                          {(f.treatments ?? [])
+                            .map((c) => {
+                              const t = TREATMENTS.find((t) => t.code === c);
+                              return t && t.label;
+                            })
+                            .filter(Boolean)
+                            .join(", ")}
+                        </p>
+                      )}
+                      {f.nota && <p className="text-sm text-muted-foreground italic">{f.nota}</p>}
+                      {f.recheck && (
+                        <p className="text-sm font-bold text-warn-foreground">
+                          Revisão: {f.recheckDate ?? "a definir"}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border-2 border-good/40 bg-good/5 p-4 text-center">
+              <p className="font-display text-lg font-black uppercase text-good-foreground">
+                Todos os pés OK
               </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Você está adicionando uma nova visita para este animal.
-            </p>
-            <button
-              onClick={() => onOpenHistory(visit.tag.trim())}
-              className="tap flex w-full items-center justify-between rounded-lg border border-warn/40 bg-card px-3 py-2 text-left"
-            >
-              <span className="flex items-center gap-2 font-display text-xs uppercase text-warn-foreground">
-                <History className="h-4 w-4" />
-                Ver histórico do brinco {visit.tag.trim()}
-              </span>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* 4 Pés */}
-      <section className="rounded-2xl bg-card p-4 stamp">
-        <p className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-          <Footprints className="h-4 w-4" /> Toque em cada pé
-        </p>
-        <HoofMap status={status} active={activeFoot} onSelect={toggleFoot} />
-        <div className="mt-3 grid grid-cols-2 gap-2 text-center text-[11px] font-semibold uppercase text-muted-foreground">
-          <span className="rounded-lg bg-good/20 py-1">✅ 1º toque = Bom</span>
-          <span className="rounded-lg bg-danger/10 py-1">⚠️ 2º toque = Problema</span>
+          )}
+          <button
+            type="button"
+            onClick={() => onSave(visit)}
+            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-good py-6 font-display text-2xl font-black uppercase text-good-foreground stamp active:scale-[0.98] transition-transform"
+          >
+            <Save className="h-7 w-7" /> Salvar Visita
+          </button>
         </div>
-      </section>
-
-      {/* Detalhe do pé ativo */}
-      {active && !active.ok && (
-        <FootDetail entry={active} onChange={updateFoot} onClose={() => onChange(visit, null)} />
       )}
+    </div>
+  );
+}
 
-      {/* Salvar */}
+function FeetStep({ visit, onConfirm }: { visit: Visit; onConfirm: (feet: FootKey[]) => void }) {
+  const [selected, setSelected] = useState<FootKey[]>(
+    visit.feet.filter((f) => !f.ok).map((f) => f.foot) as FootKey[],
+  );
+  function toggle(k: FootKey) {
+    setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  }
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-display text-2xl font-black uppercase">Qual(is) pé(s) têm problema?</h2>
+        <p className="text-sm text-muted-foreground">Toque para marcar os pés com lesão</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
+          const sel = selected.includes(k);
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => toggle(k)}
+              className={cn(
+                "tap-lg flex flex-col items-center justify-center gap-2 rounded-2xl border-2 py-8 transition-all",
+                sel ? "border-danger bg-danger/10" : "border-border bg-card",
+              )}
+            >
+              <p
+                className={cn(
+                  "font-display text-4xl font-black",
+                  sel ? "text-danger" : "text-foreground",
+                )}
+              >
+                {k}
+              </p>
+              <p
+                className={cn(
+                  "text-sm font-bold uppercase",
+                  sel ? "text-danger" : "text-muted-foreground",
+                )}
+              >
+                {FOOT_LABEL[k]}
+              </p>
+              {sel && (
+                <span className="rounded-full bg-danger px-3 py-0.5 text-xs font-black uppercase text-white">
+                  Com problema
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
       <button
         type="button"
-        disabled={!canSave}
-        onClick={() => onSave(visit)}
-        className={cn(
-          "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl font-display text-xl uppercase transition-all",
-          canSave
-            ? "bg-primary text-primary-foreground stamp active:scale-[0.98]"
-            : "bg-muted text-muted-foreground",
-        )}
+        onClick={() => onConfirm(selected)}
+        className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
       >
-        <Save className="h-7 w-7" />
-        Salvar
+        {selected.length === 0 ? "Todos os pés OK" : `${selected.length} pé(s) com problema`}
+        <ChevronRight className="h-6 w-6" />
       </button>
-      {!canSave && (
-        <p className="-mt-2 text-center text-xs text-muted-foreground">
-          Preencha o brinco e marque pelo menos uma doença em cada pé com problema.
-        </p>
-      )}
     </div>
   );
 }
@@ -1493,8 +2996,8 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
     full: string;
     firstDate: number;
     worstSev: Severity;
-    currentSev: Severity;    // na visita mais recente
-    isCured: boolean;        // na visita mais recente: severity=0 ou foot.resolved
+    currentSev: Severity; // na visita mais recente
+    isCured: boolean; // na visita mais recente: severity=0 ou foot.resolved
   };
 
   const rows: DiseaseRow[] = [];
@@ -1524,7 +3027,15 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
       }
     }
     const isCured = currentSev === 0 || curedInLatest;
-    rows.push({ code, emoji: lesion.emoji, full: lesion.full, firstDate, worstSev, currentSev, isCured });
+    rows.push({
+      code,
+      emoji: lesion.emoji,
+      full: lesion.full,
+      firstDate,
+      worstSev,
+      currentSev,
+      isCured,
+    });
   }
   rows.sort((a, b) => (a.isCured ? 1 : -1) || b.currentSev - a.currentSev);
 
@@ -1536,18 +3047,17 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
       <div className="space-y-2">
         {rows.map((r) => (
           <div key={r.code} className="flex items-center gap-3">
-            <span className="text-xl leading-none">{r.emoji}</span>
+            <span className="text-2xl leading-none">{r.emoji}</span>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-display text-sm font-black uppercase">{r.code}</span>
-                <span className="truncate text-xs text-muted-foreground">{r.full}</span>
-              </div>
+              <p className="font-display text-sm font-black uppercase leading-tight">{r.full}</p>
               <p className="text-[10px] text-muted-foreground">
                 1ª vez:{" "}
                 {new Date(r.firstDate).toLocaleDateString("pt-BR", {
-                  day: "2-digit", month: "2-digit", year: "2-digit",
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "2-digit",
                 })}
-                {r.worstSev > 0 && ` · pior G${r.worstSev}`}
+                {r.worstSev > 0 && ` · pior Grau ${r.worstSev}`}
               </p>
             </div>
             {r.isCured ? (
@@ -1565,7 +3075,7 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
                       : "bg-muted text-muted-foreground",
                 )}
               >
-                Ativa G{r.currentSev}
+                Grau {r.currentSev}
               </span>
             )}
           </div>
@@ -1579,11 +3089,11 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
 function HistoryScreen({
   tag,
   onBack,
-  onDelete,
+  onCorrect,
 }: {
   tag: string;
   onBack: () => void;
-  onDelete: (id: string) => void;
+  onCorrect: (tag: string) => void;
 }) {
   const items = visitsByTag(tag);
   const hasRecheck = items.some((v) => v.feet.some((f) => f.recheck));
@@ -1592,11 +3102,19 @@ function HistoryScreen({
   return (
     <div className="space-y-4">
       <div className="rounded-2xl bg-card p-4 stamp">
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
           Histórico do brinco
         </p>
         <p className="font-display text-5xl font-black">{tag}</p>
         <p className="text-sm text-muted-foreground">{items.length} visita(s) registrada(s)</p>
+        <button
+          type="button"
+          onClick={() => onCorrect(tag)}
+          className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-primary bg-primary/10 px-4 py-2 font-display text-sm uppercase text-primary"
+        >
+          <Pencil className="h-4 w-4" />
+          Registrar correção
+        </button>
         <div className="mt-2 flex flex-wrap gap-2">
           {hasRecheck && (
             <span className="rounded-lg bg-warn/10 px-3 py-1.5 text-sm font-semibold text-warn-foreground">
@@ -1656,9 +3174,17 @@ function HistoryScreen({
                           minute: "2-digit",
                         })}
                       </p>
+                      {(v.visitante_nome || v.employee_name) && (
+                        <p className="mt-1 flex items-center gap-1 text-xs font-bold text-muted-foreground">
+                          <User className="h-3.5 w-3.5" aria-hidden="true" />
+                          Funcionário: {v.visitante_nome || v.employee_name}
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         <span className="text-xs text-muted-foreground">
-                          {bad.length === 0 ? "✅ Todos os pés bons" : `${bad.length} pé(s) tratado(s)`}
+                          {bad.length === 0
+                            ? "✅ Todos os pés bons"
+                            : `${bad.length} pé(s) tratado(s)`}
                         </span>
                         {hasRecheckV && (
                           <span className="rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-bold text-warn-foreground">
@@ -1672,19 +3198,13 @@ function HistoryScreen({
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={() => {
-                        if (confirm("Apagar esta visita?")) onDelete(v.id);
-                      }}
-                      className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label="Apagar"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground">
+                      Auditável
+                    </span>
                   </div>
 
                   {/* Mini mapa 4 pés */}
-                  <div className="mt-3 grid grid-cols-4 gap-1">
+                  <div className="mt-3 grid grid-cols-2 gap-1.5">
                     {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
                       const f = v.feet.find((x) => x.foot === k)!;
                       const ws = footWorstSeverity(f);
@@ -1696,7 +3216,7 @@ function HistoryScreen({
                         <div
                           key={k}
                           className={cn(
-                            "rounded-lg p-1.5 text-center",
+                            "flex items-center gap-2 rounded-xl px-3 py-2",
                             f.ok
                               ? "bg-good/10"
                               : f.resolved
@@ -1706,15 +3226,24 @@ function HistoryScreen({
                                   : "bg-warn/10",
                           )}
                         >
-                          <p className="font-display text-[10px] font-black uppercase text-muted-foreground">
-                            {k}
-                          </p>
-                          <p className="text-base leading-none">
-                            {f.ok ? "✅" : f.resolved ? "🟢" : lesion?.emoji ?? "❓"}
-                          </p>
-                          {!f.ok && ws > 0 && (
-                            <p className="text-[9px] font-black uppercase">{ws}</p>
-                          )}
+                          <span className="text-xl leading-none">
+                            {f.ok ? "✅" : f.resolved ? "🟢" : (lesion?.emoji ?? "❓")}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-display text-xs font-black uppercase leading-none">
+                              {FOOT_LABEL[k]}
+                            </p>
+                            {!f.ok && ws > 0 && (
+                              <p
+                                className={cn(
+                                  "text-[10px] font-bold",
+                                  ws >= 3 ? "text-danger" : "text-warn-foreground",
+                                )}
+                              >
+                                {lesion?.name ?? ""} Grau {ws}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1731,40 +3260,36 @@ function HistoryScreen({
                           .filter(Boolean)
                           .join(", ");
                         return (
-                          <li
-                            key={f.foot}
-                            className="rounded-lg bg-surface px-2 py-1.5 text-xs"
-                          >
+                          <li key={f.foot} className="rounded-lg bg-surface px-2 py-1.5 text-xs">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className="rounded bg-foreground px-1.5 py-0.5 font-display text-[10px] uppercase text-background">
-                                {f.foot}
+                                {FOOT_LABEL[f.foot]}
                               </span>
                               {f.resolved && (
                                 <span className="rounded bg-good px-1.5 py-0.5 text-[10px] font-black uppercase text-good-foreground">
                                   ✅ Curado
                                 </span>
                               )}
-                              {f.zones && f.zones.length > 0 && (
-                                <span className="text-muted-foreground">Zonas: {f.zones.join(",")} · </span>
-                              )}
                               {activeDiseases.map((d) => {
                                 const l = LESIONS.find((x) => x.code === d.code);
                                 return (
                                   <span key={d.code}>
-                                    {l?.emoji} {d.code} <strong>G{d.severity}</strong>
+                                    {l?.emoji} {l?.name ?? d.code}{" "}
+                                    <strong>Grau {d.severity}</strong>
                                   </span>
                                 );
                               })}
-                              {treats && (
-                                <span className="text-muted-foreground">{treats}</span>
-                              )}
+                              {treats && <span className="text-muted-foreground">{treats}</span>}
                             </div>
                             {(f.comments ?? []).length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {(f.comments ?? []).map((c) => {
                                   const cm = COMMENTS.find((x) => x.code === c);
                                   return cm ? (
-                                    <span key={c} className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                                    <span
+                                      key={c}
+                                      className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
+                                    >
                                       {c}: {cm.label}
                                     </span>
                                   ) : null;
@@ -1783,9 +3308,9 @@ function HistoryScreen({
                       {v.feet
                         .filter((f) => f.photo)
                         .map((f) => (
-                          <img
+                          <CascoPhoto
                             key={f.foot}
-                            src={f.photo}
+                            photo={f.photo}
                             alt={`Casco ${f.foot}`}
                             className="h-24 w-24 shrink-0 rounded-lg object-cover"
                           />
@@ -1837,17 +3362,24 @@ function SummaryScreen() {
   return (
     <div className="space-y-4">
       <section className="rounded-2xl bg-card p-5 stamp">
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Resumo do dia</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Resumo do dia
+        </p>
         <div className="mt-2 grid grid-cols-2 gap-3">
           <Stat label="Animais vistos" value={visits.length} />
           <Stat label="Pés c/ problema" value={badFeet} tone="danger" />
           <Stat label="Precisam revisão" value={recheckTotal} tone="warn" />
-          <Stat label="Sem problema" value={visits.filter((v) => v.feet.every((f) => f.ok)).length} />
+          <Stat
+            label="Sem problema"
+            value={visits.filter((v) => v.feet.every((f) => f.ok)).length}
+          />
         </div>
       </section>
 
       <section className="rounded-2xl bg-card p-5">
-        <p className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">Por gravidade (hoje)</p>
+        <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Por gravidade (hoje)
+        </p>
         <div className="space-y-2">
           {(["leve", "medio", "grave"] as const).map((b) => (
             <div key={b} className="flex items-center gap-3">
@@ -1873,7 +3405,9 @@ function SummaryScreen() {
 
       {topLesions.length > 0 && (
         <section className="rounded-2xl bg-card p-5">
-          <p className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">Lesões mais frequentes (hoje)</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Lesões mais frequentes (hoje)
+          </p>
           <ul className="space-y-2">
             {topLesions.map(([code, n]) => {
               const l = LESIONS.find((x) => x.code === code);
@@ -1894,12 +3428,16 @@ function SummaryScreen() {
 
       <div className="grid grid-cols-2 gap-3">
         <section className="rounded-2xl bg-card p-4 text-center stamp">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Últimos 7 dias</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Últimos 7 dias
+          </p>
           <p className="mt-1 font-display text-4xl">{week.length}</p>
           <p className="text-xs text-muted-foreground">visitas</p>
         </section>
         <section className="rounded-2xl bg-card p-4 text-center stamp">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Último mês</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Último mês
+          </p>
           <p className="mt-1 font-display text-4xl">{month.length}</p>
           <p className="text-xs text-muted-foreground">visitas</p>
         </section>
@@ -1911,7 +3449,13 @@ function SummaryScreen() {
 function Stat({ label, value, tone }: { label: string; value: number; tone?: "warn" | "danger" }) {
   return (
     <div className="rounded-xl bg-surface p-3 text-center">
-      <p className={cn("font-display text-4xl leading-none", tone === "warn" && "text-warn-foreground", tone === "danger" && "text-danger")}>
+      <p
+        className={cn(
+          "font-display text-4xl leading-none",
+          tone === "warn" && "text-warn-foreground",
+          tone === "danger" && "text-danger",
+        )}
+      >
         {value}
       </p>
       <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -1924,77 +3468,759 @@ function ConfigScreen({
   farm,
   onSave,
   onSeed,
+  onImport,
 }: {
   farm: FarmConfig;
   onSave: (f: FarmConfig) => void;
   onSeed: () => void;
+  onImport: () => void;
 }) {
+  const importRef = useRef<HTMLInputElement>(null);
+  const [managerUnlocked, setManagerUnlocked] = useState(() => !farm.configured);
+  const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">("dados");
+  const [cadastrosTab, setCadastrosTab] = useState<"funcionarios" | "animais">("funcionarios");
+
+  // Dados tab state
   const [name, setName] = useState(farm.farmName);
   const [worker, setWorker] = useState(farm.worker);
+  const [diasPreventivo, setDiasPreventivo] = useState(farm.dias_para_preventivo);
+
+  // Cadastros tab state
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>(farm.funcionarios);
+  const [newFuncNome, setNewFuncNome] = useState("");
+  const [lotes, setLotes] = useState<string[]>(farm.lotes);
+  const [newLote, setNewLote] = useState("");
+  const [animais, setAnimais] = useState<RegisteredAnimal[]>(farm.animais ?? []);
+  const [newAnimalTag, setNewAnimalTag] = useState("");
+  const [newAnimalLote, setNewAnimalLote] = useState("");
+
   const valid = name.trim().length > 0;
+  const lastBackupAt = loadLastBackupAt();
 
-  return (
-    <div className="px-2 py-8">
-      <div className="mx-auto max-w-md space-y-5">
-        <div className="text-center">
-          <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-2xl bg-primary text-4xl text-primary-foreground stamp">
-            🐄
+  function addFuncionario() {
+    const nome = newFuncNome.trim();
+    if (!nome) return;
+    setFuncionarios((prev) => [...prev, { id: uid(), nome }]);
+    setNewFuncNome("");
+  }
+
+  function removeFuncionario(id: string) {
+    setFuncionarios((prev) => prev.filter((f) => f.id !== id));
+  }
+
+  function addLote() {
+    const lt = newLote.trim().toUpperCase();
+    if (!lt || lotes.includes(lt)) return;
+    setLotes((prev) => [...prev, lt]);
+    setNewLote("");
+  }
+
+  function removeLote(lt: string) {
+    setLotes((prev) => prev.filter((x) => x !== lt));
+  }
+
+  function addAnimal() {
+    const tag = newAnimalTag.trim();
+    if (!tag || animais.some((a) => a.tag === tag)) return;
+    setAnimais((prev) => [...prev, { tag, lote: newAnimalLote.trim().toUpperCase() || undefined }]);
+    setNewAnimalTag("");
+    setNewAnimalLote("");
+  }
+
+  function removeAnimal(tag: string) {
+    setAnimais((prev) => prev.filter((a) => a.tag !== tag));
+  }
+
+  function currentFarm(): FarmConfig {
+    return {
+      farmName: name.trim(),
+      worker: worker.trim(),
+      configured: true,
+      funcionarios,
+      lotes,
+      dias_para_preventivo: diasPreventivo,
+      animais,
+    };
+  }
+
+  function handleExport() {
+    const blob = new Blob([exportBackupJson()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const date = todayISO();
+    link.href = url;
+    link.download = `backup-cascos-${date}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImport(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importBackupJson(String(reader.result));
+        onImport();
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Não foi possível importar o backup.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  const tabBtnCls = (active: boolean) =>
+    cn(
+      "flex-1 rounded-xl py-2.5 font-display text-sm uppercase transition-all",
+      active ? "bg-primary text-primary-foreground stamp" : "bg-surface text-muted-foreground",
+    );
+
+  if (!managerUnlocked) {
+    return (
+      <div className="space-y-4 pb-8">
+        <div className="rounded-2xl border-2 border-primary/30 bg-card p-5 text-center stamp">
+          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <ShieldCheck className="h-8 w-8" />
           </div>
-          <h1 className="font-display text-3xl uppercase">Configuração</h1>
-        </div>
-        <div className="space-y-4 rounded-2xl bg-card p-5 stamp">
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Nome da fazenda
-            </span>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-4 py-4 font-display text-2xl uppercase outline-none focus:border-primary"
-              placeholder="Ex: Sítio São João"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Funcionário (opcional)
-            </span>
-            <input
-              value={worker}
-              onChange={(e) => setWorker(e.target.value)}
-              className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-4 py-4 text-lg outline-none focus:border-primary"
-              placeholder="Ex: João"
-            />
-          </label>
-        </div>
-        <button
-          disabled={!valid}
-          onClick={() => onSave({ farmName: name.trim(), worker: worker.trim(), configured: true })}
-          className={cn(
-            "tap-lg w-full rounded-2xl font-display text-2xl uppercase",
-            valid ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
-          )}
-        >
-          💾 Salvar
-        </button>
-
-        {/* Dados de teste */}
-        <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-5 space-y-3">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Dados de Teste
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Popula o sistema com 17 animais de exemplo para testar o app.
+          <p className="font-display text-2xl uppercase">Modo gerente</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Cadastros, backups e dados de teste ficam separados do uso de campo.
           </p>
           <button
             type="button"
-            onClick={onSeed}
-            className="tap w-full rounded-2xl border-2 border-border bg-card font-display text-base uppercase py-4"
+            onClick={() => setManagerUnlocked(true)}
+            className="tap-lg mt-4 w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp"
           >
-            🧪 Carregar Dados de Teste
+            Entrar no modo gerente
           </button>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 pb-8">
+      <div className="text-center">
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-3xl text-primary-foreground stamp">
+          🐄
+        </div>
+        <h1 className="font-display text-3xl uppercase">Configuração</h1>
+      </div>
+
+      {/* Tabs principais */}
+      <div className="flex gap-1.5 rounded-2xl bg-card p-1.5 stamp">
+        <button onClick={() => setConfigTab("dados")} className={tabBtnCls(configTab === "dados")}>
+          Dados
+        </button>
+        <button
+          onClick={() => setConfigTab("cadastros")}
+          className={tabBtnCls(configTab === "cadastros")}
+        >
+          Cadastros
+        </button>
+        <button
+          onClick={() => setConfigTab("avancado")}
+          className={tabBtnCls(configTab === "avancado")}
+        >
+          Avançado
+        </button>
+      </div>
+
+      {/* ── TAB: DADOS ── */}
+      {configTab === "dados" && (
+        <div className="space-y-4">
+          <div className="space-y-4 rounded-2xl bg-card p-5 stamp">
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Nome da fazenda
+              </span>
+              <input
+                name="nome-fazenda"
+                autoComplete="organization"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-4 py-4 font-display text-2xl uppercase outline-none focus:border-primary"
+                placeholder="Ex: Sítio São João…"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Responsável principal (opcional)
+              </span>
+              <input
+                name="responsavel-principal"
+                autoComplete="name"
+                value={worker}
+                onChange={(e) => setWorker(e.target.value)}
+                className="mt-1 w-full rounded-xl border-2 border-border bg-surface px-4 py-4 text-lg outline-none focus:border-primary"
+                placeholder="Ex: João…"
+              />
+            </label>
+          </div>
+          <button
+            disabled={!valid}
+            onClick={() => onSave(currentFarm())}
+            className={cn(
+              "tap-lg w-full rounded-2xl font-display text-2xl uppercase py-5",
+              valid ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
+            )}
+          >
+            💾 Salvar
+          </button>
+        </div>
+      )}
+
+      {/* ── TAB: CADASTROS ── */}
+      {configTab === "cadastros" && (
+        <div className="space-y-4">
+          {/* Sub-tabs */}
+          <div className="flex gap-1.5 rounded-2xl bg-card p-1.5 stamp">
+            <button
+              onClick={() => setCadastrosTab("funcionarios")}
+              className={tabBtnCls(cadastrosTab === "funcionarios")}
+            >
+              Funcionários
+            </button>
+            <button
+              onClick={() => setCadastrosTab("animais")}
+              className={tabBtnCls(cadastrosTab === "animais")}
+            >
+              Animais
+            </button>
+          </div>
+
+          {/* Funcionários */}
+          {cadastrosTab === "funcionarios" && (
+            <section className="space-y-3">
+              {funcionarios.length === 0 && (
+                <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
+                  <p className="text-3xl">👥</p>
+                  <p className="mt-2 font-display text-base uppercase text-muted-foreground">
+                    Nenhum funcionário
+                  </p>
+                </div>
+              )}
+              <ul className="space-y-2">
+                {funcionarios.map((fn) => (
+                  <li
+                    key={fn.id}
+                    className="flex items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 stamp"
+                  >
+                    <User className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 font-display text-base uppercase">{fn.nome}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeFuncionario(fn.id)}
+                      className="tap flex h-9 w-9 items-center justify-center rounded-xl bg-danger/10 text-danger"
+                      aria-label="Remover"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex gap-2">
+                <input
+                  name="novo-funcionario"
+                  aria-label="Nome do funcionário"
+                  value={newFuncNome}
+                  onChange={(e) => setNewFuncNome(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addFuncionario()}
+                  placeholder="Nome do funcionário…"
+                  autoComplete="off"
+                  className="flex-1 rounded-xl border-2 border-border bg-surface px-3 py-3 text-sm outline-none focus:border-primary"
+                />
+                <button
+                  type="button"
+                  onClick={addFuncionario}
+                  className="tap rounded-xl border-2 border-primary bg-primary px-4 py-3 text-primary-foreground"
+                  aria-label="Adicionar funcionário"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </div>
+              {/* Lotes dentro de Funcionários para agrupamento */}
+              <div className="rounded-2xl bg-card p-4 stamp space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Lotes
+                </p>
+                {lotes.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nenhum lote cadastrado.</p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {lotes.map((lt) => (
+                    <span
+                      key={lt}
+                      className="flex items-center gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/10 px-3 py-1.5"
+                    >
+                      <span className="font-display text-sm font-black uppercase text-primary">
+                        {lt}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLote(lt)}
+                        className="text-muted-foreground"
+                        aria-label="Remover lote"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    name="novo-lote"
+                    aria-label="Nome do lote"
+                    value={newLote}
+                    onChange={(e) => setNewLote(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addLote()}
+                    placeholder="Nome do lote (ex: A1)…"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="flex-1 rounded-xl border-2 border-border bg-surface px-3 py-2 text-sm uppercase outline-none focus:border-primary"
+                  />
+                  <button
+                    type="button"
+                    onClick={addLote}
+                    className="tap rounded-xl border-2 border-primary bg-primary px-4 py-2 text-primary-foreground"
+                    aria-label="Adicionar lote"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => onSave(currentFarm())}
+                className="tap-lg w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp"
+              >
+                💾 Salvar
+              </button>
+            </section>
+          )}
+
+          {/* Animais */}
+          {cadastrosTab === "animais" && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  {animais.length} animal(is) cadastrado(s)
+                </p>
+              </div>
+              {animais.length === 0 && (
+                <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
+                  <p className="text-3xl">🐄</p>
+                  <p className="mt-2 font-display text-base uppercase text-muted-foreground">
+                    Nenhum animal cadastrado
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Adicione animais para que apareçam na lista preventiva mesmo sem visitas
+                  </p>
+                </div>
+              )}
+              <ul className="space-y-2">
+                {animais.map((a) => (
+                  <li
+                    key={a.tag}
+                    className="flex items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 stamp"
+                  >
+                    <p className="w-12 shrink-0 font-display text-2xl font-black leading-none">
+                      {a.tag}
+                    </p>
+                    <span className="text-lg leading-none">🐄</span>
+                    {a.lote && (
+                      <span className="rounded-lg bg-primary/15 px-2 py-0.5 font-display text-xs font-black uppercase text-primary">
+                        {a.lote}
+                      </span>
+                    )}
+                    <div className="flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => removeAnimal(a.tag)}
+                      className="tap flex h-9 w-9 items-center justify-center rounded-xl bg-danger/10 text-danger"
+                      aria-label="Remover animal"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="rounded-2xl bg-card p-4 stamp space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Adicionar animal
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    name="novo-animal-brinco"
+                    aria-label="Brinco do animal"
+                    value={newAnimalTag}
+                    onChange={(e) => setNewAnimalTag(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addAnimal()}
+                    inputMode="numeric"
+                    placeholder="Brinco…"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-28 rounded-xl border-2 border-border bg-surface px-3 py-3 text-center font-display text-xl outline-none focus:border-primary"
+                  />
+                  {lotes.length > 0 && (
+                    <select
+                      name="novo-animal-lote"
+                      aria-label="Lote do animal"
+                      value={newAnimalLote}
+                      onChange={(e) => setNewAnimalLote(e.target.value)}
+                      className="flex-1 rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
+                    >
+                      <option value="">Lote (opcional)</option>
+                      {lotes.map((lt) => (
+                        <option key={lt} value={lt}>
+                          {lt}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    onClick={addAnimal}
+                    className="tap rounded-xl border-2 border-primary bg-primary px-4 py-3 text-primary-foreground"
+                    aria-label="Adicionar animal"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => onSave(currentFarm())}
+                className="tap-lg w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp"
+              >
+                💾 Salvar
+              </button>
+            </section>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: AVANÇADO ── */}
+      {configTab === "avancado" && (
+        <div className="space-y-4">
+          <section className="rounded-2xl bg-card p-5 stamp space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Casqueamento Preventivo
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Listar animais para preventivo após quantos dias?
+            </p>
+            <div className="flex items-center gap-4">
+              <input
+                name="dias-preventivo"
+                aria-label="Dias para casqueamento preventivo"
+                type="number"
+                min={30}
+                max={730}
+                value={diasPreventivo}
+                onChange={(e) => setDiasPreventivo(Number(e.target.value) || 180)}
+                className="w-28 rounded-xl border-2 border-border bg-surface px-3 py-3 text-center font-display text-2xl outline-none focus:border-primary"
+              />
+              <span className="text-sm text-muted-foreground">dias</span>
+            </div>
+          </section>
+          <button
+            disabled={!valid}
+            onClick={() => onSave(currentFarm())}
+            className={cn(
+              "tap-lg w-full rounded-2xl font-display text-2xl uppercase py-5",
+              valid ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
+            )}
+          >
+            💾 Salvar
+          </button>
+          <section className="rounded-2xl bg-card p-5 stamp space-y-3">
+            <div className="flex items-center gap-3">
+              <Database className="h-6 w-6 text-primary" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Backup do aparelho
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Os dados ficam salvos neste dispositivo.
+                  {lastBackupAt && (
+                    <>
+                      {" "}
+                      Último backup automático:{" "}
+                      {new Intl.DateTimeFormat("pt-BR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(lastBackupAt))}
+                      .
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImport(file);
+                e.currentTarget.value = "";
+              }}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleExport}
+                className="tap flex items-center justify-center gap-2 rounded-xl border-2 border-primary bg-primary/10 px-3 py-3 font-display text-sm uppercase text-primary"
+              >
+                <Download className="h-4 w-4" />
+                Exportar
+              </button>
+              <button
+                type="button"
+                onClick={() => importRef.current?.click()}
+                className="tap flex items-center justify-center gap-2 rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm uppercase"
+              >
+                <Upload className="h-4 w-4" />
+                Importar
+              </button>
+            </div>
+          </section>
+          <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-5 space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Dados de Teste
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Popula o sistema com animais de exemplo para testar o app.
+            </p>
+            <button
+              type="button"
+              onClick={onSeed}
+              className="tap w-full rounded-2xl border-2 border-border bg-card font-display text-base uppercase py-4"
+            >
+              🧪 Carregar Dados de Teste
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── Preventivo ───────────── */
+const DIAS_FILTROS = [
+  { label: "Todos", dias: null },
+  { label: "7+ dias", dias: 7 },
+  { label: "30+ dias", dias: 30 },
+  { label: "60+ dias", dias: 60 },
+  { label: "90+ dias", dias: 90 },
+  { label: "120+ dias", dias: 120 },
+] as const;
+
+function PreventiveScreen({
+  diasThreshold,
+  onNew,
+  onQuickPreventive,
+}: {
+  diasThreshold: number;
+  onNew: (tag: string) => void;
+  onQuickPreventive: (animal: PreventiveAnimal) => void;
+}) {
+  const [filtroMin, setFiltroMin] = useState<number | null>(null);
+  const [registrando, setRegistrando] = useState<string | null>(null);
+
+  function handleQuickPreventive(animal: PreventiveAnimal) {
+    if (registrando) return;
+    setRegistrando(animal.tag);
+    setTimeout(() => {
+      onQuickPreventive(animal);
+      setRegistrando(null);
+    }, 120);
+  }
+
+  // Passa threshold=0 para buscar todos os animais saudáveis.
+  const todos = useMemo(() => preventiveList(0), []);
+
+  const filtered = useMemo(() => {
+    if (filtroMin === null) return todos;
+    return todos.filter((a) => a.diasSemCasqueamento < 0 || a.diasSemCasqueamento >= filtroMin);
+  }, [todos, filtroMin]);
+
+  const nunca = filtered.filter((a) => a.diasSemCasqueamento < 0).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Cabeçalho */}
+      <div className="rounded-2xl bg-card p-4 stamp">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-2xl">
+            ✂️
+          </div>
+          <div>
+            <p className="font-display text-lg font-black uppercase">Casqueamento Preventivo</p>
+            <p className="text-sm text-muted-foreground">
+              {todos.length} animal(is) sem problema ativo
+            </p>
+          </div>
+        </div>
+        {nunca > 0 && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-warn/10 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warn-foreground" />
+            <p className="text-sm font-bold text-warn-foreground">
+              {nunca} animal(is) nunca receberam casqueamento preventivo
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Filtro por dias */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Mostrar animais sem casquear há:
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {DIAS_FILTROS.map(({ label, dias }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setFiltroMin(dias)}
+              className={cn(
+                "tap rounded-xl border-2 px-4 py-2 font-display text-sm uppercase",
+                filtroMin === dias
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <p className="px-1 text-xs text-muted-foreground">
+        {filtered.length} animal(is) · ordenado do mais urgente
+      </p>
+
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
+          <p className="text-4xl">✅</p>
+          <p className="mt-2 font-display text-lg uppercase">Nenhum animal neste filtro</p>
+          <button
+            type="button"
+            onClick={() => setFiltroMin(null)}
+            className="mt-3 rounded-full bg-muted px-4 py-2 font-display text-sm uppercase text-muted-foreground"
+          >
+            Ver todos
+          </button>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {filtered.map((a) => {
+            const nunca = a.diasSemCasqueamento < 0;
+            const vencido = !nunca && diasThreshold > 0 && a.diasSemCasqueamento >= diasThreshold;
+            const isSaving = registrando === a.tag;
+
+            return (
+              <li key={a.tag}>
+                <div
+                  className={cn(
+                    "flex w-full flex-col gap-3 rounded-2xl border-2 bg-card p-4 sm:flex-row sm:items-center",
+                    nunca
+                      ? "border-danger/50 bg-danger/5"
+                      : vencido
+                        ? "border-warn/50 bg-warn/5"
+                        : "border-border",
+                    registrando !== null && !isSaving && "opacity-60",
+                  )}
+                >
+                  {/* Brinco */}
+                  <div className="w-16 shrink-0 text-center">
+                    <p className="font-display text-4xl font-black leading-none">{a.tag}</p>
+                    <p className="mt-0.5 text-xl leading-none">{a.sex === "vaca" ? "🐄" : "🐂"}</p>
+                    {a.lote && (
+                      <span className="mt-0.5 inline-block rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-black uppercase text-primary">
+                        {a.lote}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="min-w-0 flex-1">
+                    {nunca ? (
+                      <p className="font-display text-lg font-black uppercase text-danger">
+                        ⚠️ Nunca casqueado
+                      </p>
+                    ) : (
+                      <p
+                        className={cn(
+                          "font-display text-lg font-black uppercase",
+                          vencido ? "text-warn-foreground" : "text-foreground",
+                        )}
+                      >
+                        {a.diasSemCasqueamento} dias sem casquear
+                      </p>
+                    )}
+                    {a.lastPreventivoDate && (
+                      <p className="text-sm text-muted-foreground">
+                        Último preventivo:{" "}
+                        {new Date(a.lastPreventivoDate + "T12:00:00").toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "2-digit",
+                        })}
+                      </p>
+                    )}
+                    {a.hasProblemaHistorico && (
+                      <span className="mt-1 inline-block rounded bg-warn/10 px-2 py-0.5 text-[11px] font-bold uppercase text-warn-foreground">
+                        ⚠️ Teve problema antes
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid shrink-0 grid-cols-2 gap-2 sm:w-40 sm:grid-cols-1">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickPreventive(a)}
+                      disabled={registrando !== null}
+                      aria-label={`Registrar preventivo OK para brinco ${a.tag}`}
+                      className={cn(
+                        "tap min-h-14 rounded-xl border-2 px-3 py-2 font-display text-sm font-black uppercase transition-transform active:scale-[0.98]",
+                        isSaving
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-primary bg-primary text-primary-foreground",
+                      )}
+                    >
+                      {isSaving ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="h-5 w-5 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                          Salvando
+                        </span>
+                      ) : (
+                        <span className="flex items-center justify-center gap-2">
+                          <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                          OK
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNew(a.tag)}
+                      disabled={registrando !== null}
+                      aria-label={`Abrir registro detalhado para brinco ${a.tag}`}
+                      className="tap min-h-14 rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-sm font-black uppercase text-foreground transition-transform active:scale-[0.98]"
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        <Scissors className="h-5 w-5 text-primary" aria-hidden="true" />
+                        Detalhar
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
