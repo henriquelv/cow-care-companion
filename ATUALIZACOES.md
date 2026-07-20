@@ -8,6 +8,40 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-20 - Configuração do projeto Supabase de teste
+
+### O que foi feito
+
+- Corrigida a URL do projeto de teste para a URL oficial informada no painel.
+- Configurada a chave pública `sb_publishable` localmente e no ambiente de produção versionado.
+- Mantidas a chave secreta e a `service_role` fora do código, do bundle do navegador e do GitHub.
+- Confirmado que o endpoint de autenticação responde com HTTP 200 e aceita a chave pública.
+- Confirmado que o projeto está vazio e ainda não possui as tabelas do Gestão de Cascos.
+- Alinhados os UUIDs da migration inicial com os UUIDs usados no catálogo offline.
+- A migration inicial agora cria a autenticação de funcionário, permissões mínimas e o bucket privado `media` com políticas para fotos.
+- Corrigido o sync para não enviar campos de funcionário a tabelas que não possuem essas colunas.
+- Aparelhos ativados offline passam a ser registrados automaticamente no primeiro sync válido.
+- A sessão local do Supabase CLI foi testada, mas a conta autenticada não possui permissão sobre este projeto.
+
+### Por que foi feito
+
+- Evitar exposição de credenciais administrativas no aplicativo Vite.
+- Evitar falhas de sync por incompatibilidade entre payload e schema.
+- Permitir que dados criados offline usem os mesmos identificadores no banco remoto.
+
+### Como validar
+
+- Executar a migration `202605280001_multi_fazenda_cascos.sql` no SQL Editor do projeto.
+- Confirmar as tabelas `clients`, `farms`, `employees`, `hoof_visits` e `hoof_feet` e o bucket `media`.
+- Repetir a ativação com `STARMILK` e `HULLSJOB` e testar sincronização entre dois aparelhos.
+- Rodar `npm run test`, `npm run lint` e `npm run build`.
+
+### Próximos passos
+
+- Aplicar a migration pelo SQL Editor da conta proprietária ou autenticar o Supabase CLI nessa conta.
+- Publicar a configuração de produção e validar o deploy ligado à Vercel.
+- Revogar e recriar as chaves elevadas compartilhadas durante o teste antes de colocar dados reais no sistema.
+
 ## 2026-07-20 - Correção da ativação sem servidor configurado
 
 ### O que foi feito

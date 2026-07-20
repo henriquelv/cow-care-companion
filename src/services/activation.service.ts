@@ -235,7 +235,11 @@ export const activationService = {
     const [farmResult, employeeResult, assignmentResult, deviceResult, licensesResult] =
       await Promise.all([
         supabase.from("farms").select("*").eq("id", ctx.farm_id).maybeSingle(),
-        supabase.from("employees").select("*").eq("id", ctx.employee_id).maybeSingle(),
+        supabase
+          .from("employees")
+          .select("id,farm_id,client_id,employee_code,login_name,name,status,is_admin,admin_pin")
+          .eq("id", ctx.employee_id)
+          .maybeSingle(),
         supabase
           .from("employee_farms")
           .select("farm_id")
@@ -271,7 +275,7 @@ export const activationService = {
     if (!assignmentResult.data) {
       return { ok: false, message: "Funcionário sem acesso a esta fazenda." };
     }
-    if (!deviceResult.data || deviceResult.data.status === "blocked") {
+    if (deviceResult.data?.status === "blocked") {
       return { ok: false, message: "Aparelho bloqueado." };
     }
 
@@ -281,6 +285,22 @@ export const activationService = {
       return true;
     });
     if (!activeLicense) return { ok: false, message: "Licença expirada ou bloqueada." };
+
+    if (!deviceResult.data) {
+      const { error: deviceError } = await supabase.from("devices").upsert(
+        {
+          farm_id: ctx.farm_id,
+          employee_id: ctx.employee_id,
+          device_id: ctx.device_id,
+          device_name:
+            typeof navigator === "undefined" ? "Navegador" : navigator.userAgent.slice(0, 120),
+          status: "active",
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: "farm_id,device_id" },
+      );
+      if (deviceError) throw deviceError;
+    }
 
     farmContextService.updateContext({
       client_id: farmResult.data.client_id ?? ctx.client_id,

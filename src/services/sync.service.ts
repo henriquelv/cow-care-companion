@@ -27,6 +27,34 @@ function conflictTarget(tableName: string) {
   }
 }
 
+export function scopeSyncPayload(
+  tableName: string,
+  payload: Record<string, unknown>,
+  context: {
+    farm_id: string;
+    employee_id: string;
+    employee_name: string;
+    device_id: string;
+  },
+) {
+  const {
+    employee_id: _employeeId,
+    employee_name: _employeeName,
+    device_id: _deviceId,
+    ...tablePayload
+  } = payload;
+  const scopedPayload = { ...tablePayload, farm_id: context.farm_id };
+
+  return tableName === "hoof_visits"
+    ? {
+        ...scopedPayload,
+        employee_id: context.employee_id,
+        employee_name: context.employee_name,
+        device_id: context.device_id,
+      }
+    : scopedPayload;
+}
+
 export const syncService = {
   isSyncing: false,
 
@@ -51,13 +79,7 @@ export const syncService = {
         if (item.farm_id !== ctx.farm_id) continue;
         const payload =
           item.payload && typeof item.payload === "object"
-            ? {
-                ...(item.payload as Record<string, unknown>),
-                farm_id: ctx.farm_id,
-                employee_id: ctx.employee_id,
-                employee_name: ctx.employee_name,
-                device_id: ctx.device_id,
-              }
+            ? scopeSyncPayload(item.tableName, item.payload as Record<string, unknown>, ctx)
             : item.payload;
 
         let tableName = item.tableName;

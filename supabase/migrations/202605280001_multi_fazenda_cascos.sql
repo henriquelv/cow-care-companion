@@ -181,14 +181,14 @@ create unique index if not exists idx_employees_client_code
   on public.employees(client_id, employee_code)
   where client_id is not null and employee_code is not null;
 
-insert into public.clients (name, activation_code, status)
-values ('StarMilk', 'STARMILK', 'active')
+insert into public.clients (id, name, activation_code, status)
+values ('10000000-0000-4000-8000-000000000001', 'StarMilk', 'STARMILK', 'active')
 on conflict (activation_code) do update
 set name = excluded.name,
     status = excluded.status;
 
-insert into public.farms (client_id, name, activation_code, status)
-select id, 'StarMilk', 'STARMILK', 'active'
+insert into public.farms (id, client_id, name, activation_code, status)
+select '20000000-0000-4000-8000-000000000001', id, 'StarMilk', 'STARMILK', 'active'
 from public.clients
 where activation_code = 'STARMILK'
 on conflict (activation_code) do update
@@ -196,14 +196,14 @@ set client_id = excluded.client_id,
     name = excluded.name,
     status = excluded.status;
 
-insert into public.clients (name, activation_code, status)
-values ('Hullsjob', 'HULLSJOB', 'active')
+insert into public.clients (id, name, activation_code, status)
+values ('10000000-0000-4000-8000-000000000002', 'Hullsjob', 'HULLSJOB', 'active')
 on conflict (activation_code) do update
 set name = excluded.name,
     status = excluded.status;
 
-insert into public.farms (client_id, name, activation_code, status)
-select id, 'Fazenda Vitória', 'HULLSJOB-VITORIA', 'active'
+insert into public.farms (id, client_id, name, activation_code, status)
+select '20000000-0000-4000-8000-000000000002', id, 'Fazenda Vitória', 'HULLSJOB-VITORIA', 'active'
 from public.clients
 where activation_code = 'HULLSJOB'
 on conflict (activation_code) do update
@@ -216,24 +216,25 @@ where name = 'Teste'
   and farm_id in (select id from public.farms where activation_code = 'STARMILK');
 
 insert into public.employees (
-  farm_id, client_id, employee_code, login_name, password_hash, name, is_admin, admin_pin
+  id, farm_id, client_id, employee_code, login_name, password_hash, name, is_admin, admin_pin
 )
-select f.id, f.client_id, '001', 'StarMilk', crypt('1234', gen_salt('bf')), 'StarMilk', true, null
+select '30000000-0000-4000-8000-000000000001', f.id, f.client_id,
+       '001', 'StarMilk', crypt('1234', gen_salt('bf')), 'StarMilk', true, null
 from public.farms f
 where f.activation_code = 'STARMILK'
 on conflict do nothing;
 
 insert into public.employees (
-  farm_id, client_id, employee_code, login_name, password_hash, name, is_admin, admin_pin
+  id, farm_id, client_id, employee_code, login_name, password_hash, name, is_admin, admin_pin
 )
-select f.id, f.client_id, seed.employee_code, seed.login_name,
+select seed.id, f.id, f.client_id, seed.employee_code, seed.login_name,
        crypt('1234', gen_salt('bf')), seed.name, false, null
 from public.farms f
 cross join (values
-  ('001', 'Romano', 'Romano'),
-  ('002', 'Jeová', 'Jeová'),
-  ('003', 'Patrick', 'Patrick')
-) as seed(employee_code, login_name, name)
+  ('30000000-0000-4000-8000-000000000002'::uuid, '001', 'Romano', 'Romano'),
+  ('30000000-0000-4000-8000-000000000003'::uuid, '002', 'Jeová', 'Jeová'),
+  ('30000000-0000-4000-8000-000000000004'::uuid, '003', 'Patrick', 'Patrick')
+) as seed(id, employee_code, login_name, name)
 where f.activation_code = 'HULLSJOB-VITORIA'
 on conflict do nothing;
 
@@ -254,6 +255,132 @@ where activation_code = 'STARMILK'
     from public.licenses
     where licenses.farm_id = farms.id
   );
+
+create or replace function public.authenticate_hoof_employee(
+  p_activation_code text,
+  p_login text,
+  p_password text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  selected_client public.clients%rowtype;
+  selected_employee public.employees%rowtype;
+  allowed_farms jsonb;
+begin
+  select * into selected_client
+  from public.clients
+  where activation_code = upper(trim(p_activation_code))
+    and status = 'active';
+
+  if selected_client.id is null then
+    return null;
+  end if;
+
+  select * into selected_employee
+  from public.employees
+  where client_id = selected_client.id
+    and status = 'active'
+    and (
+      lower(login_name) = lower(trim(p_login))
+      or employee_code = trim(p_login)
+    )
+    and password_hash is not null
+    and password_hash = crypt(p_password, password_hash)
+  limit 1;
+
+  if selected_employee.id is null then
+    return null;
+  end if;
+
+  select coalesce(jsonb_agg(to_jsonb(f) order by f.name), '[]'::jsonb)
+  into allowed_farms
+  from public.employee_farms ef
+  join public.farms f on f.id = ef.farm_id
+  where ef.employee_id = selected_employee.id
+    and f.client_id = selected_client.id
+    and f.status = 'active'
+    and exists (
+      select 1
+      from public.licenses l
+      where l.farm_id = f.id
+        and l.status = 'active'
+        and (l.expires_at is null or l.expires_at >= now())
+    );
+
+  return jsonb_build_object(
+    'client', jsonb_build_object(
+      'id', selected_client.id,
+      'name', selected_client.name,
+      'activation_code', selected_client.activation_code,
+      'status', selected_client.status,
+      'max_devices', selected_client.max_devices,
+      'grace_period_days', selected_client.grace_period_days
+    ),
+    'employee', jsonb_build_object(
+      'id', selected_employee.id,
+      'farm_id', selected_employee.farm_id,
+      'client_id', selected_employee.client_id,
+      'employee_code', selected_employee.employee_code,
+      'login_name', selected_employee.login_name,
+      'name', selected_employee.name,
+      'status', selected_employee.status,
+      'is_admin', selected_employee.is_admin,
+      'admin_pin', selected_employee.admin_pin
+    ),
+    'farms', allowed_farms
+  );
+end;
+$$;
+
+revoke all on function public.authenticate_hoof_employee(text, text, text) from public;
+grant execute on function public.authenticate_hoof_employee(text, text, text) to anon, authenticated;
+
+grant usage on schema public to anon, authenticated;
+grant usage, select on all sequences in schema public to anon, authenticated;
+grant select on public.clients, public.farms, public.employee_farms, public.licenses to anon, authenticated;
+grant select (
+  id, farm_id, client_id, employee_code, login_name, name, status, is_admin, admin_pin,
+  created_at, updated_at
+) on public.employees to anon, authenticated;
+grant select, insert, update on public.devices to anon, authenticated;
+grant select, insert, update, delete on
+  public.hoof_visits,
+  public.hoof_feet,
+  public.animals,
+  public.farm_lotes,
+  public.hoof_media,
+  public.hoof_corrections,
+  public.farm_settings
+to anon, authenticated;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('media', 'media', false, 10485760, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update
+set file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "hoof media read" on storage.objects;
+create policy "hoof media read"
+on storage.objects for select
+to anon, authenticated
+using (bucket_id = 'media');
+
+drop policy if exists "hoof media insert" on storage.objects;
+create policy "hoof media insert"
+on storage.objects for insert
+to anon, authenticated
+with check (bucket_id = 'media');
+
+drop policy if exists "hoof media update" on storage.objects;
+create policy "hoof media update"
+on storage.objects for update
+to anon, authenticated
+using (bucket_id = 'media')
+with check (bucket_id = 'media');
 
 insert into public.licenses (farm_id, status, starts_at, expires_at)
 select id, 'active', now(), now() + interval '15 days'
