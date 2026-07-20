@@ -22,6 +22,11 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Corrigido o sync para não enviar campos de funcionário a tabelas que não possuem essas colunas.
 - Aparelhos ativados offline passam a ser registrados automaticamente no primeiro sync válido.
 - A sessão local do Supabase CLI foi testada, mas a conta autenticada não possui permissão sobre este projeto.
+- A migration foi executada no projeto de teste e foram confirmadas 2 empresas, 2 fazendas e 4 funcionários.
+- Corrigido o `search_path` da função de login para encontrar o `pgcrypto` no schema `extensions` do Supabase.
+- Criada a migration incremental `202607200002_fix_auth_search_path.sql` para corrigir o projeto já provisionado.
+- Validada criação, leitura e exclusão de uma visita e um pé temporários usando a chave pública; nenhum dado de teste permaneceu no banco.
+- O patch incremental também garante a criação do bucket privado `media` e políticas de leitura, upload, atualização e exclusão para validar fotos sem deixar resíduos.
 
 ### Por que foi feito
 
@@ -32,6 +37,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 ### Como validar
 
 - Executar a migration `202605280001_multi_fazenda_cascos.sql` no SQL Editor do projeto.
+- Em bancos já provisionados, executar `202607200002_fix_auth_search_path.sql`.
 - Confirmar as tabelas `clients`, `farms`, `employees`, `hoof_visits` e `hoof_feet` e o bucket `media`.
 - Repetir a ativação com `STARMILK` e `HULLSJOB` e testar sincronização entre dois aparelhos.
 - Rodar `npm run test`, `npm run lint` e `npm run build`.

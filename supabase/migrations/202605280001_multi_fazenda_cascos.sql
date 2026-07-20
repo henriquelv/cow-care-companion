@@ -264,7 +264,7 @@ create or replace function public.authenticate_hoof_employee(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   selected_client public.clients%rowtype;
@@ -381,6 +381,12 @@ on storage.objects for update
 to anon, authenticated
 using (bucket_id = 'media')
 with check (bucket_id = 'media');
+
+drop policy if exists "hoof media delete" on storage.objects;
+create policy "hoof media delete"
+on storage.objects for delete
+to anon, authenticated
+using (bucket_id = 'media');
 
 insert into public.licenses (farm_id, status, starts_at, expires_at)
 select id, 'active', now(), now() + interval '15 days'

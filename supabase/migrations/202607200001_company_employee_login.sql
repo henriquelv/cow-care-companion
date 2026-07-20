@@ -111,7 +111,7 @@ create or replace function public.authenticate_hoof_employee(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   selected_client public.clients%rowtype;
