@@ -43,11 +43,6 @@ export type TreatmentCode =
 
 export type CommentCode = "D1" | "D2" | "D3" | "D4" | "D5" | "D6";
 
-export interface Funcionario {
-  id: string;
-  nome: string;
-}
-
 export interface DiseaseEntry {
   code: LesionCode;
   severity: Severity;
@@ -100,7 +95,6 @@ export interface FarmConfig {
   farmName: string;
   worker: string;
   configured: boolean;
-  funcionarios: Funcionario[];
   lotes: string[];
   dias_para_preventivo: number;
   animais: RegisteredAnimal[]; // animais cadastrados manualmente
@@ -299,6 +293,52 @@ export const QUICK_RECHECK_OPTIONS = [
   { days: 7, label: "1 semana" },
 ] as const;
 
+export const CURATIVE_DEADLINES = {
+  digitalDermatitis: 7,
+  soleUlcerOrWhiteLine: 21,
+  other: 30,
+} as const;
+
+export type CurativeCategory = "digital_dermatitis" | "sole_ulcer_white_line" | "other";
+
+export interface CurativeFollowup {
+  id: string;
+  tag: string;
+  sex: Sex;
+  lote?: string;
+  foot: FootKey;
+  visitId: string;
+  treatmentDate: string;
+  dueDate: string;
+  targetDays: number;
+  elapsedDays: number;
+  remainingDays: number;
+  category: CurativeCategory;
+  diseases: LesionCode[];
+  status: "overdue" | "today" | "upcoming";
+}
+
+export interface CurativeMetrics {
+  open: number;
+  overdue: number;
+  dueToday: number;
+  released: number;
+  averageDaysToRelease: number | null;
+}
+
+export interface AgendaItem {
+  id: string;
+  date: string;
+  type: "recheck" | "curative";
+  tag: string;
+  sex: Sex;
+  lote?: string;
+  feet: FootKey[];
+  title: string;
+  detail: string;
+  overdue: boolean;
+}
+
 export function normalizeSeverity(value: unknown): Severity {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
@@ -311,6 +351,29 @@ export function dateAfterDays(days: number, fromISO = todayISO()) {
   base.setDate(base.getDate() + days);
   const tz = base.getTimezoneOffset() * 60000;
   return new Date(base.getTime() - tz).toISOString().slice(0, 10);
+}
+
+function daysBetweenISO(fromISO: string, toISO: string) {
+  const from = new Date(`${fromISO}T12:00:00`).getTime();
+  const to = new Date(`${toISO}T12:00:00`).getTime();
+  return Math.max(0, Math.round((to - from) / 86400000));
+}
+
+export function curativeDeadlineForDiseases(diseases: DiseaseEntry[] = []): {
+  days: number;
+  category: CurativeCategory;
+} {
+  const activeCodes = diseases.filter((d) => d.severity > 0).map((d) => d.code);
+  if (activeCodes.includes("DD")) {
+    return { days: CURATIVE_DEADLINES.digitalDermatitis, category: "digital_dermatitis" };
+  }
+  if (activeCodes.some((code) => code === "SU" || code === "LB")) {
+    return {
+      days: CURATIVE_DEADLINES.soleUlcerOrWhiteLine,
+      category: "sole_ulcer_white_line",
+    };
+  }
+  return { days: CURATIVE_DEADLINES.other, category: "other" };
 }
 
 type LegacyFootEntry = Partial<FootEntry> & {
@@ -587,13 +650,20 @@ export function addVisit(v: Visit) {
     ]);
   }
   void enqueueOutboxMany([
-    { tableName: "hoof_visits", op: "upsert", payload: syncPayloads.visit },
+    {
+      farm_id: v.farm_id!,
+      tableName: "hoof_visits",
+      op: "upsert",
+      payload: syncPayloads.visit,
+    },
     ...syncPayloads.feet.map((payload) => ({
+      farm_id: v.farm_id!,
       tableName: "hoof_feet",
       op: "upsert" as const,
       payload,
     })),
     ...syncPayloads.media.map((payload) => ({
+      farm_id: v.farm_id!,
       tableName: "hoof_media",
       op: "upsert" as const,
       payload,
@@ -642,7 +712,6 @@ function normalizeFarm(stored: Partial<FarmConfig>): FarmConfig {
     farmName: stored.farmName ?? "",
     worker: stored.worker ?? "",
     configured: stored.configured ?? false,
-    funcionarios: stored.funcionarios ?? [],
     lotes: stored.lotes ?? [],
     dias_para_preventivo: stored.dias_para_preventivo ?? 180,
     animais: stored.animais ?? [],
@@ -875,7 +944,6 @@ const FARM_DEFAULT: FarmConfig = {
   farmName: "",
   worker: "",
   configured: false,
-  funcionarios: [],
   lotes: [],
   dias_para_preventivo: 180,
   animais: [],
@@ -932,6 +1000,7 @@ export function saveFarm(f: FarmConfig) {
     }
     void enqueueOutboxMany([
       {
+        farm_id: ctx.farm_id,
         tableName: "farm_settings",
         op: "upsert",
         payload: {
@@ -942,6 +1011,7 @@ export function saveFarm(f: FarmConfig) {
         },
       },
       ...f.lotes.map((lote) => ({
+        farm_id: ctx.farm_id,
         tableName: "farm_lotes",
         op: "upsert" as const,
         payload: {
@@ -952,6 +1022,7 @@ export function saveFarm(f: FarmConfig) {
         },
       })),
       ...f.animais.map((animal) => ({
+        farm_id: ctx.farm_id,
         tableName: "animals",
         op: "upsert" as const,
         payload: {
@@ -1005,8 +1076,12 @@ export function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export function rechecksByDate(): Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]> {
-  const visits = loadVisits().sort((a, b) => b.createdAt - a.createdAt);
+export function rechecksByDate(
+  employeeId?: string,
+): Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]> {
+  const visits = loadVisits()
+    .filter((visit) => !employeeId || visit.employee_id === employeeId)
+    .sort((a, b) => b.createdAt - a.createdAt);
   const map = new Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]>();
   const seen = new Set<string>();
   for (const v of visits) {
@@ -1030,522 +1105,128 @@ export function rechecksByDate(): Map<string, { tag: string; sex: Sex; feet: Foo
   return map;
 }
 
-export function seedMockData(replace = false) {
-  if (!canUseStorage()) return;
-  const existing = loadVisits();
-  if (existing.length > 0 && !replace) return;
+export function curativeFollowups(
+  referenceDate = todayISO(),
+  employeeId?: string,
+): CurativeFollowup[] {
+  const visits = loadVisits()
+    .filter((visit) => !employeeId || visit.employee_id === employeeId)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const seen = new Set<string>();
+  const followups: CurativeFollowup[] = [];
 
-  const base = Date.now();
-  const day = 86400000;
+  for (const visit of visits) {
+    for (const foot of visit.feet) {
+      const key = `${visit.tag.toLowerCase()}_${foot.foot}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
 
-  function mkDate(daysAgo: number): string {
-    const d = new Date(base - daysAgo * day);
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      const activeDiseases = (foot.diseases ?? []).filter((d) => d.severity > 0);
+      const treated = (foot.treatments ?? []).some((treatment) => treatment !== "NADA");
+      if (
+        foot.ok ||
+        foot.resolved ||
+        foot.data_liberacao ||
+        !treated ||
+        activeDiseases.length === 0
+      ) {
+        continue;
+      }
+
+      const rule = curativeDeadlineForDiseases(activeDiseases);
+      const dueDate = dateAfterDays(rule.days, visit.date);
+      const elapsedDays = daysBetweenISO(visit.date, referenceDate);
+      const remainingDays = rule.days - elapsedDays;
+      followups.push({
+        id: `${visit.id}_${foot.foot}_curative`,
+        tag: visit.tag,
+        sex: visit.sex,
+        lote: visit.lote,
+        foot: foot.foot,
+        visitId: visit.id,
+        treatmentDate: visit.date,
+        dueDate,
+        targetDays: rule.days,
+        elapsedDays,
+        remainingDays,
+        category: rule.category,
+        diseases: activeDiseases.map((d) => d.code),
+        status:
+          dueDate < referenceDate ? "overdue" : dueDate === referenceDate ? "today" : "upcoming",
+      });
+    }
   }
 
-  function mkTs(daysAgo: number, offsetMs = 0): number {
-    return base - daysAgo * day + offsetMs;
+  return followups.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.tag.localeCompare(b.tag));
+}
+
+export function curativeMetrics(referenceDate = todayISO()): CurativeMetrics {
+  const openFollowups = curativeFollowups(referenceDate);
+  const releasedDurations: number[] = [];
+
+  for (const visit of loadVisits()) {
+    for (const foot of visit.feet) {
+      if (!foot.data_liberacao) continue;
+      releasedDurations.push(daysBetweenISO(visit.date, foot.data_liberacao));
+    }
   }
 
-  function f(key: FootKey, overrides: Partial<FootEntry> = {}): FootEntry {
-    return { foot: key, ok: true, zones: [], diseases: [], treatments: [], ...overrides };
+  return {
+    open: openFollowups.length,
+    overdue: openFollowups.filter((item) => item.status === "overdue").length,
+    dueToday: openFollowups.filter((item) => item.status === "today").length,
+    released: releasedDurations.length,
+    averageDaysToRelease:
+      releasedDurations.length > 0
+        ? Math.round(
+            (releasedDurations.reduce((total, days) => total + days, 0) /
+              releasedDurations.length) *
+              10,
+          ) / 10
+        : null,
+  };
+}
+
+export function agendaByDate(
+  referenceDate = todayISO(),
+  employeeId?: string,
+): Map<string, AgendaItem[]> {
+  const map = new Map<string, AgendaItem[]>();
+  const add = (item: AgendaItem) => map.set(item.date, [...(map.get(item.date) ?? []), item]);
+
+  for (const [date, items] of rechecksByDate(employeeId)) {
+    for (const item of items) {
+      add({
+        id: `recheck_${date}_${item.tag}`,
+        date,
+        type: "recheck",
+        tag: item.tag,
+        sex: item.sex,
+        feet: item.feet,
+        title: "Revisão clínica",
+        detail: `Pé(s): ${item.feet.join(" · ")}`,
+        overdue: date < referenceDate,
+      });
+    }
   }
 
-  const lotes = ["A1", "B2", "C3"];
-
-  const visits: Visit[] = [
-    {
-      id: uid(),
-      date: mkDate(45),
-      createdAt: mkTs(45),
-      tag: "1284",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "DD", severity: 3, zones: [6, 10] }],
-          treatments: ["SPRAY"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE", {
-          ok: false,
-          diseases: [{ code: "SH", severity: 2, zones: [0] }],
-          treatments: ["TRIM"],
-          numero_revisoes: 1,
-        }),
-        f("TD"),
-      ],
-    },
-    {
-      id: uid(),
-      date: mkDate(14),
-      createdAt: mkTs(14),
-      tag: "1284",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "DD", severity: 2, zones: [6] }],
-          treatments: ["SPRAY", "BAND_ON"],
-          recheck: true,
-          recheckDate: mkDate(-7),
-          numero_revisoes: 2,
-        }),
-        f("FD"),
-        f("TE", {
-          ok: false,
-          diseases: [{ code: "SH", severity: 1, zones: [0, 4] }],
-          treatments: ["TRIM"],
-          numero_revisoes: 2,
-        }),
-        f("TD"),
-      ],
-    },
-    {
-      id: uid(),
-      date: mkDate(0),
-      createdAt: mkTs(0, -3600000),
-      tag: "1284",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "DD", severity: 1, zones: [6] }],
-          treatments: ["SPRAY"],
-          numero_revisoes: 3,
-        }),
-        f("FD"),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(30),
-      createdAt: mkTs(30),
-      tag: "502",
-      sex: "vaca",
-      lote: "B2",
-      feet: [
-        f("FE"),
-        f("FD", {
-          ok: false,
-          diseases: [{ code: "SU", severity: 3, zones: [5] }],
-          treatments: ["TRIM", "BLOCO_ON", "BAND_ON", "INJ_ATB"],
-          numero_revisoes: 1,
-        }),
-        f("TE"),
-        f("TD", {
-          ok: false,
-          diseases: [{ code: "SU", severity: 3, zones: [5] }],
-          treatments: ["TRIM", "BLOCO_ON"],
-          numero_revisoes: 1,
-        }),
-      ],
-    },
-    {
-      id: uid(),
-      date: mkDate(7),
-      createdAt: mkTs(7),
-      tag: "502",
-      sex: "vaca",
-      lote: "B2",
-      feet: [
-        f("FE"),
-        f("FD", {
-          ok: false,
-          diseases: [{ code: "SU", severity: 1, zones: [5] }],
-          treatments: ["BLOCO_OFF", "SPRAY"],
-          resolved: true,
-          data_liberacao: mkDate(7),
-          numero_revisoes: 2,
-        }),
-        f("TE"),
-        f("TD", {
-          ok: false,
-          diseases: [{ code: "SU", severity: 1, zones: [5] }],
-          treatments: ["SPRAY"],
-          resolved: true,
-          data_liberacao: mkDate(7),
-          numero_revisoes: 2,
-        }),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(5),
-      createdAt: mkTs(5),
-      tag: "3871",
-      sex: "touro",
-      lote: "C3",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [
-            { code: "DD", severity: 2, zones: [6, 10] },
-            { code: "HHE", severity: 2, zones: [10, 11] },
-          ],
-          treatments: ["SPRAY", "SCORING"],
-          numero_revisoes: 1,
-        }),
-        f("FD", {
-          ok: false,
-          diseases: [
-            { code: "DD", severity: 3, zones: [8, 12] },
-            { code: "HHE", severity: 3, zones: [11, 12] },
-          ],
-          treatments: ["SPRAY", "SCORING", "INJ_AINE"],
-          numero_revisoes: 1,
-        }),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(20),
-      createdAt: mkTs(20),
-      tag: "94",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "LB", severity: 2, zones: [2, 3] }],
-          treatments: ["TRIM"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(3),
-      createdAt: mkTs(3),
-      tag: "2210",
-      sex: "vaca",
-      lote: "B2",
-      feet: [
-        f("FE"),
-        f("FD"),
-        f("TE", {
-          ok: false,
-          diseases: [{ code: "FF", severity: 3, zones: [0, 6, 7] }],
-          treatments: ["TRIM", "BAND_ON", "INJ_ATB"],
-          recheck: true,
-          recheckDate: mkDate(-2),
-          numero_revisoes: 1,
-        }),
-        f("TD", {
-          ok: false,
-          diseases: [{ code: "DD", severity: 2, zones: [8] }],
-          treatments: ["SPRAY"],
-          numero_revisoes: 1,
-        }),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(10),
-      createdAt: mkTs(10),
-      tag: "765",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "TS", severity: 1, zones: [0] }],
-          treatments: ["ALIVIO", "BLOCO_ON"],
-          numero_revisoes: 1,
-        }),
-        f("FD", {
-          ok: false,
-          diseases: [{ code: "TS", severity: 1, zones: [0] }],
-          treatments: ["ALIVIO", "BLOCO_ON"],
-          numero_revisoes: 1,
-        }),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(12),
-      createdAt: mkTs(12),
-      tag: "1033",
-      sex: "vaca",
-      lote: "C3",
-      feet: [
-        f("FE"),
-        f("FD"),
-        f("TE", {
-          ok: false,
-          diseases: [{ code: "HI", severity: 3, zones: [0] }],
-          treatments: ["TRIM", "BAND_ON"],
-          recheck: true,
-          recheckDate: mkDate(-5),
-          numero_revisoes: 1,
-        }),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(8),
-      createdAt: mkTs(8),
-      tag: "487",
-      sex: "vaca",
-      lote: "B2",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "WU", severity: 2, zones: [7] }],
-          treatments: ["TRIM", "SPRAY"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE", {
-          ok: false,
-          diseases: [{ code: "WU", severity: 2, zones: [9] }],
-          treatments: ["TRIM", "SPRAY"],
-          numero_revisoes: 1,
-        }),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(1),
-      createdAt: mkTs(1),
-      tag: "3001",
-      sex: "vaca",
-      lote: "C3",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [
-            { code: "X", severity: 3, zones: [0, 1, 2, 3] },
-            { code: "J", severity: 3, zones: [1] },
-          ],
-          treatments: ["NADA"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(2),
-      createdAt: mkTs(2),
-      tag: "88",
-      sex: "vaca",
-      lote: "A1",
-      feet: [f("FE"), f("FD"), f("TE"), f("TD")],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(6),
-      createdAt: mkTs(6),
-      tag: "2756",
-      sex: "vaca",
-      lote: "B2",
-      feet: [
-        f("FE"),
-        f("FD", {
-          ok: false,
-          diseases: [{ code: "TU", severity: 3, zones: [1] }],
-          treatments: ["TRIM", "BAND_ON"],
-          recheck: true,
-          recheckDate: mkDate(-3),
-          numero_revisoes: 1,
-        }),
-        f("TE"),
-        f("TD", {
-          ok: false,
-          diseases: [{ code: "TU", severity: 2, zones: [1] }],
-          treatments: ["TRIM"],
-          numero_revisoes: 1,
-        }),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(15),
-      createdAt: mkTs(15),
-      tag: "391",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "P", severity: 3, zones: [0] }],
-          treatments: ["TRIM", "BAND_ON", "BLOCO_ON"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(4),
-      createdAt: mkTs(4),
-      tag: "1100",
-      sex: "vaca",
-      lote: "C3",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "SH", severity: 2, zones: [0, 4] }],
-          treatments: ["ALIVIO", "INJ_AINE"],
-          recheck: true,
-          recheckDate: mkDate(2),
-          numero_revisoes: 1,
-        }),
-        f("FD", {
-          ok: false,
-          diseases: [{ code: "SH", severity: 2, zones: [0, 5] }],
-          treatments: ["ALIVIO"],
-          numero_revisoes: 1,
-        }),
-        f("TE", {
-          ok: false,
-          diseases: [{ code: "SH", severity: 1, zones: [0] }],
-          treatments: ["ALIVIO"],
-          numero_revisoes: 1,
-        }),
-        f("TD", {
-          ok: false,
-          diseases: [{ code: "SH", severity: 1, zones: [0] }],
-          treatments: ["ALIVIO"],
-          numero_revisoes: 1,
-        }),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(9),
-      createdAt: mkTs(9),
-      tag: "654",
-      sex: "vaca",
-      lote: "B2",
-      feet: [
-        f("FE"),
-        f("FD", {
-          ok: false,
-          diseases: [{ code: "BU", severity: 2, zones: [5] }],
-          treatments: ["TRIM", "BLOCO_ON"],
-          numero_revisoes: 1,
-        }),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    {
-      id: uid(),
-      date: mkDate(11),
-      createdAt: mkTs(11),
-      tag: "2009",
-      sex: "vaca",
-      lote: "A1",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "LM", severity: 2, zones: [7] }],
-          treatments: ["SPRAY"],
-          comments: ["D3"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    // Acesso de sola (nova doença)
-    {
-      id: uid(),
-      date: mkDate(13),
-      createdAt: mkTs(13),
-      tag: "5500",
-      sex: "vaca",
-      lote: "C3",
-      feet: [
-        f("FE", {
-          ok: false,
-          diseases: [{ code: "SOLE_ABSCESS", severity: 3, zones: [0, 4] }],
-          treatments: ["TRIM", "BAND_ON", "INJ_ATB"],
-          numero_revisoes: 1,
-        }),
-        f("FD"),
-        f("TE"),
-        f("TD"),
-      ],
-    },
-
-    // Visitas preventivas (sem problema)
-    {
-      id: uid(),
-      date: mkDate(60),
-      createdAt: mkTs(60),
-      tag: "88",
-      sex: "vaca",
-      lote: "A1",
-      preventivo: true,
-      feet: [f("FE"), f("FD"), f("TE"), f("TD")],
-    },
-    {
-      id: uid(),
-      date: mkDate(90),
-      createdAt: mkTs(90),
-      tag: "502",
-      sex: "vaca",
-      lote: "B2",
-      preventivo: true,
-      feet: [f("FE"), f("FD"), f("TE"), f("TD")],
-    },
-  ];
-
-  // Seed farm config com funcionários e lotes de exemplo
-  const farmStored = localStorage.getItem(scopedKey(FARM_KEY));
-  if (!farmStored) {
-    saveFarm({
-      farmName: "Fazenda Demo",
-      worker: "João",
-      configured: true,
-      funcionarios: [
-        { id: uid(), nome: "João Silva" },
-        { id: uid(), nome: "Maria Souza" },
-        { id: uid(), nome: "Pedro Lima" },
-      ],
-      lotes: lotes,
-      dias_para_preventivo: 180,
-      animais: [],
+  for (const item of curativeFollowups(referenceDate, employeeId)) {
+    add({
+      id: item.id,
+      date: item.dueDate,
+      type: "curative",
+      tag: item.tag,
+      sex: item.sex,
+      lote: item.lote,
+      feet: [item.foot],
+      title: "Prazo de curativo",
+      detail: `${FOOT_LABEL[item.foot]} · ${item.targetDays} dias após tratamento`,
+      overdue: item.status === "overdue",
     });
   }
 
-  saveVisits(replace ? visits : [...visits, ...existing]);
+  for (const items of map.values()) {
+    items.sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.tag.localeCompare(b.tag));
+  }
+  return map;
 }

@@ -42,12 +42,13 @@ export const syncService = {
     if (!access.ok) return { ok: false, count: 0, message: access.message };
 
     const supabase = requireSupabase();
-    const items = await pendingOutbox();
+    const items = await pendingOutbox(ctx.farm_id);
     this.isSyncing = true;
     let count = 0;
 
     try {
       for (const item of items) {
+        if (item.farm_id !== ctx.farm_id) continue;
         const payload =
           item.payload && typeof item.payload === "object"
             ? {
@@ -89,7 +90,10 @@ export const syncService = {
         const table = supabase.from(tableName);
         const result =
           item.op === "delete"
-            ? await table.delete().eq("id", (finalPayload as { id?: string }).id)
+            ? await table
+                .delete()
+                .eq("id", (finalPayload as { id?: string }).id)
+                .eq("farm_id", ctx.farm_id)
             : await table.upsert(finalPayload, { onConflict: conflictTarget(tableName) });
 
         if (result.error) {

@@ -8,6 +8,140 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-20 - Correção da ativação sem servidor configurado
+
+### O que foi feito
+
+- Removido o bloqueio `Servidor não configurado` da tela de acesso.
+- Criado um catálogo inicial offline apenas com as empresas, fazendas e funcionários reais solicitados; nenhum animal, visita ou agenda fictícia foi recriado.
+- `STARMILK` abre somente a fazenda `StarMilk`.
+- `HULLSJOB` abre somente a `Fazenda Vitória`, com Romano/`001`, Jeová/`002` e Patrick/`003`.
+- Mantida temporariamente a senha `1234` para os funcionários informados.
+- A ativação passa a funcionar sem Supabase e gera localmente o período de teste de 15 dias.
+- Empresas, fazendas e funcionários receberam UUIDs fixos e distintos, iguais no catálogo offline e na migration do Supabase.
+- Quando o Supabase estiver configurado e disponível, ele continua sendo a fonte principal; o catálogo local serve para o primeiro acesso offline ou indisponibilidade da estrutura remota.
+- O cache PWA foi atualizado para `v4`, forçando aparelhos já abertos a receber a correção.
+- Adicionados testes para isolamento das empresas, vínculo da fazenda e autenticação por nome ou código.
+
+### Por que foi feito
+
+- Permitir que o app avance da primeira tela mesmo antes da configuração do servidor.
+- Manter o acesso offline pelo link sem voltar a inserir protótipos, mockups ou registros clínicos de teste.
+- Preparar a migração futura para o Supabase sem trocar os identificadores dos dados já gravados offline.
+
+### Como validar
+
+- Abrir o app sem variáveis do Supabase e confirmar que não aparece o aviso de servidor.
+- Informar `HULLSJOB`, entrar como Romano ou `001` com senha `1234` e confirmar que aparece apenas `Fazenda Vitória`.
+- Repetir com Jeová/`002` e Patrick/`003`.
+- Informar `STARMILK`, entrar como StarMilk ou `001` com senha `1234` e confirmar que aparece apenas `StarMilk`.
+- Confirmar que empresa ou senha incorreta é recusada.
+- Rodar `npm run test`, `npm run lint` e `npm run build`.
+
+### Próximos passos
+
+- Criar ou escolher um projeto Supabase exclusivo para Gestão de Cascos e executar todas as migrations.
+- Configurar `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` na Vercel para ativar sincronização entre aparelhos.
+- Retirar a senha temporária do bundle após o backend estar ativo e exigir troca de senha no primeiro acesso.
+- Validar em dois celulares que dados da StarMilk e da Hullsjob permanecem totalmente separados.
+
+## 2026-07-20 - Empresas independentes e login de funcionário
+
+### O que foi feito
+
+- Removidos o botão de mockup, o modo demo, a carga automática de animais fictícios e a opção gerente de carregar dados de teste.
+- Criadas duas empresas independentes no Supabase:
+  - `STARMILK`: fazenda `StarMilk`.
+  - `HULLSJOB`: fazenda `Fazenda Vitória`.
+- O fluxo de entrada agora segue `link/código da empresa → funcionário → fazenda`.
+- A lista de fazendas só é devolvida depois da autenticação válida do funcionário.
+- Criado login temporário da StarMilk com usuário/código `StarMilk`/`001` e senha `1234`.
+- Criados os funcionários da Hullsjob:
+  - Romano: login `Romano` ou código `001`, senha `1234`.
+  - Jeová: login `Jeová` ou código `002`, senha `1234`.
+  - Patrick: login `Patrick` ou código `003`, senha `1234`.
+- As senhas são armazenadas com hash pelo `pgcrypto`, não como texto puro.
+- Criada a tabela `employee_farms`, permitindo controlar em quais fazendas cada funcionário pode entrar.
+- Adicionada função protegida `authenticate_hoof_employee` para validar empresa, funcionário, senha, fazendas e licença.
+- Na escolha da fazenda foram adicionados os comandos `Visualizar agenda` e `Entrar na fazenda`.
+- A agenda agora filtra revisões e curativos pelo `employee_id` do funcionário autenticado.
+- O funcionário responsável não pode mais ser trocado manualmente durante a visita; o registro usa o funcionário autenticado.
+- A fila offline passou a guardar `farm_id` e processa apenas pendências da fazenda ativa.
+- O contexto local foi atualizado para `v2` e o IndexedDB para `v3`, evitando reaproveitar ativações antigas de demonstração.
+- O cache PWA passou para `v3` para distribuir o novo fluxo aos aparelhos já instalados.
+- Criada a migration incremental `202607200001_company_employee_login.sql` para atualizar bancos existentes.
+
+### Por que foi feito
+
+- Impedir mistura de dados entre empresas, fazendas e filas offline.
+- Rastrear cada visita e agenda pelo funcionário realmente autenticado.
+- Remover caminhos de demonstração que poderiam inserir dados fictícios em uma fazenda real.
+
+### Como validar
+
+- Executar as migrations do Supabase, incluindo `202607200001_company_employee_login.sql`.
+- Configurar `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no ambiente local e na Vercel.
+- Entrar com `HULLSJOB`, autenticar Romano/Jeová/Patrick e confirmar que aparece somente `Fazenda Vitória`.
+- Tocar em `Visualizar agenda` e confirmar que aparecem apenas compromissos criados pelo funcionário autenticado.
+- Entrar com `STARMILK` e confirmar que aparece somente a fazenda `StarMilk`.
+- Criar pendências offline em uma fazenda, trocar de empresa e confirmar que a outra fila não é sincronizada.
+- Rodar `npm run test`, `npm run lint` e `npm run build`.
+
+### Próximos passos
+
+- Aplicar a migration no projeto Supabase real e publicar novamente na Vercel.
+- Trocar as senhas temporárias `1234` no primeiro uso e criar uma tela gerente para redefinição segura.
+- Adicionar uma sessão curta assinada no backend e políticas RLS para bloquear também acessos diretos à API fora do aplicativo.
+- Criar a gestão administrativa de funcionários e vínculos com fazendas sem expor esse cadastro no fluxo de campo.
+
+## 2026-07-18 - Offline pela Vercel, teste de 15 dias e agenda clínica
+
+### O que foi feito
+
+- Transformado o app em PWA instalável, com manifesto, ícone, registro de service worker e cache do shell da aplicação.
+- O link publicado em HTTPS pode ser aberto uma vez com internet e depois reutilizado offline no mesmo aparelho.
+- Alinhada a entrada do servidor de preview gerada pelo TanStack para que a prévia de produção também abra a rota principal.
+- Adicionado teste inicial de 15 dias: o modo local grava início e vencimento, enquanto o Supabase usa `licenses.starts_at` e `licenses.expires_at` como fonte real.
+- A licença seed da StarMilk agora vence 15 dias após sua criação sem duplicar licença ao reaplicar a migration.
+- Adicionada faixa fixa com fazenda selecionada, estado online/offline e dias restantes do teste.
+- O botão de trocar fazenda passou a estar disponível também no modo local.
+- Reorganizada a home como fila operacional: registrar atendimento, revisões, curativos, problemas e animais sem visita.
+- Corrigida a responsividade da ativação em celulares estreitos, com título, etapas e código sem estouro horizontal.
+- Corrigido o bloqueio aparente na ativação local: ao buscar `STARMILK` ou usar o mockup, o app agora ativa StarMilk/Teste e entra diretamente na home.
+- Atualizada a versão do cache offline para entregar a correção aos aparelhos que já haviam aberto o app.
+- Unificadas revisões e prazos de curativo na agenda clínica.
+- Adicionado botão para exportar cada compromisso em arquivo `.ics`, que pode ser aberto no calendário do celular.
+- Criadas regras de acompanhamento a partir da data do tratamento: dermatite digital em 7 dias, úlcera de sola/linha branca em 21 dias e demais curativos em 30 dias.
+- Adicionado ao resumo o total de curativos abertos, atrasados, vencendo hoje e a média de dias entre tratamento e liberação.
+- Mantidos `farm_id`, `employee_id`, `employee_name` e `device_id` no fluxo para o cadastro definitivo de funcionários.
+- Adicionados testes automatizados para prazos clínicos, atraso e inclusão de curativos na agenda.
+
+### Por que foi feito
+
+- Permitir uso real no campo mesmo com internet instável, usando o mesmo link da Vercel.
+- Deixar claro qual fazenda está ativa antes de registrar dados.
+- Colocar as tarefas clínicas mais urgentes antes dos relatórios e cadastros.
+- Transformar as regras de curativo em alertas e métricas operacionais, não apenas informação solta.
+
+### Como validar
+
+- Rodar `npm run test`, `npm run lint` e `npm run build`.
+- Publicar na Vercel, abrir o link com internet e adicionar o app à tela inicial.
+- Fechar o app, ativar o modo avião e confirmar que a tela abre e permite registrar uma visita localmente.
+- Ativar com `STARMILK` e confirmar fazenda `StarMilk`, funcionário `Teste` e contador de 15 dias.
+- Registrar dermatite digital, úlcera de sola, linha branca e outra doença com tratamento; conferir os prazos de 7, 21 e 30 dias na agenda.
+- Na agenda, tocar no ícone de calendário e abrir o arquivo gerado no calendário do celular.
+- Liberar um pé e conferir a atualização da média de dias até a liberação no resumo.
+
+### Próximos passos
+
+- Configurar o projeto Supabase real, executar a migration, criar o bucket `media` e definir as variáveis na Vercel.
+- Fazer o teste offline em Android real após o primeiro carregamento online e validar atualização de versão do service worker.
+- Criar ícones PNG de 192 e 512 pixels para ampliar a compatibilidade de instalação em aparelhos antigos.
+- Criar gestão de funcionários por fazenda com ativação/bloqueio e PIN de gerente.
+- Adicionar uma visão de agenda em lista semanal e exportação de vários compromissos em um único calendário.
+- Separar `src/routes/index.tsx` em módulos menores e carregar telas secundárias sob demanda para reduzir o bundle inicial.
+
 ## 2026-07-01 - Publicação no GitHub
 
 ### O que foi feito

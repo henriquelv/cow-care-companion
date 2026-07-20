@@ -10,6 +10,7 @@ export interface LocalRecord<T = unknown> {
 
 export interface OutboxItem {
   id?: number;
+  farm_id: string;
   tableName: string;
   op: "insert" | "update" | "upsert" | "delete";
   payload: unknown;
@@ -59,6 +60,19 @@ class CascoLocalDatabase extends Dexie {
     this.version(2).stores({
       hoof_media: "id, farm_id, synced, updated_at",
     });
+    this.version(3)
+      .stores({
+        outbox: "++id, farm_id, [farm_id+status], status, created_at",
+      })
+      .upgrade((transaction) =>
+        transaction
+          .table<OutboxItem>("outbox")
+          .toCollection()
+          .modify((item) => {
+            const payload = item.payload as { farm_id?: string } | null;
+            item.farm_id = payload?.farm_id ?? "legacy-unscoped";
+          }),
+      );
   }
 }
 
@@ -83,14 +97,6 @@ export async function putLocalRecord<T>(
   return localdb[tableName].put(record);
 }
 
-export async function enqueueOutbox(item: Omit<OutboxItem, "created_at" | "status">) {
-  return localdb.outbox.add({
-    ...item,
-    created_at: new Date().toISOString(),
-    status: "pending",
-  });
-}
-
 export async function enqueueOutboxMany(items: Omit<OutboxItem, "created_at" | "status">[]) {
   const createdAt = new Date().toISOString();
   return localdb.outbox.bulkAdd(
@@ -102,10 +108,10 @@ export async function enqueueOutboxMany(items: Omit<OutboxItem, "created_at" | "
   );
 }
 
-export async function pendingOutbox(limit = 100) {
+export async function pendingOutbox(farmId: string, limit = 100) {
   return localdb.outbox
-    .where("status")
-    .equals("pending")
+    .where("[farm_id+status]")
+    .equals([farmId, "pending"])
     .sortBy("created_at")
     .then((rows) => rows.slice(0, limit));
 }

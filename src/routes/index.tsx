@@ -30,6 +30,9 @@ import {
   ShieldCheck,
   RefreshCw,
   LogOut,
+  CalendarPlus,
+  Bandage,
+  WifiOff,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -46,8 +49,9 @@ import {
   loadFarm,
   loadVisits,
   saveFarm,
-  seedMockData,
-  rechecksByDate,
+  agendaByDate,
+  curativeFollowups,
+  curativeMetrics,
   severityBucket,
   todayISO,
   uid,
@@ -62,7 +66,6 @@ import {
   type FarmConfig,
   type FootEntry,
   type FootKey,
-  type Funcionario,
   type LesionCode,
   type PreventiveAnimal,
   type RegisteredAnimal,
@@ -70,6 +73,7 @@ import {
   type Severity,
   type TreatmentCode,
   type Visit,
+  type AgendaItem,
 } from "@/lib/casco-store";
 import { DiseasePicker } from "@/components/casco/DiseasePicker";
 import { TutorialModal, HelpModal } from "@/components/casco/Tutorial";
@@ -153,10 +157,7 @@ function Index() {
   const [activated, setActivated] = useState(() => farmContextService.isActivated());
   const [syncInfo, setSyncInfo] = useState<"idle" | "syncing" | "ok" | "error" | "offline">("idle");
   const [screen, setScreen] = useState<Screen>({ name: "today" });
-  const [tick, setTick] = useState(() => {
-    if (loadVisits().length === 0) seedMockData(false);
-    return 0;
-  });
+  const [tick, setTick] = useState(0);
   const [showTutorial, setShowTutorial] = useState(() => !isTutorialDone());
   const [showHelp, setShowHelp] = useState(false);
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -197,14 +198,17 @@ function Index() {
   }
 
   useEffect(() => {
-    if (activated) void runSync();
+    if (activated) {
+      farmContextService.ensureTrial();
+      void runSync();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activated]);
 
   if (!activated) {
     return (
       <ActivationScreen
-        onActivated={() => {
+        onActivated={(destination) => {
           const ctx = farmContextService.getContext();
           const nextFarm = {
             ...loadFarm(),
@@ -215,6 +219,7 @@ function Index() {
           saveFarm(nextFarm);
           setFarm(nextFarm);
           setActivated(true);
+          setScreen({ name: destination === "calendar" ? "calendar" : "today" });
           refresh();
         }}
       />
@@ -252,17 +257,14 @@ function Index() {
         onHelp={() => setShowHelp(true)}
         syncInfo={syncInfo}
         onSync={runSync}
-        onDeactivate={
-          isSupabaseConfigured
-            ? () => {
-                if (!confirm("Desativar este aparelho e voltar para a tela de código da fazenda?"))
-                  return;
-                farmContextService.clearContext();
-                setActivated(false);
-              }
-            : undefined
-        }
+        onDeactivate={() => {
+          if (!confirm("Trocar a fazenda deste aparelho e voltar para a seleção?")) return;
+          farmContextService.clearContext();
+          setActivated(false);
+        }}
       />
+
+      <AppStatusStrip />
 
       <main id="conteudo-principal" className="mx-auto max-w-2xl px-4 pt-4" key={tick}>
         {screen.name === "today" && (
@@ -271,6 +273,7 @@ function Index() {
             onEdit={(tag) => openEdit(tag)}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
             onSummary={() => setScreen({ name: "summary" })}
+            onCalendar={() => setScreen({ name: "calendar" })}
             onFilters={() => setScreen({ name: "filters" })}
             filters={homeFilters}
             onClearFilters={() => setHomeFilters(EMPTY_FILTERS)}
@@ -322,13 +325,6 @@ function Index() {
             onSave={(f) => {
               saveFarm(f);
               setFarm(f);
-              goToday();
-            }}
-            onSeed={() => {
-              const has = loadVisits().length > 0;
-              if (has && !confirm("Já existem dados. Substituir pelos dados de teste?")) return;
-              seedMockData(true);
-              refresh();
               goToday();
             }}
             onImport={() => {
@@ -426,206 +422,76 @@ function Index() {
 }
 
 /* ───────────── Ativação ───────────── */
-function localActivationCode(input: string) {
-  const raw = input.trim();
-  if (!raw) return "";
-  try {
-    const url = new URL(raw);
-    const fromQuery =
-      url.searchParams.get("codigo") ??
-      url.searchParams.get("code") ??
-      url.searchParams.get("fazenda") ??
-      url.searchParams.get("farm");
-    if (fromQuery) return fromQuery.trim().toUpperCase();
-    const pathCode = url.pathname
-      .split("/")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .pop();
-    if (pathCode) return pathCode.toUpperCase();
-  } catch {
-    // Pode ser apenas o código curto.
-  }
-  return raw
-    .replace(/^.*[/?#=]/, "")
-    .trim()
-    .toUpperCase();
-}
-
-function ActivationScreen({ onActivated }: { onActivated: () => void }) {
+function ActivationScreen({
+  onActivated,
+}: {
+  onActivated: (destination?: "home" | "calendar") => void;
+}) {
   const [code, setCode] = useState("");
   const [client, setClient] = useState<RemoteClient | null>(null);
   const [farms, setFarms] = useState<RemoteFarm[]>([]);
   const [farm, setFarm] = useState<RemoteFarm | null>(null);
-  const [employees, setEmployees] = useState<RemoteEmployee[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
-  const [newFarmName, setNewFarmName] = useState("");
-  const [showNewFarm, setShowNewFarm] = useState(false);
+  const [employee, setEmployee] = useState<RemoteEmployee | null>(null);
+  const [employeeLogin, setEmployeeLogin] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  function applyLocalMockup(inputCode = code) {
-    const normalized = localActivationCode(inputCode) || "STARMILK";
-    const localClient: RemoteClient = {
-      id: `local-client-${normalized}`,
-      name: normalized === "STARMILK" ? "StarMilk" : `Cliente ${normalized}`,
-      activation_code: normalized,
-      status: "active",
-    };
-    const localFarm: RemoteFarm = {
-      id: `local-farm-${normalized}`,
-      name: normalized === "STARMILK" ? "StarMilk" : `Fazenda ${normalized}`,
-      client_id: localClient.id,
-      status: "active",
-    };
-    const localEmployees: RemoteEmployee[] = [
-      {
-        id: `local-employee-${normalized}`,
-        farm_id: localFarm.id,
-        name: "Teste",
-        status: "active",
-      },
-    ];
-    setCode(normalized);
-    setClient(localClient);
-    setFarms([localFarm]);
-    setFarm(localFarm);
-    setEmployees(localEmployees);
-    setSelectedEmployeeId(localEmployees[0].id);
-    setShowNewFarm(false);
-    setError("");
-  }
 
   async function validateCode() {
     setError("");
     setLoading(true);
     try {
-      if (!isSupabaseConfigured) {
-        if (!localActivationCode(code)) throw new Error("Informe o link ou código da fazenda.");
-        applyLocalMockup(code);
-        return;
-      }
-
       const result = await activationService.validateActivationCode(code);
       setClient(result.client);
-      setFarms(result.farms);
-      const firstFarm = result.legacyFarm ?? result.farms[0] ?? null;
-      setFarm(firstFarm);
-      setShowNewFarm(result.farms.length === 0);
-      if (firstFarm) {
-        const nextEmployees =
-          result.legacyFarm && result.employees
-            ? result.employees
-            : await activationService.listEmployees(firstFarm.id);
-        setEmployees(nextEmployees);
-        setSelectedEmployeeId(nextEmployees[0]?.id ?? "");
-      } else {
-        setEmployees([]);
-        setSelectedEmployeeId("");
-      }
+      setFarms([]);
+      setFarm(null);
+      setEmployee(null);
+      setEmployeeLogin("");
+      setPassword("");
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
-      if (message.includes("Supabase não configurado")) {
-        applyLocalMockup(code || "STARMILK");
-        return;
-      }
       setClient(null);
       setFarms([]);
       setFarm(null);
-      setEmployees([]);
+      setEmployee(null);
       setError(message || "Não foi possível validar o código.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function selectFarm(nextFarm: RemoteFarm) {
-    setError("");
-    setFarm(nextFarm);
-    setLoading(true);
-    try {
-      const nextEmployees = await activationService.listEmployees(nextFarm.id);
-      setEmployees(nextEmployees);
-      setSelectedEmployeeId(nextEmployees[0]?.id ?? "");
-      if (!nextEmployees.length) setError("Nenhum funcionário ativo encontrado nesta fazenda.");
-    } catch (err) {
-      setEmployees([]);
-      setSelectedEmployeeId("");
-      setError(err instanceof Error ? err.message : "Não foi possível buscar funcionários.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function createFarm() {
+  async function authenticateEmployee() {
     if (!client) return;
     setError("");
     setLoading(true);
     try {
-      if (!isSupabaseConfigured) {
-        const id = `local-farm-${localActivationCode(newFarmName) || uid()}`;
-        const created: RemoteFarm = {
-          id,
-          name: newFarmName.trim(),
-          client_id: client.id,
-          status: "active",
-        };
-        const nextFarms = [...farms, created].sort((a, b) => a.name.localeCompare(b.name));
-        setFarms(nextFarms);
-        setNewFarmName("");
-        setShowNewFarm(false);
-        setFarm(created);
-        const nextEmployees: RemoteEmployee[] = [
-          {
-            id: `local-employee-${id}`,
-            farm_id: id,
-            name: "Teste",
-            status: "active",
-          },
-        ];
-        setEmployees(nextEmployees);
-        setSelectedEmployeeId(nextEmployees[0].id);
-        return;
-      }
-
-      const created = await activationService.createFarmForClient(client, newFarmName);
-      const nextFarms = [...farms, created].sort((a, b) => a.name.localeCompare(b.name));
-      setFarms(nextFarms);
-      setNewFarmName("");
-      setShowNewFarm(false);
-      await selectFarm(created);
+      const result = await activationService.authenticateEmployee(
+        client.activation_code,
+        employeeLogin,
+        password,
+      );
+      setClient(result.client);
+      setEmployee(result.employee);
+      setFarms(result.farms);
+      setFarm(result.farms.length === 1 ? result.farms[0] : null);
+      setPassword("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível criar a fazenda.");
+      setEmployee(null);
+      setFarms([]);
+      setFarm(null);
+      setError(err instanceof Error ? err.message : "Não foi possível entrar.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function activate() {
-    if (!farm || !selectedEmployeeId) return;
-    const employee = employees.find((item) => item.id === selectedEmployeeId);
-    if (!employee) return;
+  async function activate(destination: "home" | "calendar") {
+    if (!client || !farm || !employee) return;
     setError("");
     setLoading(true);
     try {
-      if (isSupabaseConfigured) {
-        await activationService.activate(farm, employee, client ?? undefined);
-      } else {
-        const now = new Date().toISOString();
-        farmContextService.saveContext({
-          client_id: client?.id,
-          client_name: client?.name,
-          client_code: client?.activation_code,
-          farm_id: farm.id,
-          farm_name: farm.name,
-          employee_id: employee.id,
-          employee_name: employee.name,
-          device_id: farmContextService.getDeviceId(),
-          last_license_check_at: now,
-          grace_period_days: 7,
-        });
-      }
-      onActivated();
+      await activationService.activate(farm, employee, client);
+      onActivated(destination);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível ativar este aparelho.");
     } finally {
@@ -634,44 +500,38 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-5">
-      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-2xl flex-col justify-center">
-        <section className="rounded-3xl border-2 border-border bg-card p-5 shadow-sm stamp sm:p-6">
-          <div className="mb-6 flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground stamp">
+    <main className="min-h-screen overflow-x-hidden bg-background px-3 py-5 sm:px-4">
+      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] w-full min-w-0 max-w-2xl flex-col justify-center">
+        <section className="w-full min-w-0 overflow-hidden rounded-3xl border-2 border-border bg-card p-4 shadow-sm stamp sm:p-6">
+          <div className="mb-6 flex min-w-0 items-center gap-3 sm:gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground stamp sm:h-16 sm:w-16">
               <ShieldCheck className="h-8 w-8" aria-hidden="true" />
             </div>
-            <div>
-              <p className="font-display text-2xl font-black uppercase leading-none">
-                Adicionar Fazenda
+            <div className="min-w-0">
+              <p className="break-words font-display text-xl font-black uppercase leading-tight sm:text-2xl">
+                Acessar empresa
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Use o link ou código da fazenda que você faz parte.
+              <p className="mt-1 text-xs leading-snug text-muted-foreground sm:text-sm">
+                Identifique-se e escolha onde vai trabalhar.
               </p>
             </div>
           </div>
 
-          {!isSupabaseConfigured && (
-            <div className="mb-5 rounded-2xl border-2 border-warn/40 bg-warn/10 px-4 py-3">
-              <p className="font-display text-sm font-black uppercase text-warn-foreground">
-                Modo demo ativo
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Use o mockup `STARMILK` enquanto o Supabase real não estiver configurado.
-              </p>
-            </div>
-          )}
-
-          <div className="mb-5 grid grid-cols-3 gap-2 text-center">
-            {["Link", "Fazenda", "Funcionário"].map((label, index) => {
+          <div className="mb-5 grid min-w-0 grid-cols-3 gap-1.5 text-center sm:gap-2">
+            {["Link", "Funcionário", "Fazenda"].map((label, index) => {
               const active =
-                index === 0 ? !client : index === 1 ? Boolean(client && !farm) : Boolean(farm);
-              const done = index === 0 ? Boolean(client) : index === 1 ? Boolean(farm) : false;
+                index === 0
+                  ? !client
+                  : index === 1
+                    ? Boolean(client && !employee)
+                    : Boolean(employee);
+              const done =
+                index === 0 ? Boolean(client) : index === 1 ? Boolean(employee) : Boolean(farm);
               return (
                 <div
                   key={label}
                   className={cn(
-                    "rounded-xl border px-2 py-2 text-[10px] font-black uppercase",
+                    "min-w-0 rounded-xl border px-1 py-2 text-[9px] font-black uppercase sm:px-2 sm:text-[10px]",
                     done
                       ? "border-good/40 bg-good/10 text-good"
                       : active
@@ -688,27 +548,28 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
           <div className="space-y-3">
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Link ou código da fazenda
+                Link ou código da empresa
               </span>
               <input
                 name="link-fazenda"
-                aria-label="Link ou código da fazenda"
+                aria-label="Link ou código da empresa"
                 value={code}
                 onChange={(event) => {
-                  setCode(event.target.value.toUpperCase());
+                  setCode(event.target.value);
                   setClient(null);
                   setFarms([]);
                   setFarm(null);
-                  setEmployees([]);
-                  setSelectedEmployeeId("");
+                  setEmployee(null);
+                  setEmployeeLogin("");
+                  setPassword("");
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void validateCode();
                 }}
-                placeholder="STARMILK ou link recebido"
+                placeholder="STARMILK ou HULLSJOB"
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-2xl border-2 border-border bg-surface px-4 py-4 text-center font-display text-3xl font-black uppercase outline-none focus:border-primary"
+                className="min-w-0 w-full rounded-2xl border-2 border-border bg-surface px-3 py-4 text-center font-display text-xl font-black uppercase outline-none focus:border-primary sm:px-4 sm:text-3xl"
               />
             </label>
 
@@ -724,16 +585,7 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
               )}
             >
               {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
-              Buscar Fazenda
-            </button>
-
-            <button
-              type="button"
-              onClick={() => applyLocalMockup("STARMILK")}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 py-3 font-display text-sm uppercase text-primary"
-            >
-              <Database className="h-4 w-4" aria-hidden="true" />
-              Usar mockup StarMilk
+              Continuar
             </button>
           </div>
 
@@ -749,30 +601,76 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
                 </span>
               </div>
 
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Fazenda que você faz parte
-                  </span>
+              {!employee ? (
+                <div className="space-y-3 rounded-2xl border-2 border-border bg-card p-3">
+                  <p className="text-xs font-bold uppercase text-muted-foreground">
+                    Identificação do funcionário
+                  </p>
+                  <input
+                    name="login-funcionario"
+                    aria-label="Nome ou código do funcionário"
+                    value={employeeLogin}
+                    onChange={(event) => setEmployeeLogin(event.target.value)}
+                    placeholder="Nome ou código"
+                    autoComplete="username"
+                    className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 font-display text-lg outline-none focus:border-primary"
+                  />
+                  <input
+                    name="senha-funcionario"
+                    aria-label="Senha do funcionário"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void authenticateEmployee();
+                    }}
+                    placeholder="Senha"
+                    autoComplete="current-password"
+                    className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 font-display text-lg outline-none focus:border-primary"
+                  />
                   <button
                     type="button"
-                    onClick={() => setShowNewFarm((value) => !value)}
-                    className="flex items-center gap-1 rounded-full bg-card px-3 py-1.5 text-xs font-black uppercase text-primary"
+                    onClick={authenticateEmployee}
+                    disabled={!employeeLogin.trim() || !password || loading}
+                    className={cn(
+                      "tap-lg flex w-full items-center justify-center gap-2 rounded-xl py-4 font-display uppercase",
+                      employeeLogin.trim() && password && !loading
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground",
+                    )}
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                    Adicionar
+                    {loading ? (
+                      <RefreshCw className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <User className="h-5 w-5" />
+                    )}
+                    Entrar como funcionário
                   </button>
                 </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 rounded-xl bg-card px-3 py-3">
+                    <User className="h-5 w-5 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display font-black uppercase">{employee.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Código {employee.employee_code}
+                      </p>
+                    </div>
+                    <CheckCircle2 className="h-5 w-5 text-good" />
+                  </div>
 
-                {farms.length > 0 && (
+                  <p className="text-xs font-bold uppercase text-muted-foreground">
+                    Escolha a fazenda
+                  </p>
                   <div className="grid gap-2">
                     {farms.map((item) => (
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => void selectFarm(item)}
+                        onClick={() => setFarm(item)}
                         className={cn(
-                          "flex min-h-14 items-center justify-between rounded-2xl border-2 px-4 py-3 text-left",
+                          "flex min-h-14 items-center justify-between rounded-xl border-2 px-4 py-3 text-left",
                           farm?.id === item.id
                             ? "border-primary bg-card text-foreground"
                             : "border-border bg-surface text-muted-foreground",
@@ -782,81 +680,38 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
                           {item.name}
                         </span>
                         {farm?.id === item.id ? (
-                          <CheckCircle2 className="h-5 w-5 text-good" aria-hidden="true" />
+                          <CheckCircle2 className="h-5 w-5 text-good" />
                         ) : (
-                          <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                          <ChevronRight className="h-5 w-5" />
                         )}
                       </button>
                     ))}
                   </div>
-                )}
 
-                {showNewFarm && (
-                  <div className="mt-3 rounded-2xl border-2 border-dashed border-border bg-card p-3">
-                    <label className="block">
-                      <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Nome da fazenda
-                      </span>
-                      <input
-                        value={newFarmName}
-                        onChange={(event) => setNewFarmName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") void createFarm();
-                        }}
-                        placeholder="Ex.: Fazenda 2"
-                        className="w-full rounded-2xl border-2 border-border bg-surface px-4 py-3 font-display text-lg outline-none focus:border-primary"
-                      />
-                    </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <button
                       type="button"
-                      onClick={createFarm}
-                      disabled={!newFarmName.trim() || loading}
-                      className={cn(
-                        "mt-3 flex w-full items-center justify-center gap-2 rounded-2xl py-3 font-display uppercase",
-                        newFarmName.trim() && !loading
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground",
-                      )}
+                      onClick={() => void activate("calendar")}
+                      disabled={!farm || loading}
+                      className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-primary bg-card px-3 font-display text-sm uppercase text-primary"
                     >
-                      Adicionar Fazenda
+                      <CalendarDays className="h-5 w-5" />
+                      Visualizar agenda
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void activate("home")}
+                      disabled={!farm || loading}
+                      className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl bg-good px-3 font-display text-sm uppercase text-good-foreground stamp"
+                    >
+                      {loading ? (
+                        <RefreshCw className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-5 w-5" />
+                      )}
+                      Entrar na fazenda
                     </button>
                   </div>
-                )}
-              </div>
-
-              {farm && (
-                <div className="rounded-2xl border-2 border-border bg-card p-3">
-                  <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Funcionário deste aparelho
-                  </p>
-                  <label className="block">
-                    <select
-                      name="funcionario-ativacao"
-                      aria-label="Funcionário deste aparelho"
-                      value={selectedEmployeeId}
-                      onChange={(event) => setSelectedEmployeeId(event.target.value)}
-                      className="w-full rounded-2xl border-2 border-border bg-card px-4 py-4 font-display text-lg outline-none focus:border-primary"
-                    >
-                      {employees.map((employee) => (
-                        <option key={employee.id} value={employee.id}>
-                          {employee.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={activate}
-                    disabled={!selectedEmployeeId || loading}
-                    className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-good py-4 font-display text-lg uppercase text-good-foreground stamp"
-                  >
-                    {loading ? (
-                      <RefreshCw className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-5 w-5" />
-                    )}
-                    Ativar Aparelho
-                  </button>
                 </div>
               )}
             </div>
@@ -1004,6 +859,7 @@ function TodayScreen({
   onEdit,
   onOpenHistory,
   onSummary,
+  onCalendar,
   onFilters,
   filters,
   onClearFilters,
@@ -1012,6 +868,7 @@ function TodayScreen({
   onEdit: (tag: string) => void;
   onOpenHistory: (tag: string) => void;
   onSummary: () => void;
+  onCalendar: () => void;
   onFilters: () => void;
   filters: Filters;
   onClearFilters: () => void;
@@ -1035,6 +892,10 @@ function TodayScreen({
   const totalSevere = animals.filter((a) => a.worstSeverity >= 3).length;
   const totalRecheck = animals.filter((a) => a.hasRecheck).length;
   const totalRegisteredOnly = animals.filter((a) => a.totalVisits === 0).length;
+  const curatives = useMemo(() => curativeFollowups(), []);
+  const curativesUrgent = curatives.filter(
+    (item) => item.status === "overdue" || item.status === "today",
+  ).length;
   const recheckAnimals = useMemo(() => {
     const today = todayISO();
     return animals
@@ -1104,34 +965,59 @@ function TodayScreen({
 
   return (
     <div className="space-y-4">
-      <LocalDataNotice />
+      <section className="rounded-2xl bg-foreground p-4 text-background shadow-sm">
+        <p className="text-xs font-bold uppercase text-background/65">Trabalho de campo</p>
+        <div className="mt-2 flex items-center justify-between gap-4">
+          <div>
+            <p className="font-display text-xl font-black uppercase">Registrar atendimento</p>
+            <p className="mt-1 text-xs text-background/70">Brinco, pés, problema e tratamento</p>
+          </div>
+          <button
+            type="button"
+            onClick={onNew}
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground"
+            aria-label="Iniciar nova visita"
+          >
+            <Plus className="h-7 w-7" strokeWidth={3} />
+          </button>
+        </div>
+      </section>
 
-      {/* Estatísticas clicáveis */}
-      <div className="grid grid-cols-3 gap-3">
-        <BigStat
-          emoji="🐄"
-          label="Animais"
-          value={animals.length}
-          tone="neutral"
-          onClick={() => setTab("ok")}
-          active={tab === "ok"}
-        />
-        <BigStat
-          emoji="🦶"
-          label="c/ Problema"
-          value={totalWithProblem}
-          tone="warn"
-          onClick={() => setTab("com_problema")}
-          active={tab === "com_problema"}
-        />
-        <BigStat
-          emoji="🚨"
-          label="Graves"
-          value={totalSevere}
-          tone="danger"
-          onClick={() => setTab("com_problema")}
-          active={false}
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={onCalendar}
+          className="rounded-2xl border-2 border-warn/35 bg-warn/10 p-4 text-left"
+        >
+          <CalendarDays className="h-5 w-5 text-warn-foreground" />
+          <p className="mt-3 font-display text-3xl font-black leading-none">{totalRecheck}</p>
+          <p className="mt-1 text-xs font-bold uppercase text-warn-foreground">Revisões abertas</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Abrir agenda</p>
+        </button>
+        <button
+          type="button"
+          onClick={onCalendar}
+          className={cn(
+            "rounded-2xl border-2 p-4 text-left",
+            curativesUrgent > 0
+              ? "border-danger/35 bg-danger/10"
+              : "border-primary/25 bg-primary/10",
+          )}
+        >
+          <Bandage
+            className={cn("h-5 w-5", curativesUrgent > 0 ? "text-danger" : "text-primary")}
+          />
+          <p className="mt-3 font-display text-3xl font-black leading-none">{curatives.length}</p>
+          <p className="mt-1 text-xs font-bold uppercase">Curativos abertos</p>
+          <p
+            className={cn(
+              "mt-1 text-[11px]",
+              curativesUrgent > 0 ? "text-danger" : "text-muted-foreground",
+            )}
+          >
+            {curativesUrgent > 0 ? `${curativesUrgent} exige(m) atenção` : "Todos dentro do prazo"}
+          </p>
+        </button>
       </div>
 
       {totalRecheck > 0 && (
@@ -1213,7 +1099,7 @@ function TodayScreen({
         </div>
       )}
 
-      {/* Resumo do Dia — antes das abas, claramente separado */}
+      {/* Resumo do dia */}
       <button
         onClick={onSummary}
         className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 text-left active:scale-[0.99] transition-transform"
@@ -1228,6 +1114,12 @@ function TodayScreen({
         </div>
         <ChevronRight className="ml-auto h-5 w-5 shrink-0 text-muted-foreground" />
       </button>
+
+      <div className="grid grid-cols-3 gap-2">
+        <CompactStat label="Problemas" value={totalWithProblem} tone="warn" />
+        <CompactStat label="Graves" value={totalSevere} tone="danger" />
+        <CompactStat label="Sem visita" value={totalRegisteredOnly} />
+      </div>
 
       {/* Abas operacionais */}
       <div className="grid grid-cols-2 gap-2">
@@ -1524,6 +1416,55 @@ function NavTab({
   );
 }
 
+function AppStatusStrip() {
+  const [online, setOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const context = farmContextService.getContext();
+  const trial = farmContextService.getTrialStatus();
+
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  return (
+    <div className="border-b border-border bg-surface/90">
+      <div className="mx-auto flex max-w-2xl items-center gap-2 overflow-x-auto px-4 py-2 text-[11px] font-bold">
+        <span className="whitespace-nowrap text-foreground">{context?.farm_name ?? "Fazenda"}</span>
+        <span aria-hidden="true" className="text-border">
+          •
+        </span>
+        <span
+          className={cn(
+            "flex items-center gap-1 whitespace-nowrap",
+            online ? "text-good-foreground" : "text-warn-foreground",
+          )}
+        >
+          {online ? <CheckCircle2 className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+          {online ? "Online" : "Offline — salvando no aparelho"}
+        </span>
+        {trial && (
+          <>
+            <span aria-hidden="true" className="text-border">
+              •
+            </span>
+            <span className={cn("whitespace-nowrap", trial.expired && "text-danger")}>
+              {trial.expired ? "Teste encerrado" : `Teste: ${trial.daysRemaining} dia(s)`}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LocalDataNotice() {
   const lastBackupAt = loadLastBackupAt();
 
@@ -1648,6 +1589,31 @@ function BigStat({
         {label}
       </p>
     </button>
+  );
+}
+
+function CompactStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "warn" | "danger";
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-3 text-center">
+      <p
+        className={cn(
+          "font-display text-2xl font-black leading-none",
+          tone === "warn" && value > 0 && "text-warn-foreground",
+          tone === "danger" && value > 0 && "text-danger",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">{label}</p>
+    </div>
   );
 }
 
@@ -2003,15 +1969,51 @@ function FiltersScreen({
 }
 
 /* ───────────── Calendário ───────────── */
+function downloadAgendaEvent(item: AgendaItem) {
+  const farmName = farmContextService.getContext()?.farm_name ?? "Fazenda";
+  const nextDate = dateAfterDays(1, item.date);
+  const compact = (date: string) => date.replaceAll("-", "");
+  const escapeIcs = (value: string) =>
+    value.replaceAll("\\", "\\\\").replaceAll(";", "\\;").replaceAll(",", "\\,");
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Caderninho de Casco//Agenda Clinica//PT-BR",
+    "BEGIN:VEVENT",
+    `UID:${item.id}@caderninho-casco`,
+    `DTSTAMP:${new Date()
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}/, "")}`,
+    `DTSTART;VALUE=DATE:${compact(item.date)}`,
+    `DTEND;VALUE=DATE:${compact(nextDate)}`,
+    `SUMMARY:${escapeIcs(`${item.title} — animal ${item.tag}`)}`,
+    `DESCRIPTION:${escapeIcs(`${farmName}. ${item.detail}`)}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `casco-${item.tag}-${item.date}.ics`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
   const today = todayISO();
+  const employeeContext = farmContextService.getContext();
   const [currentMonth, setCurrentMonth] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [selectedDate, setSelectedDate] = useState(today);
 
-  const recheckMap = useMemo(() => rechecksByDate(), []);
+  const agendaMap = useMemo(
+    () => agendaByDate(today, employeeContext?.employee_id),
+    [today, employeeContext?.employee_id],
+  );
   const { year, month } = currentMonth;
 
   const firstDay = new Date(year, month, 1).getDay();
@@ -2036,12 +2038,22 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
     );
   }
 
-  const selectedItems = recheckMap.get(selectedDate) ?? [];
-  const allPending = Array.from(recheckMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const selectedItems = agendaMap.get(selectedDate) ?? [];
+  const allPending = Array.from(agendaMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const pendingTotal = allPending.reduce((acc, [, items]) => acc + items.length, 0);
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+        <User className="h-5 w-5 text-primary" />
+        <div>
+          <p className="text-[10px] font-bold uppercase text-muted-foreground">Agenda de</p>
+          <p className="font-display text-sm font-black uppercase">
+            {employeeContext?.employee_name ?? "Funcionário"}
+          </p>
+        </div>
+      </div>
+
       {/* Resumo pendências */}
       {pendingTotal > 0 && (
         <div
@@ -2055,10 +2067,10 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
           <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
           <div>
             <p className="font-display text-sm font-black uppercase text-warn-foreground">
-              {pendingTotal} animal(is) com revisão marcada
+              {pendingTotal} compromisso(s) na agenda clínica
             </p>
             {allPending.some(([d]) => d < today) && (
-              <p className="text-xs font-bold text-danger">⚠️ Há revisões atrasadas!</p>
+              <p className="text-xs font-bold text-danger">Há atividades clínicas atrasadas</p>
             )}
           </div>
         </div>
@@ -2103,7 +2115,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
             const dateStr = isoDay(day);
             const isToday = dateStr === today;
             const isSel = dateStr === selectedDate;
-            const count = recheckMap.get(dateStr)?.length ?? 0;
+            const count = agendaMap.get(dateStr)?.length ?? 0;
             const isPast = dateStr < today && count > 0;
             return (
               <button
@@ -2156,47 +2168,59 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
           <div className="rounded-2xl border-2 border-dashed border-border/50 bg-surface/50 p-8 text-center">
             <p className="text-5xl">📅</p>
             <p className="mt-3 font-display text-base font-black uppercase text-muted-foreground">
-              Nenhuma revisão neste dia
+              Agenda livre neste dia
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Sem animais agendados para esta data
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Sem revisão ou prazo de curativo</p>
           </div>
         ) : (
           <ul className="space-y-2">
-            {selectedItems.map((item, idx) => (
-              <li key={idx}>
-                <button
-                  onClick={() => onOpenHistory(item.tag)}
+            {selectedItems.map((item) => (
+              <li key={item.id}>
+                <div
                   className={cn(
                     "tap-lg flex w-full items-center gap-4 rounded-2xl border-2 p-4 text-left",
-                    selectedDate < today
+                    item.overdue
                       ? "border-danger/40 bg-danger/5"
-                      : "border-warn/40 bg-warn/5",
+                      : item.type === "curative"
+                        ? "border-primary/35 bg-primary/5"
+                        : "border-warn/40 bg-warn/5",
                   )}
                 >
-                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
-                    <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
-                    <span className="text-xl font-black leading-none">{item.tag}</span>
-                    <span className="text-base leading-none">
-                      {item.sex === "vaca" ? "🐄" : "🐂"}
-                    </span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-display text-sm font-black uppercase text-warn-foreground">
-                      ⏰ Revisão marcada
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Pé(s): {item.feet.join(" · ")}
-                    </p>
-                    {selectedDate < today && (
-                      <p className="mt-0.5 text-xs font-bold text-danger">
-                        ⚠️ Atrasada — não realizada
+                  <button
+                    type="button"
+                    onClick={() => onOpenHistory(item.tag)}
+                    className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                  >
+                    <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
+                      <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
+                      <span className="text-xl font-black leading-none">{item.tag}</span>
+                      <span className="text-base leading-none">
+                        {item.sex === "vaca" ? "🐄" : "🐂"}
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-display text-sm font-black uppercase text-foreground">
+                        {item.type === "curative" ? "Prazo de curativo" : "Revisão clínica"}
                       </p>
-                    )}
-                  </div>
-                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-                </button>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>
+                      {item.overdue && (
+                        <p className="mt-0.5 text-xs font-bold text-danger">
+                          Atrasado — precisa de atenção
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadAgendaEvent(item)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-card text-primary"
+                    aria-label={`Adicionar ${item.title} do animal ${item.tag} ao calendário do celular`}
+                    title="Adicionar ao calendário do celular"
+                  >
+                    <CalendarPlus className="h-5 w-5" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -2208,9 +2232,11 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
         <div className="rounded-2xl border-2 border-dashed border-good/40 bg-good/5 p-8 text-center">
           <p className="text-5xl">✅</p>
           <p className="mt-3 font-display text-base font-black uppercase text-good-foreground">
-            Tudo em dia!
+            Agenda em dia
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Nenhum animal com revisão pendente.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Nenhuma revisão ou prazo de curativo pendente.
+          </p>
         </div>
       )}
     </div>
@@ -2409,41 +2435,16 @@ function RegisterScreen({
             </button>
             {showVisitOptions && (
               <div className="space-y-3 rounded-xl border-2 border-border bg-surface p-3">
-                <div>
-                  <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Quem está fazendo?
-                  </p>
-                  {farm.funcionarios.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      {farm.funcionarios.map((fn) => (
-                        <button
-                          key={fn.id}
-                          type="button"
-                          onClick={() => updateVisit({ visitante_nome: fn.nome })}
-                          className={cn(
-                            "tap flex items-center justify-center gap-2 rounded-xl border-2 px-2 py-2 font-display text-xs uppercase transition-all",
-                            visit.visitante_nome === fn.nome
-                              ? "border-primary bg-primary text-primary-foreground stamp"
-                              : "border-border bg-card",
-                          )}
-                        >
-                          <User className="h-4 w-4" />
-                          {fn.nome}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <input
-                      name="visitante-nome"
-                      aria-label="Nome opcional do responsável"
-                      value={visit.visitante_nome ?? ""}
-                      onChange={(e) => updateVisit({ visitante_nome: e.target.value || undefined })}
-                      placeholder="Nome opcional…"
-                      autoComplete="off"
-                      spellCheck={false}
-                      className="w-full rounded-xl border-2 border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
-                    />
-                  )}
+                <div className="flex items-center gap-3 rounded-xl bg-card px-3 py-3">
+                  <User className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-muted-foreground">
+                      Funcionário responsável
+                    </p>
+                    <p className="font-display text-sm font-black uppercase">
+                      {farmContextService.getContext()?.employee_name ?? farm.worker}
+                    </p>
+                  </div>
                 </div>
                 {farm.lotes.length > 0 && (
                   <div>
@@ -3332,6 +3333,7 @@ function SummaryScreen() {
   const today = todayISO();
   const visits = visitsForDay(today);
   const all = loadVisits();
+  const treatmentMetrics = curativeMetrics(today);
 
   const buckets = { leve: 0, medio: 0, grave: 0 };
   let badFeet = 0;
@@ -3403,6 +3405,40 @@ function SummaryScreen() {
         </div>
       </section>
 
+      <section className="rounded-2xl border-2 border-primary/20 bg-card p-5">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Bandage className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-display text-sm font-black uppercase">Acompanhamento de curativos</p>
+            <p className="text-xs text-muted-foreground">
+              Prazo entre o tratamento e a liberação do pé
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Stat label="Curativos abertos" value={treatmentMetrics.open} />
+          <Stat label="Atrasados" value={treatmentMetrics.overdue} tone="danger" />
+          <Stat label="Vencem hoje" value={treatmentMetrics.dueToday} tone="warn" />
+          <div className="rounded-xl bg-surface p-3 text-center">
+            <p className="font-display text-3xl leading-none">
+              {treatmentMetrics.averageDaysToRelease ?? "—"}
+            </p>
+            <p className="mt-1 text-[10px] uppercase text-muted-foreground">
+              Média até liberação (dias)
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 divide-y divide-border rounded-xl border border-border bg-surface px-3">
+          <ClinicalDeadline label="Dermatite digital" days={7} />
+          <ClinicalDeadline label="Úlcera de sola e linha branca" days={21} />
+          <ClinicalDeadline label="Outros curativos" days={30} />
+        </div>
+      </section>
+
       {topLesions.length > 0 && (
         <section className="rounded-2xl bg-card p-5">
           <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -3463,22 +3499,29 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "wa
   );
 }
 
+function ClinicalDeadline({ label, days }: { label: string; days: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-3 text-sm">
+      <span>{label}</span>
+      <strong className="whitespace-nowrap font-display text-primary">{days} dias</strong>
+    </div>
+  );
+}
+
 /* ───────────── Config ───────────── */
 function ConfigScreen({
   farm,
   onSave,
-  onSeed,
   onImport,
 }: {
   farm: FarmConfig;
   onSave: (f: FarmConfig) => void;
-  onSeed: () => void;
   onImport: () => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
   const [managerUnlocked, setManagerUnlocked] = useState(() => !farm.configured);
   const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">("dados");
-  const [cadastrosTab, setCadastrosTab] = useState<"funcionarios" | "animais">("funcionarios");
+  const [cadastrosTab, setCadastrosTab] = useState<"lotes" | "animais">("lotes");
 
   // Dados tab state
   const [name, setName] = useState(farm.farmName);
@@ -3486,8 +3529,6 @@ function ConfigScreen({
   const [diasPreventivo, setDiasPreventivo] = useState(farm.dias_para_preventivo);
 
   // Cadastros tab state
-  const [funcionarios, setFuncionarios] = useState<Funcionario[]>(farm.funcionarios);
-  const [newFuncNome, setNewFuncNome] = useState("");
   const [lotes, setLotes] = useState<string[]>(farm.lotes);
   const [newLote, setNewLote] = useState("");
   const [animais, setAnimais] = useState<RegisteredAnimal[]>(farm.animais ?? []);
@@ -3496,17 +3537,6 @@ function ConfigScreen({
 
   const valid = name.trim().length > 0;
   const lastBackupAt = loadLastBackupAt();
-
-  function addFuncionario() {
-    const nome = newFuncNome.trim();
-    if (!nome) return;
-    setFuncionarios((prev) => [...prev, { id: uid(), nome }]);
-    setNewFuncNome("");
-  }
-
-  function removeFuncionario(id: string) {
-    setFuncionarios((prev) => prev.filter((f) => f.id !== id));
-  }
 
   function addLote() {
     const lt = newLote.trim().toUpperCase();
@@ -3536,7 +3566,6 @@ function ConfigScreen({
       farmName: name.trim(),
       worker: worker.trim(),
       configured: true,
-      funcionarios,
       lotes,
       dias_para_preventivo: diasPreventivo,
       animais,
@@ -3582,7 +3611,7 @@ function ConfigScreen({
           </div>
           <p className="font-display text-2xl uppercase">Modo gerente</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Cadastros, backups e dados de teste ficam separados do uso de campo.
+            Cadastros e backups ficam separados do uso de campo.
           </p>
           <button
             type="button"
@@ -3674,10 +3703,10 @@ function ConfigScreen({
           {/* Sub-tabs */}
           <div className="flex gap-1.5 rounded-2xl bg-card p-1.5 stamp">
             <button
-              onClick={() => setCadastrosTab("funcionarios")}
-              className={tabBtnCls(cadastrosTab === "funcionarios")}
+              onClick={() => setCadastrosTab("lotes")}
+              className={tabBtnCls(cadastrosTab === "lotes")}
             >
-              Funcionários
+              Lotes
             </button>
             <button
               onClick={() => setCadastrosTab("animais")}
@@ -3687,111 +3716,58 @@ function ConfigScreen({
             </button>
           </div>
 
-          {/* Funcionários */}
-          {cadastrosTab === "funcionarios" && (
-            <section className="space-y-3">
-              {funcionarios.length === 0 && (
-                <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
-                  <p className="text-3xl">👥</p>
-                  <p className="mt-2 font-display text-base uppercase text-muted-foreground">
-                    Nenhum funcionário
-                  </p>
-                </div>
+          {/* Lotes */}
+          {cadastrosTab === "lotes" && (
+            <section className="space-y-3 rounded-2xl bg-card p-4 stamp">
+              <p className="text-xs font-bold uppercase text-muted-foreground">Lotes da fazenda</p>
+              {lotes.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhum lote cadastrado.</p>
               )}
-              <ul className="space-y-2">
-                {funcionarios.map((fn) => (
-                  <li
-                    key={fn.id}
-                    className="flex items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 stamp"
+              <div className="flex flex-wrap gap-2">
+                {lotes.map((lt) => (
+                  <span
+                    key={lt}
+                    className="flex items-center gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/10 px-3 py-1.5"
                   >
-                    <User className="h-5 w-5 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 font-display text-base uppercase">{fn.nome}</span>
+                    <span className="font-display text-sm font-black uppercase text-primary">
+                      {lt}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => removeFuncionario(fn.id)}
-                      className="tap flex h-9 w-9 items-center justify-center rounded-xl bg-danger/10 text-danger"
-                      aria-label="Remover"
+                      onClick={() => removeLote(lt)}
+                      className="text-muted-foreground"
+                      aria-label={"Remover lote " + lt}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
-                  </li>
+                  </span>
                 ))}
-              </ul>
+              </div>
               <div className="flex gap-2">
                 <input
-                  name="novo-funcionario"
-                  aria-label="Nome do funcionário"
-                  value={newFuncNome}
-                  onChange={(e) => setNewFuncNome(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addFuncionario()}
-                  placeholder="Nome do funcionário…"
+                  name="novo-lote"
+                  aria-label="Nome do lote"
+                  value={newLote}
+                  onChange={(event) => setNewLote(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && addLote()}
+                  placeholder="Ex.: A1"
                   autoComplete="off"
-                  className="flex-1 rounded-xl border-2 border-border bg-surface px-3 py-3 text-sm outline-none focus:border-primary"
+                  className="min-w-0 flex-1 rounded-xl border-2 border-border bg-surface px-3 py-3 uppercase outline-none focus:border-primary"
                 />
                 <button
                   type="button"
-                  onClick={addFuncionario}
-                  className="tap rounded-xl border-2 border-primary bg-primary px-4 py-3 text-primary-foreground"
-                  aria-label="Adicionar funcionário"
+                  onClick={addLote}
+                  className="tap flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground"
+                  aria-label="Adicionar lote"
                 >
                   <Plus className="h-5 w-5" />
                 </button>
               </div>
-              {/* Lotes dentro de Funcionários para agrupamento */}
-              <div className="rounded-2xl bg-card p-4 stamp space-y-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Lotes
-                </p>
-                {lotes.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Nenhum lote cadastrado.</p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {lotes.map((lt) => (
-                    <span
-                      key={lt}
-                      className="flex items-center gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/10 px-3 py-1.5"
-                    >
-                      <span className="font-display text-sm font-black uppercase text-primary">
-                        {lt}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removeLote(lt)}
-                        className="text-muted-foreground"
-                        aria-label="Remover lote"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    name="novo-lote"
-                    aria-label="Nome do lote"
-                    value={newLote}
-                    onChange={(e) => setNewLote(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addLote()}
-                    placeholder="Nome do lote (ex: A1)…"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="flex-1 rounded-xl border-2 border-border bg-surface px-3 py-2 text-sm uppercase outline-none focus:border-primary"
-                  />
-                  <button
-                    type="button"
-                    onClick={addLote}
-                    className="tap rounded-xl border-2 border-primary bg-primary px-4 py-2 text-primary-foreground"
-                    aria-label="Adicionar lote"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
               <button
                 onClick={() => onSave(currentFarm())}
-                className="tap-lg w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp"
+                className="tap-lg w-full rounded-xl bg-primary py-4 font-display uppercase text-primary-foreground"
               >
-                💾 Salvar
+                Salvar lotes
               </button>
             </section>
           )}
@@ -3986,21 +3962,6 @@ function ConfigScreen({
               </button>
             </div>
           </section>
-          <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-5 space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Dados de Teste
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Popula o sistema com animais de exemplo para testar o app.
-            </p>
-            <button
-              type="button"
-              onClick={onSeed}
-              className="tap w-full rounded-2xl border-2 border-border bg-card font-display text-base uppercase py-4"
-            >
-              🧪 Carregar Dados de Teste
-            </button>
-          </div>
         </div>
       )}
     </div>
