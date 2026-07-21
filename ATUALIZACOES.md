@@ -8,6 +8,46 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-21 - PIN, agenda do funcionário e revisão visual
+
+### O que foi feito
+
+- O acesso do funcionário agora usa um campo de `PIN` numérico, sem campo HTML do tipo senha e sem integração com o gerenciador de senhas do navegador.
+- O fluxo de acesso foi separado em três telas exclusivas: empresa, funcionário e fazenda.
+- Adicionadas setas de voltar na identificação do funcionário, escolha da fazenda e agenda pessoal.
+- `Minha agenda` não abre mais o calendário operacional da fazenda. A nova tela reúne somente os compromissos atribuídos ao funcionário em todas as fazendas permitidas.
+- A agenda pessoal foi simplificada em `Atrasadas`, `Hoje` e `Próximas`, com fazenda, brinco, data, motivo e ação para adicionar o compromisso ao calendário do celular.
+- A agenda pessoal usa o Supabase quando há internet e a cópia local do IndexedDB quando estiver offline.
+- Reorganizado o cabeçalho móvel: sincronização fica visível e ajuda, configurações e troca de empresa ficam em um menu compacto.
+- Corrigidas mensagens brancas sobre fundos claros em status Online, Tudo OK, Curado e Agenda em dia.
+- Substituída a aparência bege/escura por superfícies neutras, verde mais contrastante e tipografia utilitária IBM Plex Sans.
+- Removidos emojis decorativos dos principais comandos, usando ícones consistentes nos atalhos e abas.
+- Removido do código o tutorial ilustrativo antigo; a ajuda agora é contextual, curta e sem dados fictícios.
+- Atualizado o cache PWA para `v7`.
+- Adicionado teste de domínio para garantir que o mesmo brinco continue separado entre fazendas na agenda geral.
+
+### Por que foi feito
+
+- Evitar o aviso de senha vazada do navegador para o PIN temporário `1234`.
+- Deixar clara a diferença entre a agenda geral do funcionário e o calendário operacional de uma fazenda.
+- Melhorar leitura sob luz forte e reduzir a aparência de protótipo gerado automaticamente.
+- Garantir navegação confortável por toque em celulares e tablets.
+
+### Como validar
+
+- Informar `HULLSJOB`, voltar para a tela anterior pela seta e avançar novamente.
+- Entrar como Romano ou `001` usando o PIN `1234` e confirmar que o navegador não apresenta campo de senha.
+- Abrir `Minha agenda`, confirmar o nome do funcionário e voltar para a escolha da fazenda.
+- Entrar na Fazenda Vitória e verificar o novo cabeçalho, contraste e menu de opções.
+- Validar em 390x844 e 1024x768 sem rolagem horizontal.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint` e `npm run build:vercel`.
+
+### Próximos passos
+
+- Validar a agenda pessoal com compromissos reais distribuídos entre duas fazendas do mesmo funcionário.
+- Testar o teclado numérico e a instalação PWA em Android e iPad reais.
+- Substituir o PIN temporário compartilhado por PINs individuais antes da operação definitiva.
+
 ## 2026-07-21 - Auditoria e correção completa da produção
 
 ### O que foi feito

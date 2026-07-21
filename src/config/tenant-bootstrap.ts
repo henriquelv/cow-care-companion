@@ -139,14 +139,14 @@ export function findBootstrapClient(code: string) {
   return TENANTS.find((tenant) => tenant.client.activation_code === code)?.client ?? null;
 }
 
-export function authenticateBootstrapEmployee(code: string, login: string, password: string) {
+export function authenticateBootstrapEmployee(code: string, login: string, pin: string) {
   const tenant = TENANTS.find((item) => item.client.activation_code === code);
   if (!tenant) return null;
 
   const normalizedLogin = login.trim().toLocaleLowerCase("pt-BR");
   const employee = tenant.employees.find(
     (item) =>
-      item.temporary_password === password &&
+      item.temporary_password === pin &&
       (item.employee_code === login.trim() ||
         item.login_name.toLocaleLowerCase("pt-BR") === normalizedLogin),
   );

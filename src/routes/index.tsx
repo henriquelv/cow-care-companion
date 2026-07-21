@@ -33,6 +33,7 @@ import {
   CalendarPlus,
   Bandage,
   WifiOff,
+  EllipsisVertical,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -87,6 +88,7 @@ import { farmContextService } from "@/services/farm-context.service";
 import { isSupabaseConfigured } from "@/services/supabase";
 import { syncService } from "@/services/sync.service";
 import { getPhotoDisplayUrl, mediaRef, savePhotoBlob } from "@/services/media.service";
+import { employeeAgendaService, type EmployeeAgendaItem } from "@/services/employee-agenda.service";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -206,7 +208,7 @@ export function Index() {
   if (!activated) {
     return (
       <ActivationScreen
-        onActivated={(destination) => {
+        onActivated={() => {
           const ctx = farmContextService.getContext();
           const nextFarm = {
             ...loadFarm(),
@@ -217,7 +219,7 @@ export function Index() {
           saveFarm(nextFarm);
           setFarm(nextFarm);
           setActivated(true);
-          setScreen(destination === "calendar" ? { name: "calendar" } : { name: "today" });
+          setScreen({ name: "today" });
           refresh();
         }}
       />
@@ -419,18 +421,15 @@ export function Index() {
 }
 
 /* ───────────── Ativação ───────────── */
-function ActivationScreen({
-  onActivated,
-}: {
-  onActivated: (destination?: "home" | "calendar") => void;
-}) {
+function ActivationScreen({ onActivated }: { onActivated: () => void }) {
   const [code, setCode] = useState("");
   const [client, setClient] = useState<RemoteClient | null>(null);
   const [farms, setFarms] = useState<RemoteFarm[]>([]);
   const [farm, setFarm] = useState<RemoteFarm | null>(null);
   const [employee, setEmployee] = useState<RemoteEmployee | null>(null);
   const [employeeLogin, setEmployeeLogin] = useState("");
-  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [showEmployeeAgenda, setShowEmployeeAgenda] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -448,7 +447,7 @@ function ActivationScreen({
       setFarm(null);
       setEmployee(null);
       setEmployeeLogin("");
-      setPassword("");
+      setPin("");
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
       setClient(null);
@@ -469,13 +468,13 @@ function ActivationScreen({
       const result = await activationService.authenticateEmployee(
         client.activation_code,
         employeeLogin,
-        password,
+        pin,
       );
       setClient(result.client);
       setEmployee(result.employee);
       setFarms(result.farms);
       setFarm(result.farms.length === 1 ? result.farms[0] : null);
-      setPassword("");
+      setPin("");
     } catch (err) {
       setEmployee(null);
       setFarms([]);
@@ -486,13 +485,13 @@ function ActivationScreen({
     }
   }
 
-  async function activate(destination: "home" | "calendar") {
+  async function activate() {
     if (!client || !farm || !employee) return;
     setError("");
     setLoading(true);
     try {
       await activationService.activate(farm, employee, client);
-      onActivated(destination);
+      onActivated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível ativar este aparelho.");
     } finally {
@@ -500,20 +499,64 @@ function ActivationScreen({
     }
   }
 
+  function backOneStep() {
+    setError("");
+    if (employee) {
+      setEmployee(null);
+      setFarms([]);
+      setFarm(null);
+      setEmployeeLogin("");
+      setPin("");
+      return;
+    }
+    setClient(null);
+    setEmployeeLogin("");
+    setPin("");
+  }
+
+  if (showEmployeeAgenda && employee) {
+    return (
+      <EmployeeAgendaScreen
+        employee={employee}
+        farms={farms}
+        onBack={() => setShowEmployeeAgenda(false)}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-background px-3 py-5 sm:px-4">
       <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] w-full min-w-0 max-w-2xl flex-col justify-center">
         <section className="w-full min-w-0 overflow-hidden rounded-3xl border-2 border-border bg-card p-4 shadow-sm stamp sm:p-6">
           <div className="mb-6 flex min-w-0 items-center gap-3 sm:gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground stamp sm:h-16 sm:w-16">
-              <ShieldCheck className="h-8 w-8" aria-hidden="true" />
-            </div>
+            {client ? (
+              <button
+                type="button"
+                onClick={backOneStep}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-border bg-surface text-foreground"
+                aria-label="Voltar uma etapa"
+              >
+                <ArrowLeft className="h-6 w-6" />
+              </button>
+            ) : (
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground stamp sm:h-16 sm:w-16">
+                <ShieldCheck className="h-8 w-8" aria-hidden="true" />
+              </div>
+            )}
             <div className="min-w-0">
-              <p className="break-words font-display text-xl font-black uppercase leading-tight sm:text-2xl">
-                Acessar empresa
+              <p className="break-words font-display text-xl font-extrabold leading-tight sm:text-2xl">
+                {!client
+                  ? "Acessar empresa"
+                  : !employee
+                    ? "Identificar funcionário"
+                    : "Escolher fazenda"}
               </p>
               <p className="mt-1 text-xs leading-snug text-muted-foreground sm:text-sm">
-                Identifique-se e escolha onde vai trabalhar.
+                {!client
+                  ? "Informe o código recebido pela empresa."
+                  : !employee
+                    ? `Empresa ${client.name}`
+                    : `${employee.name} · código ${employee.employee_code}`}
               </p>
             </div>
           </div>
@@ -546,54 +589,56 @@ function ActivationScreen({
             })}
           </div>
 
-          <form
-            className="space-y-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void validateCode();
-            }}
-          >
-            <label className="block">
-              <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Link ou código da empresa
-              </span>
-              <input
-                name="link-fazenda"
-                aria-label="Link ou código da empresa"
-                value={code}
-                onChange={(event) => {
-                  setCode(event.target.value);
-                  setClient(null);
-                  setFarms([]);
-                  setFarm(null);
-                  setEmployee(null);
-                  setEmployeeLogin("");
-                  setPassword("");
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void validateCode();
-                }}
-                placeholder="Digite seu código"
-                autoComplete="off"
-                autoCapitalize="characters"
-                enterKeyHint="go"
-                spellCheck={false}
-                className="min-w-0 w-full rounded-2xl border-2 border-border bg-surface px-3 py-4 text-center font-display text-xl font-black uppercase outline-none focus:border-primary sm:px-4 sm:text-3xl"
-              />
-            </label>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed"
+          {!client && (
+            <form
+              className="space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void validateCode();
+              }}
             >
-              {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
-              Continuar
-            </button>
-          </form>
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Link ou código da empresa
+                </span>
+                <input
+                  name="link-fazenda"
+                  aria-label="Link ou código da empresa"
+                  value={code}
+                  onChange={(event) => {
+                    setCode(event.target.value);
+                    setClient(null);
+                    setFarms([]);
+                    setFarm(null);
+                    setEmployee(null);
+                    setEmployeeLogin("");
+                    setPin("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void validateCode();
+                  }}
+                  placeholder="Digite seu código"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  enterKeyHint="go"
+                  spellCheck={false}
+                  className="min-w-0 w-full rounded-2xl border-2 border-border bg-surface px-3 py-4 text-center font-display text-xl font-black uppercase outline-none focus:border-primary sm:px-4 sm:text-3xl"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed"
+              >
+                {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
+                Continuar
+              </button>
+            </form>
+          )}
 
           {client && (
-            <div className="mt-5 space-y-4 rounded-2xl border-2 border-primary/30 bg-primary/5 p-4">
+            <div className="space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-primary">Cliente</p>
@@ -605,7 +650,7 @@ function ActivationScreen({
               </div>
 
               {!employee ? (
-                <div className="space-y-3 rounded-2xl border-2 border-border bg-card p-3">
+                <div className="space-y-3 border-t-2 border-border pt-4">
                   <p className="text-xs font-bold uppercase text-muted-foreground">
                     Identificação do funcionário
                   </p>
@@ -615,29 +660,32 @@ function ActivationScreen({
                     value={employeeLogin}
                     onChange={(event) => setEmployeeLogin(event.target.value)}
                     placeholder="Nome ou código"
-                    autoComplete="username"
+                    autoComplete="off"
                     className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 font-display text-lg outline-none focus:border-primary"
                   />
                   <input
-                    name="senha-funcionario"
-                    aria-label="Senha do funcionário"
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    name="pin-acesso"
+                    aria-label="PIN de acesso"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={pin}
+                    onChange={(event) => setPin(event.target.value.replace(/\D/g, ""))}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void authenticateEmployee();
                     }}
-                    placeholder="Senha"
-                    autoComplete="current-password"
-                    className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 font-display text-lg outline-none focus:border-primary"
+                    placeholder="PIN de acesso"
+                    autoComplete="one-time-code"
+                    className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-center text-xl font-bold tracking-[0.18em] outline-none focus:border-primary"
                   />
                   <button
                     type="button"
                     onClick={authenticateEmployee}
-                    disabled={!employeeLogin.trim() || !password || loading}
+                    disabled={!employeeLogin.trim() || !pin || loading}
                     className={cn(
                       "tap-lg flex w-full items-center justify-center gap-2 rounded-xl py-4 font-display uppercase",
-                      employeeLogin.trim() && password && !loading
+                      employeeLogin.trim() && pin && !loading
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground",
                     )}
@@ -647,7 +695,7 @@ function ActivationScreen({
                     ) : (
                       <User className="h-5 w-5" />
                     )}
-                    Entrar como funcionário
+                    Continuar
                   </button>
                 </div>
               ) : (
@@ -694,16 +742,16 @@ function ActivationScreen({
                   <div className="grid gap-2 sm:grid-cols-2">
                     <button
                       type="button"
-                      onClick={() => void activate("calendar")}
-                      disabled={!farm || loading}
+                      onClick={() => setShowEmployeeAgenda(true)}
+                      disabled={loading}
                       className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-primary bg-card px-3 font-display text-sm uppercase text-primary"
                     >
                       <CalendarDays className="h-5 w-5" />
-                      Visualizar agenda
+                      Minha agenda
                     </button>
                     <button
                       type="button"
-                      onClick={() => void activate("home")}
+                      onClick={() => void activate()}
                       disabled={!farm || loading}
                       className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl bg-good px-3 font-display text-sm uppercase text-good-foreground stamp"
                     >
@@ -734,6 +782,184 @@ function ActivationScreen({
   );
 }
 
+function EmployeeAgendaScreen({
+  employee,
+  farms,
+  onBack,
+}: {
+  employee: RemoteEmployee;
+  farms: RemoteFarm[];
+  onBack: () => void;
+}) {
+  const today = todayISO();
+  const [items, setItems] = useState<EmployeeAgendaItem[]>([]);
+  const [source, setSource] = useState<"remote" | "local">("local");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void employeeAgendaService
+      .load(
+        employee.id,
+        farms.map((farm) => ({ id: farm.id, name: farm.name })),
+      )
+      .then((result) => {
+        if (!active) return;
+        setItems(result.items);
+        setSource(result.source);
+      })
+      .catch((agendaError) => {
+        if (!active) return;
+        setError(
+          agendaError instanceof Error
+            ? agendaError.message
+            : "Não foi possível carregar a agenda.",
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [employee.id, farms]);
+
+  const overdue = items.filter((item) => item.date < today);
+  const dueToday = items.filter((item) => item.date === today);
+  const upcoming = items.filter((item) => item.date > today);
+
+  function formatDate(date: string) {
+    return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+    });
+  }
+
+  return (
+    <main className="min-h-screen bg-background">
+      <header className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm">
+        <div className="mx-auto flex min-h-16 max-w-3xl items-center gap-3 px-4 py-2 sm:px-6">
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-surface"
+            aria-label="Voltar para escolher a fazenda"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-lg font-extrabold sm:text-xl">Minha agenda</h1>
+            <p className="truncate text-xs text-muted-foreground">
+              {employee.name} · {farms.length} fazenda(s)
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-3xl space-y-5 px-4 py-5 sm:px-6 sm:py-7">
+        <section className="grid grid-cols-3 gap-2 sm:gap-3" aria-label="Resumo da agenda">
+          {[
+            ["Atrasadas", overdue.length, "text-danger", "border-danger/30 bg-danger/5"],
+            ["Hoje", dueToday.length, "text-primary", "border-primary/30 bg-primary/5"],
+            ["Próximas", upcoming.length, "text-foreground", "border-border bg-card"],
+          ].map(([label, value, tone, surface]) => (
+            <div key={String(label)} className={cn("rounded-xl border p-3 text-center", surface)}>
+              <p className={cn("text-2xl font-extrabold sm:text-3xl", tone)}>{value}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground sm:text-xs">
+                {label}
+              </p>
+            </div>
+          ))}
+        </section>
+
+        {source === "local" && !loading && (
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-muted-foreground">
+            <WifiOff className="h-4 w-4 shrink-0" />
+            Mostrando os compromissos disponíveis neste aparelho.
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex min-h-48 items-center justify-center gap-3 text-muted-foreground">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span className="font-semibold">Carregando agenda...</span>
+          </div>
+        ) : error ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-danger"
+          >
+            {error}
+          </div>
+        ) : items.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center sm:p-10">
+            <CalendarDays className="mx-auto h-9 w-9 text-primary" />
+            <h2 className="mt-3 text-lg font-extrabold">Nenhum compromisso pendente</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Revisões e prazos de curativo atribuídos a você aparecerão aqui.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {[
+              ["Atrasadas", overdue],
+              ["Hoje", dueToday],
+              ["Próximas", upcoming],
+            ].map(([title, group]) => {
+              const agendaGroup = group as EmployeeAgendaItem[];
+              if (!agendaGroup.length) return null;
+              return (
+                <section key={String(title)}>
+                  <h2 className="mb-2 text-sm font-extrabold text-foreground">{title as string}</h2>
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {agendaGroup.map((item) => (
+                      <li
+                        key={`${item.farm_id}_${item.id}`}
+                        className={cn(
+                          "flex min-w-0 items-center gap-3 rounded-xl border bg-card p-3",
+                          item.overdue ? "border-danger/40" : "border-border",
+                        )}
+                      >
+                        <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg bg-surface">
+                          <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                            Brinco
+                          </span>
+                          <span className="text-lg font-extrabold leading-none">{item.tag}</span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold">{item.title}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {item.farm_name} · {formatDate(item.date)}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                            {item.detail}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => downloadAgendaEvent(item, item.farm_name)}
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-primary"
+                          aria-label={`Adicionar compromisso do brinco ${item.tag} ao calendário do celular`}
+                        >
+                          <CalendarPlus className="h-5 w-5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
 /* ───────────── Header ───────────── */
 function Header({
   farm,
@@ -756,6 +982,7 @@ function Header({
   onSync: () => void;
   onDeactivate?: () => void;
 }) {
+  const [showMenu, setShowMenu] = useState(false);
   const titles: Record<string, string> = {
     today: "",
     calendar: "Calendário",
@@ -769,18 +996,18 @@ function Header({
 
   return (
     <header className="sticky top-0 z-10 border-b-2 border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+      <div className="mx-auto flex max-w-2xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
         {showBack ? (
           <button
             onClick={onBack}
-            className="tap flex h-12 w-12 items-center justify-center rounded-full bg-surface"
+            className="flex h-11 w-11 items-center justify-center rounded-xl bg-surface"
             aria-label="Voltar"
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
         ) : (
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground font-display text-xl stamp">
-            🐄
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground stamp">
+            <Scissors className="h-5 w-5" />
           </div>
         )}
         <div className="flex-1 min-w-0 leading-tight">
@@ -809,8 +1036,8 @@ function Header({
         <button
           onClick={onSync}
           className={cn(
-            "tap flex h-12 w-12 items-center justify-center rounded-full bg-surface",
-            syncInfo === "ok" && "text-good-foreground",
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface",
+            syncInfo === "ok" && "text-good",
             syncInfo === "error" && "text-danger",
             syncInfo === "offline" && "text-warn-foreground",
           )}
@@ -827,30 +1054,56 @@ function Header({
         >
           <RefreshCw className={cn("h-5 w-5", syncInfo === "syncing" && "animate-spin")} />
         </button>
-        {onDeactivate && (
+        <div className="relative">
           <button
-            onClick={onDeactivate}
-            className="tap flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted-foreground"
-            aria-label="Desativar aparelho"
-            title="Desativar aparelho"
+            type="button"
+            onClick={() => setShowMenu((value) => !value)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface"
+            aria-label="Abrir menu"
+            aria-expanded={showMenu}
           >
-            <LogOut className="h-5 w-5" />
+            <EllipsisVertical className="h-5 w-5" />
           </button>
-        )}
-        <button
-          onClick={onHelp}
-          className="tap flex h-12 w-12 items-center justify-center rounded-full bg-surface text-primary"
-          aria-label="Ajuda"
-        >
-          <HelpCircle className="h-6 w-6" />
-        </button>
-        <button
-          onClick={onConfig}
-          className="tap flex h-12 w-12 items-center justify-center rounded-full bg-surface"
-          aria-label="Configuração"
-        >
-          <Cog className="h-5 w-5" />
-        </button>
+          {showMenu && (
+            <div className="absolute right-0 top-12 z-30 w-52 overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMenu(false);
+                  onHelp();
+                }}
+                className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
+              >
+                <HelpCircle className="h-5 w-5 text-primary" />
+                Ajuda
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMenu(false);
+                  onConfig();
+                }}
+                className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
+              >
+                <Cog className="h-5 w-5 text-primary" />
+                Configurações
+              </button>
+              {onDeactivate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMenu(false);
+                    onDeactivate();
+                  }}
+                  className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-danger hover:bg-danger/5"
+                >
+                  <LogOut className="h-5 w-5" />
+                  Trocar empresa
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -968,12 +1221,12 @@ function TodayScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl bg-foreground p-4 text-background shadow-sm">
-        <p className="text-xs font-bold uppercase text-background/65">Trabalho de campo</p>
+      <section className="rounded-2xl border-2 border-primary/25 bg-card p-4 shadow-sm">
+        <p className="text-xs font-bold uppercase text-primary">Trabalho de campo</p>
         <div className="mt-2 flex items-center justify-between gap-4">
           <div>
             <p className="font-display text-xl font-black uppercase">Registrar atendimento</p>
-            <p className="mt-1 text-xs text-background/70">Brinco, pés, problema e tratamento</p>
+            <p className="mt-1 text-xs text-muted-foreground">Brinco, pés, problema e tratamento</p>
           </div>
           <button
             type="button"
@@ -1058,12 +1311,12 @@ function TodayScreen({
             aria-label="Buscar pelo brinco"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar pelo brinco…"
+            placeholder="Buscar brinco"
             inputMode="numeric"
             pattern="[0-9]*"
             autoComplete="off"
             spellCheck={false}
-            className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 font-display text-xl uppercase outline-none focus:border-primary"
+            className="tap w-full rounded-2xl border-2 border-border bg-card pl-12 pr-4 text-base font-bold outline-none focus:border-primary sm:text-xl"
             style={{ height: 56 }}
           />
           {search && (
@@ -1108,8 +1361,8 @@ function TodayScreen({
         className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 text-left active:scale-[0.99] transition-transform"
         aria-label="Ver resumo do dia"
       >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xl">
-          📊
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <BarChart3 className="h-5 w-5" />
         </span>
         <div>
           <p className="font-display text-base font-black uppercase">Resumo do Dia</p>
@@ -1126,14 +1379,24 @@ function TodayScreen({
 
       {/* Abas operacionais */}
       <div className="grid grid-cols-2 gap-2">
-        {(
-          [
-            ["revisao", `Revisão (${totalRecheck})`, "⏰"],
-            ["com_problema", `Problema (${totalWithProblem})`, "⚠️"],
-            ["ok", "OK", "✅"],
-            ["cadastrados", `Cadastrados (${totalRegisteredOnly})`, "📋"],
-          ] as [typeof tab, string, string][]
-        ).map(([val, label, emoji]) => (
+        {[
+          {
+            val: "revisao" as const,
+            label: `Revisão (${totalRecheck})`,
+            icon: <Clock className="h-4 w-4" />,
+          },
+          {
+            val: "com_problema" as const,
+            label: `Problema (${totalWithProblem})`,
+            icon: <AlertTriangle className="h-4 w-4" />,
+          },
+          { val: "ok" as const, label: "OK", icon: <CheckCircle2 className="h-4 w-4" /> },
+          {
+            val: "cadastrados" as const,
+            label: `Cadastrados (${totalRegisteredOnly})`,
+            icon: <Users className="h-4 w-4" />,
+          },
+        ].map(({ val, label, icon }) => (
           <button
             key={val}
             type="button"
@@ -1146,7 +1409,10 @@ function TodayScreen({
                 : "border-border bg-surface",
             )}
           >
-            {emoji} {label}
+            <span className="flex items-center justify-center gap-2">
+              {icon}
+              {label}
+            </span>
           </button>
         ))}
       </div>
@@ -1270,7 +1536,7 @@ function TodayScreen({
                       className={cn(
                         "font-display text-xl font-black leading-tight",
                         !hasProblema
-                          ? "text-good-foreground"
+                          ? "text-good"
                           : a.worstSeverity >= 3
                             ? "text-danger"
                             : "text-warn-foreground",
@@ -1325,7 +1591,7 @@ function TodayScreen({
                         </span>
                       )}
                       {a.hasResolved && (
-                        <span className="rounded-md bg-good/20 px-2 py-0.5 text-[11px] font-bold uppercase text-good-foreground">
+                        <span className="rounded-md bg-good/15 px-2 py-0.5 text-[11px] font-bold uppercase text-good">
                           ✅ Curado
                         </span>
                       )}
@@ -1447,7 +1713,7 @@ function AppStatusStrip() {
         <span
           className={cn(
             "flex items-center gap-1 whitespace-nowrap",
-            online ? "text-good-foreground" : "text-warn-foreground",
+            online ? "text-good" : "text-warn-foreground",
           )}
         >
           {online ? <CheckCircle2 className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
@@ -1972,8 +2238,8 @@ function FiltersScreen({
 }
 
 /* ───────────── Calendário ───────────── */
-function downloadAgendaEvent(item: AgendaItem) {
-  const farmName = farmContextService.getContext()?.farm_name ?? "Fazenda";
+function downloadAgendaEvent(item: AgendaItem, selectedFarmName?: string) {
+  const farmName = selectedFarmName ?? farmContextService.getContext()?.farm_name ?? "Fazenda";
   const nextDate = dateAfterDays(1, item.date);
   const compact = (date: string) => date.replaceAll("-", "");
   const escapeIcs = (value: string) =>
@@ -2234,7 +2500,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
       {allPending.length === 0 && (
         <div className="rounded-2xl border-2 border-dashed border-good/40 bg-good/5 p-8 text-center">
           <p className="text-5xl">✅</p>
-          <p className="mt-3 font-display text-base font-black uppercase text-good-foreground">
+          <p className="mt-3 font-display text-base font-black uppercase text-good">
             Agenda em dia
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -2555,7 +2821,7 @@ function RegisterScreen({
               });
               advanceFromNotes();
             }}
-            className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-good/60 bg-good/10 px-4 py-3 font-display text-base uppercase text-good-foreground"
+            className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-good/60 bg-good/10 px-4 py-3 font-display text-base uppercase text-good"
           >
             <CheckCircle2 className="h-6 w-6 shrink-0" /> Este pé está CURADO
           </button>
@@ -2829,7 +3095,7 @@ function RegisterScreen({
                 </span>
               )}
               {visit.preventivo && (
-                <span className="rounded-lg bg-good/20 px-3 py-1 font-display text-sm font-black uppercase text-good-foreground">
+                <span className="rounded-lg bg-good/15 px-3 py-1 font-display text-sm font-black uppercase text-good">
                   Preventivo
                 </span>
               )}
@@ -2858,9 +3124,7 @@ function RegisterScreen({
                         {FOOT_LABEL[f.foot]}
                       </p>
                       {f.resolved && (
-                        <p className="text-sm font-bold text-good-foreground">
-                          Marcado como CURADO
-                        </p>
+                        <p className="text-sm font-bold text-good">Marcado como CURADO</p>
                       )}
                       {activeDiseases.map((d) => {
                         const l = LESIONS.find((x) => x.code === d.code);
@@ -2896,9 +3160,7 @@ function RegisterScreen({
             </div>
           ) : (
             <div className="rounded-2xl border-2 border-good/40 bg-good/5 p-4 text-center">
-              <p className="font-display text-lg font-black uppercase text-good-foreground">
-                Todos os pés OK
-              </p>
+              <p className="font-display text-lg font-black uppercase text-good">Todos os pés OK</p>
             </div>
           )}
           <button

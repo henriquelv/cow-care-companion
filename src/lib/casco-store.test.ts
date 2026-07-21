@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import {
   allAnimals,
   agendaByDate,
+  agendaByDateFromVisits,
   createPreventiveVisit,
   createVisitSyncPayloads,
   curativeDeadlineForDiseases,
@@ -193,6 +194,29 @@ describe("casco-store domain rules", () => {
 
     const romanoItems = agendaByDate("2026-05-22", "employee-romano").get("2026-05-25");
     expect(romanoItems?.map((item) => item.tag)).toEqual(["100"]);
+  });
+
+  it("mantém compromissos do mesmo brinco separados por fazenda", () => {
+    const visits = [
+      visit({
+        id: "farm-a-visit",
+        farm_id: "farm-a",
+        employee_id: "employee-romano",
+        tag: "100",
+        feet: [foot({ ok: false, recheck: true, recheckDate: "2026-05-25" })],
+      }),
+      visit({
+        id: "farm-b-visit",
+        farm_id: "farm-b",
+        employee_id: "employee-romano",
+        tag: "100",
+        feet: [foot({ ok: false, recheck: true, recheckDate: "2026-05-26" })],
+      }),
+    ];
+
+    const agenda = agendaByDateFromVisits(visits, "2026-05-22", "employee-romano");
+    expect(agenda.get("2026-05-25")?.[0]?.farm_id).toBe("farm-a");
+    expect(agenda.get("2026-05-26")?.[0]?.farm_id).toBe("farm-b");
   });
 
   it("processa a fila offline somente para a fazenda ativa", async () => {

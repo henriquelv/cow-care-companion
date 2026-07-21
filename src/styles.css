@@ -39,38 +39,37 @@
   --color-danger-foreground: var(--danger-foreground);
   --color-surface: var(--surface);
 
-  --font-display: "Archivo Black", system-ui, sans-serif;
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "IBM Plex Sans Condensed", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
 }
 
 :root {
-  --radius: 1rem;
+  --radius: 0.75rem;
 
-  /* Cores tipo "caderno de campo" — palha/terra com pasto e âmbar */
-  --background: oklch(0.97 0.018 85);
-  --foreground: oklch(0.22 0.03 60);
+  --background: oklch(0.975 0.006 145);
+  --foreground: oklch(0.22 0.025 145);
 
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.03 60);
-  --surface: oklch(0.93 0.025 85);
+  --card-foreground: oklch(0.22 0.025 145);
+  --surface: oklch(0.945 0.012 145);
 
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.03 60);
+  --popover-foreground: oklch(0.22 0.025 145);
 
-  --primary: oklch(0.42 0.09 145); /* verde pasto profundo */
-  --primary-foreground: oklch(0.98 0.01 90);
+  --primary: oklch(0.38 0.1 145);
+  --primary-foreground: oklch(0.99 0 0);
 
-  --secondary: oklch(0.88 0.04 85);
-  --secondary-foreground: oklch(0.22 0.03 60);
+  --secondary: oklch(0.91 0.018 145);
+  --secondary-foreground: oklch(0.22 0.025 145);
 
-  --muted: oklch(0.92 0.02 85);
-  --muted-foreground: oklch(0.45 0.03 65);
+  --muted: oklch(0.93 0.009 145);
+  --muted-foreground: oklch(0.42 0.025 145);
 
   --accent: oklch(0.78 0.16 70); /* âmbar */
   --accent-foreground: oklch(0.2 0.05 60);
 
-  --good: oklch(0.62 0.15 145);
-  --good-foreground: oklch(0.98 0.01 90);
+  --good: oklch(0.4 0.105 145);
+  --good-foreground: oklch(0.99 0 0);
 
   --warn: oklch(0.78 0.17 75);
   --warn-foreground: oklch(0.2 0.05 60);
@@ -81,9 +80,9 @@
   --destructive: oklch(0.55 0.21 28);
   --destructive-foreground: oklch(0.98 0.01 90);
 
-  --border: oklch(0.85 0.03 80);
-  --input: oklch(0.88 0.025 80);
-  --ring: oklch(0.42 0.09 145);
+  --border: oklch(0.84 0.015 145);
+  --input: oklch(0.9 0.012 145);
+  --ring: oklch(0.38 0.1 145);
 }
 
 .dark {

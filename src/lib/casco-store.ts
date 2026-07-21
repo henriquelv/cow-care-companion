@@ -102,7 +102,6 @@ export interface FarmConfig {
 
 const VISITS_KEY = "casco.visits.v3";
 const FARM_KEY = "casco.farm.v1";
-const TUTORIAL_KEY = "casco.tutorial.done.v1";
 const AUTO_BACKUP_KEY = "casco.backup.auto.v1";
 const AUTO_BACKUP_AT_KEY = "casco.backup.auto.at.v1";
 
@@ -303,6 +302,7 @@ export type CurativeCategory = "digital_dermatitis" | "sole_ulcer_white_line" | 
 
 export interface CurativeFollowup {
   id: string;
+  farm_id?: string;
   tag: string;
   sex: Sex;
   lote?: string;
@@ -328,6 +328,8 @@ export interface CurativeMetrics {
 
 export interface AgendaItem {
   id: string;
+  farm_id?: string;
+  farm_name?: string;
   date: string;
   type: "recheck" | "curative";
   tag: string;
@@ -1039,16 +1041,6 @@ export function saveFarm(f: FarmConfig) {
   writeAutoBackup();
 }
 
-export function isTutorialDone(): boolean {
-  if (!canUseStorage()) return true;
-  return localStorage.getItem(TUTORIAL_KEY) === "1";
-}
-
-export function markTutorialDone() {
-  if (!canUseStorage()) return;
-  localStorage.setItem(TUTORIAL_KEY, "1");
-}
-
 // footWorstSeverity ignora pés resolvidos/liberados
 export function footWorstSeverity(foot: FootEntry): Severity {
   if (foot.ok || foot.resolved || foot.data_liberacao) return 0;
@@ -1076,16 +1068,17 @@ export function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export function rechecksByDate(
+export function rechecksByDateFromVisits(
+  sourceVisits: Visit[],
   employeeId?: string,
-): Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]> {
-  const visits = loadVisits()
+): Map<string, { farm_id?: string; tag: string; sex: Sex; feet: FootKey[] }[]> {
+  const visits = [...sourceVisits]
     .filter((visit) => !employeeId || visit.employee_id === employeeId)
     .sort((a, b) => b.createdAt - a.createdAt);
-  const map = new Map<string, { tag: string; sex: Sex; feet: FootKey[] }[]>();
+  const map = new Map<string, { farm_id?: string; tag: string; sex: Sex; feet: FootKey[] }[]>();
   const seen = new Set<string>();
   for (const v of visits) {
-    const key = v.tag.toLowerCase();
+    const key = `${v.farm_id ?? "local"}:${v.tag.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const recheckFeet: FootKey[] = [];
@@ -1098,18 +1091,23 @@ export function rechecksByDate(
     }
     if (recheckFeet.length > 0 && recheckDate) {
       const existing = map.get(recheckDate) ?? [];
-      existing.push({ tag: v.tag, sex: v.sex, feet: recheckFeet });
+      existing.push({ farm_id: v.farm_id, tag: v.tag, sex: v.sex, feet: recheckFeet });
       map.set(recheckDate, existing);
     }
   }
   return map;
 }
 
-export function curativeFollowups(
+export function rechecksByDate(employeeId?: string) {
+  return rechecksByDateFromVisits(loadVisits(), employeeId);
+}
+
+export function curativeFollowupsFromVisits(
+  sourceVisits: Visit[],
   referenceDate = todayISO(),
   employeeId?: string,
 ): CurativeFollowup[] {
-  const visits = loadVisits()
+  const visits = [...sourceVisits]
     .filter((visit) => !employeeId || visit.employee_id === employeeId)
     .sort((a, b) => b.createdAt - a.createdAt);
   const seen = new Set<string>();
@@ -1117,7 +1115,7 @@ export function curativeFollowups(
 
   for (const visit of visits) {
     for (const foot of visit.feet) {
-      const key = `${visit.tag.toLowerCase()}_${foot.foot}`;
+      const key = `${visit.farm_id ?? "local"}_${visit.tag.toLowerCase()}_${foot.foot}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
@@ -1139,6 +1137,7 @@ export function curativeFollowups(
       const remainingDays = rule.days - elapsedDays;
       followups.push({
         id: `${visit.id}_${foot.foot}_curative`,
+        farm_id: visit.farm_id,
         tag: visit.tag,
         sex: visit.sex,
         lote: visit.lote,
@@ -1158,6 +1157,10 @@ export function curativeFollowups(
   }
 
   return followups.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.tag.localeCompare(b.tag));
+}
+
+export function curativeFollowups(referenceDate = todayISO(), employeeId?: string) {
+  return curativeFollowupsFromVisits(loadVisits(), referenceDate, employeeId);
 }
 
 export function curativeMetrics(referenceDate = todayISO()): CurativeMetrics {
@@ -1187,17 +1190,19 @@ export function curativeMetrics(referenceDate = todayISO()): CurativeMetrics {
   };
 }
 
-export function agendaByDate(
+export function agendaByDateFromVisits(
+  visits: Visit[],
   referenceDate = todayISO(),
   employeeId?: string,
 ): Map<string, AgendaItem[]> {
   const map = new Map<string, AgendaItem[]>();
   const add = (item: AgendaItem) => map.set(item.date, [...(map.get(item.date) ?? []), item]);
 
-  for (const [date, items] of rechecksByDate(employeeId)) {
+  for (const [date, items] of rechecksByDateFromVisits(visits, employeeId)) {
     for (const item of items) {
       add({
         id: `recheck_${date}_${item.tag}`,
+        farm_id: item.farm_id,
         date,
         type: "recheck",
         tag: item.tag,
@@ -1210,9 +1215,10 @@ export function agendaByDate(
     }
   }
 
-  for (const item of curativeFollowups(referenceDate, employeeId)) {
+  for (const item of curativeFollowupsFromVisits(visits, referenceDate, employeeId)) {
     add({
       id: item.id,
+      farm_id: item.farm_id,
       date: item.dueDate,
       type: "curative",
       tag: item.tag,
@@ -1229,4 +1235,8 @@ export function agendaByDate(
     items.sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.tag.localeCompare(b.tag));
   }
   return map;
+}
+
+export function agendaByDate(referenceDate = todayISO(), employeeId?: string) {
+  return agendaByDateFromVisits(loadVisits(), referenceDate, employeeId);
 }

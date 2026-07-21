@@ -106,16 +106,16 @@ export const activationService = {
   async authenticateEmployee(
     companyCode: string,
     login: string,
-    password: string,
+    pin: string,
   ): Promise<{ client: RemoteClient; employee: RemoteEmployee; farms: RemoteFarm[] }> {
     const normalizedCode = normalizeActivationInput(companyCode);
-    if (!normalizedCode || !login.trim() || !password) {
-      throw new Error("Informe o funcionário e a senha.");
+    if (!normalizedCode || !login.trim() || !pin) {
+      throw new Error("Informe o funcionário e o PIN.");
     }
 
     if (!canReachServer()) {
-      const localResult = authenticateBootstrapEmployee(normalizedCode, login, password);
-      if (!localResult) throw new Error("Funcionário ou senha inválidos.");
+      const localResult = authenticateBootstrapEmployee(normalizedCode, login, pin);
+      if (!localResult) throw new Error("Funcionário ou PIN inválidos.");
       return localResult;
     }
 
@@ -123,14 +123,14 @@ export const activationService = {
     const { data, error } = await supabase.rpc("authenticate_hoof_employee", {
       p_activation_code: normalizedCode,
       p_login: login.trim(),
-      p_password: password,
+      p_password: pin,
     });
     if (error) {
-      const localResult = authenticateBootstrapEmployee(normalizedCode, login, password);
+      const localResult = authenticateBootstrapEmployee(normalizedCode, login, pin);
       if (localResult) return localResult;
       throw error;
     }
-    if (!data) throw new Error("Funcionário ou senha inválidos.");
+    if (!data) throw new Error("Funcionário ou PIN inválidos.");
 
     const result = data as {
       client?: RemoteClient;
