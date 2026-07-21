@@ -8,7 +8,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
-## 2026-07-21 - Correção da digitação na ativação publicada
+## 2026-07-21 - Auditoria e correção completa da produção
 
 ### O que foi feito
 
@@ -21,6 +21,13 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Corrigido o script de pós-build para aceitar a entrada `dist/server/server.js` já gerada pela versão atual do TanStack Start.
 - Adicionada a pasta `dist-vercel` aos ignores do Git e ESLint para evitar artefatos compilados no repositório e lentidão no lint.
 - Corrigidos os tipos do destino Home/Agenda e do payload do outbox; itens de sync malformados agora permanecem na fila com erro explícito.
+- Removida a abertura automática do tutorial ilustrativo após a ativação; a Home agora aparece imediatamente e a ajuda continua disponível sob demanda.
+- O registrador do service worker foi versionado e agora recarrega a página uma vez quando o cache novo assume, substituindo automaticamente a tela antiga presa no aparelho.
+- Cadastradas diretamente na Vercel as variáveis públicas de URL e chave anônima do Supabase para o ambiente de produção.
+- Validado o Supabase com as duas empresas, duas fazendas, duas licenças ativas, quatro funcionários e recusa de senha incorreta.
+- Confirmado que cada funcionário recebe somente a fazenda vinculada à própria empresa.
+- Validado em navegador móvel limpo o fluxo código, funcionário, fazenda e Home, além da recarga offline após a ativação.
+- A validação final passou com 22 testes, TypeScript sem erros, ESLint sem erros e builds padrão/Vercel concluídas.
 
 ### Por que foi feito
 

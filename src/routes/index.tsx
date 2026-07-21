@@ -60,7 +60,6 @@ import {
   allAnimals,
   footWorstSeverity,
   footsWorstSeverity,
-  isTutorialDone,
   preventiveList,
   type DiseaseEntry,
   type FarmConfig,
@@ -76,7 +75,7 @@ import {
   type AgendaItem,
 } from "@/lib/casco-store";
 import { DiseasePicker } from "@/components/casco/DiseasePicker";
-import { TutorialModal, HelpModal } from "@/components/casco/Tutorial";
+import { HelpModal } from "@/components/casco/Tutorial";
 import { cn } from "@/lib/utils";
 import {
   activationService,
@@ -158,7 +157,6 @@ export function Index() {
   const [syncInfo, setSyncInfo] = useState<"idle" | "syncing" | "ok" | "error" | "offline">("idle");
   const [screen, setScreen] = useState<Screen>({ name: "today" });
   const [tick, setTick] = useState(0);
-  const [showTutorial, setShowTutorial] = useState(() => !isTutorialDone());
   const [showHelp, setShowHelp] = useState(false);
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
   const [toast, setToast] = useState<string | null>(null);
@@ -403,7 +401,6 @@ export function Index() {
         </div>
       </nav>
 
-      {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} />}
       {showHelp && <HelpModal screen={helpScreen} onClose={() => setShowHelp(false)} />}
 
       {/* Toast */}
