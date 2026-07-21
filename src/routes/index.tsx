@@ -566,7 +566,7 @@ function ActivationScreen({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void validateCode();
                 }}
-                placeholder="STARMILK ou HULLSJOB"
+                placeholder="Digite seu código"
                 autoComplete="off"
                 spellCheck={false}
                 className="min-w-0 w-full rounded-2xl border-2 border-border bg-surface px-3 py-4 text-center font-display text-xl font-black uppercase outline-none focus:border-primary sm:px-4 sm:text-3xl"
@@ -577,12 +577,7 @@ function ActivationScreen({
               type="button"
               onClick={validateCode}
               disabled={!code.trim() || loading}
-              className={cn(
-                "tap-lg flex w-full items-center justify-center gap-2 rounded-2xl py-4 font-display text-lg uppercase",
-                code.trim() && !loading
-                  ? "bg-primary text-primary-foreground stamp"
-                  : "bg-muted text-muted-foreground",
-              )}
+              className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
               Continuar

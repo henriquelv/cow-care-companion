@@ -27,6 +27,14 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Criada a migration incremental `202607200002_fix_auth_search_path.sql` para corrigir o projeto já provisionado.
 - Validada criação, leitura e exclusão de uma visita e um pé temporários usando a chave pública; nenhum dado de teste permaneceu no banco.
 - O patch incremental também garante a criação do bucket privado `media` e políticas de leitura, upload, atualização e exclusão para validar fotos sem deixar resíduos.
+- Removidos os nomes `StarMilk` e `Hullsjob` do placeholder de entrada; a interface agora orienta apenas `Digite seu código`.
+- O botão `Continuar` permanece verde mesmo vazio ou carregando, com bloqueio visual discreto quando ainda não pode ser acionado.
+- Validado o backend real de ponta a ponta com os quatro logins, licenças, visitas, pés, animais, lotes, configurações e mídia.
+- Validado upload e exclusão no bucket privado `media`; todos os registros temporários foram removidos após o teste.
+- Atualizado o cache PWA para `v5` para substituir versões antigas que ainda apontavam para o fluxo anterior.
+- Executado teste real em Chrome limpo: código da empresa, login de Romano, seleção da Fazenda Vitória, ativação do aparelho e abertura da home.
+- Confirmado no Supabase que o dispositivo foi criado com empresa, fazenda e funcionário corretos; o dispositivo de teste foi removido depois da validação.
+- Confirmado que não restaram visitas, mídias ou dispositivos temporários no banco.
 
 ### Por que foi feito
 
