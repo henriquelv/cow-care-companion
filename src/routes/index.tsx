@@ -152,7 +152,7 @@ function newDraft(tag = ""): Visit {
   };
 }
 
-function Index() {
+export function Index() {
   const [farm, setFarm] = useState<FarmConfig>(() => loadFarm());
   const [activated, setActivated] = useState(() => farmContextService.isActivated());
   const [syncInfo, setSyncInfo] = useState<"idle" | "syncing" | "ok" | "error" | "offline">("idle");
@@ -219,7 +219,7 @@ function Index() {
           saveFarm(nextFarm);
           setFarm(nextFarm);
           setActivated(true);
-          setScreen({ name: destination === "calendar" ? "calendar" : "today" });
+          setScreen(destination === "calendar" ? { name: "calendar" } : { name: "today" });
           refresh();
         }}
       />
@@ -439,6 +439,10 @@ function ActivationScreen({
 
   async function validateCode() {
     setError("");
+    if (!code.trim()) {
+      setError("Digite o link ou código da empresa.");
+      return;
+    }
     setLoading(true);
     try {
       const result = await activationService.validateActivationCode(code);
@@ -545,7 +549,13 @@ function ActivationScreen({
             })}
           </div>
 
-          <div className="space-y-3">
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void validateCode();
+            }}
+          >
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Link ou código da empresa
@@ -568,21 +578,22 @@ function ActivationScreen({
                 }}
                 placeholder="Digite seu código"
                 autoComplete="off"
+                autoCapitalize="characters"
+                enterKeyHint="go"
                 spellCheck={false}
                 className="min-w-0 w-full rounded-2xl border-2 border-border bg-surface px-3 py-4 text-center font-display text-xl font-black uppercase outline-none focus:border-primary sm:px-4 sm:text-3xl"
               />
             </label>
 
             <button
-              type="button"
-              onClick={validateCode}
-              disabled={!code.trim() || loading}
+              type="submit"
+              disabled={loading}
               className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed"
             >
               {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
               Continuar
             </button>
-          </div>
+          </form>
 
           {client && (
             <div className="mt-5 space-y-4 rounded-2xl border-2 border-primary/30 bg-primary/5 p-4">

@@ -8,6 +8,38 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-21 - Correção da digitação na ativação publicada
+
+### O que foi feito
+
+- Corrigida a entrada SPA usada pela Vercel para renderizar o app diretamente, sem o invólucro SSR do TanStack Router que bloqueava eventos de foco na versão publicada.
+- A entrada do código da empresa passou a usar um formulário nativo, com envio pelo botão ou pela tecla de ação do teclado móvel.
+- O botão `Continuar` permanece verde e só fica indisponível durante uma consulta em andamento.
+- Adicionada mensagem clara quando o usuário tenta continuar sem informar o código.
+- Adicionados `autoCapitalize` e `enterKeyHint` para facilitar a digitação em celular.
+- Atualizado o cache offline para `v6`, garantindo a substituição da versão defeituosa já armazenada no aparelho.
+- Corrigido o script de pós-build para aceitar a entrada `dist/server/server.js` já gerada pela versão atual do TanStack Start.
+- Adicionada a pasta `dist-vercel` aos ignores do Git e ESLint para evitar artefatos compilados no repositório e lentidão no lint.
+- Corrigidos os tipos do destino Home/Agenda e do payload do outbox; itens de sync malformados agora permanecem na fila com erro explícito.
+
+### Por que foi feito
+
+- A tela carregava visualmente na Vercel, mas o campo não recebia clique nem teclado porque o app SPA estava montado pela estrutura de shell destinada ao SSR.
+- O formulário nativo deixa a ativação mais previsível em Android, iPhone e navegadores desktop.
+
+### Como validar
+
+- Abrir `https://gestao-de-cascos.vercel.app` e tocar em `Digite seu código`.
+- Digitar `HULLSJOB`, tocar em `Continuar`, entrar como Romano com a senha temporária e confirmar que aparece apenas a Fazenda Vitória.
+- Repetir após colocar o aparelho em modo avião para confirmar que o app já carregado continua abrindo pelo cache offline.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build` e `npm run build:vercel`.
+
+### Próximos passos
+
+- Validar o fluxo publicado em pelo menos um Android e um iPhone reais.
+- Trocar as senhas temporárias e revogar as chaves administrativas compartilhadas antes da entrada de dados reais.
+- Testar sincronização e isolamento entre dois aparelhos usando empresas e fazendas diferentes.
+
 ## 2026-07-20 - Configuração do projeto Supabase de teste
 
 ### O que foi feito

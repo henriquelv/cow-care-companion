@@ -77,13 +77,21 @@ export const syncService = {
     try {
       for (const item of items) {
         if (item.farm_id !== ctx.farm_id) continue;
-        const payload =
-          item.payload && typeof item.payload === "object"
-            ? scopeSyncPayload(item.tableName, item.payload as Record<string, unknown>, ctx)
-            : item.payload;
+        if (!item.payload || typeof item.payload !== "object" || Array.isArray(item.payload)) {
+          await localdb.outbox.update(item.id!, {
+            status: "error",
+            errorMessage: "Payload de sincronização inválido.",
+          });
+          continue;
+        }
+        const payload = scopeSyncPayload(
+          item.tableName,
+          item.payload as Record<string, unknown>,
+          ctx,
+        );
 
         let tableName = item.tableName;
-        let finalPayload = payload;
+        let finalPayload: Record<string, unknown> = payload;
         if (item.tableName === "hoof_media") {
           const mediaPayload = payload as {
             id?: string;
