@@ -37,6 +37,9 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Confirmado que não restaram visitas, mídias ou dispositivos temporários no banco.
 - Criado deploy de produção na Vercel e identificado que o adaptador Cloudflare gerava uma publicação sem rota web.
 - Adicionada uma build SPA exclusiva para Vercel, com `index.html`, entrada React própria, assets PWA e fallback de todas as rotas para a aplicação.
+- Publicada a URL de produção `https://gestao-de-cascos.vercel.app`.
+- Confirmados HTTP 200, carregamento dos assets, tela de ativação responsiva e service worker `v5` na URL pública.
+- O build limpo da Vercel compilou 1.926 módulos e foi promovido ao alias de produção.
 
 ### Por que foi feito
 
