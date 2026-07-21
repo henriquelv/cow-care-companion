@@ -4,12 +4,14 @@ import {
   allAnimals,
   agendaByDate,
   agendaByDateFromVisits,
+  calendarMonthMetricsFromVisits,
   createPreventiveVisit,
   createVisitSyncPayloads,
   curativeDeadlineForDiseases,
   curativeFollowups,
   curativeMetrics,
   dateAfterDays,
+  employeeWorkMetricsFromVisits,
   exportBackupJson,
   footWorstSeverity,
   footsWorstSeverity,
@@ -25,6 +27,7 @@ import {
   todayISO,
   type FarmConfig,
   type FootEntry,
+  type AgendaItem,
   type Visit,
 } from "./casco-store";
 import { enqueueOutboxMany, localdb, pendingOutbox } from "@/services/localdb";
@@ -217,6 +220,101 @@ describe("casco-store domain rules", () => {
     const agenda = agendaByDateFromVisits(visits, "2026-05-22", "employee-romano");
     expect(agenda.get("2026-05-25")?.[0]?.farm_id).toBe("farm-a");
     expect(agenda.get("2026-05-26")?.[0]?.farm_id).toBe("farm-b");
+  });
+
+  it("calcula o trabalho do funcionário sem misturar visitas de colegas", () => {
+    const visits = [
+      visit({
+        id: "romano-hoje",
+        employee_id: "employee-romano",
+        employee_name: "Romano",
+        date: "2026-05-22",
+        createdAt: new Date("2026-05-22T10:00:00-03:00").getTime(),
+        tag: "100",
+      }),
+      visit({
+        id: "romano-problema",
+        employee_id: "employee-romano",
+        employee_name: "Romano",
+        date: "2026-05-10",
+        createdAt: new Date("2026-05-10T10:00:00-03:00").getTime(),
+        tag: "100",
+        feet: [foot({ ok: false, diseases: [{ code: "DD", severity: 2, zones: [6] }] })],
+      }),
+      visit({
+        id: "romano-legado",
+        employee_name: "Romano",
+        date: "2026-05-20",
+        createdAt: new Date("2026-05-20T10:00:00-03:00").getTime(),
+        tag: "200",
+      }),
+      visit({
+        id: "patrick",
+        employee_id: "employee-patrick",
+        employee_name: "Patrick",
+        date: "2026-05-22",
+        tag: "300",
+      }),
+    ];
+    const agenda: AgendaItem[] = [
+      {
+        id: "late",
+        date: "2026-05-21",
+        type: "recheck",
+        tag: "100",
+        sex: "vaca",
+        feet: ["FE"],
+        title: "Revisão",
+        detail: "Revisão clínica",
+        overdue: true,
+      },
+      {
+        id: "next",
+        date: "2026-05-25",
+        type: "curative",
+        tag: "200",
+        sex: "vaca",
+        feet: ["FD"],
+        title: "Curativo",
+        detail: "Prazo de curativo",
+        overdue: false,
+      },
+    ];
+
+    expect(
+      employeeWorkMetricsFromVisits(visits, agenda, "employee-romano", "Romano", "2026-05-22"),
+    ).toMatchObject({
+      totalVisits: 3,
+      uniqueAnimals: 2,
+      todayVisits: 1,
+      monthVisits: 3,
+      lastSevenDaysVisits: 2,
+      problemVisits: 1,
+      okVisits: 2,
+      pendingAnimals: 2,
+      overdueAnimals: 1,
+    });
+  });
+
+  it("resume atendidos e agendados no mês exibido no calendário", () => {
+    const visits = [
+      visit({ employee_id: "employee-romano", date: "2026-05-02", tag: "100" }),
+      visit({ employee_id: "employee-romano", date: "2026-05-03", tag: "100" }),
+      visit({ employee_id: "employee-romano", date: "2026-05-04", tag: "200" }),
+      visit({ employee_id: "employee-patrick", date: "2026-05-05", tag: "300" }),
+    ];
+    const agenda = [
+      { id: "1", date: "2026-05-08", tag: "100" },
+      { id: "2", date: "2026-05-09", tag: "200" },
+      { id: "3", date: "2026-06-01", tag: "400" },
+    ] as AgendaItem[];
+
+    expect(calendarMonthMetricsFromVisits(visits, agenda, "employee-romano", 2026, 4)).toEqual({
+      visits: 3,
+      attendedAnimals: 2,
+      scheduledItems: 2,
+      scheduledAnimals: 2,
+    });
   });
 
   it("processa a fila offline somente para a fazenda ativa", async () => {

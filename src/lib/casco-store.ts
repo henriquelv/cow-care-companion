@@ -341,6 +341,26 @@ export interface AgendaItem {
   overdue: boolean;
 }
 
+export interface EmployeeWorkMetrics {
+  totalVisits: number;
+  uniqueAnimals: number;
+  todayVisits: number;
+  monthVisits: number;
+  lastSevenDaysVisits: number;
+  problemVisits: number;
+  okVisits: number;
+  pendingAnimals: number;
+  overdueAnimals: number;
+  lastVisitAt: number | null;
+}
+
+export interface CalendarMonthMetrics {
+  visits: number;
+  attendedAnimals: number;
+  scheduledItems: number;
+  scheduledAnimals: number;
+}
+
 export function normalizeSeverity(value: unknown): Severity {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
@@ -393,6 +413,78 @@ export function todayISO() {
   const d = new Date();
   const tz = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
+export function visitBelongsToEmployee(visit: Visit, employeeId: string, employeeName?: string) {
+  if (visit.employee_id) return visit.employee_id === employeeId;
+  if (!employeeName) return false;
+  const recordedName = visit.employee_name ?? visit.visitante_nome;
+  return (
+    recordedName?.trim().toLocaleLowerCase("pt-BR") ===
+    employeeName.trim().toLocaleLowerCase("pt-BR")
+  );
+}
+
+export function employeeWorkMetricsFromVisits(
+  visits: Visit[],
+  agendaItems: AgendaItem[],
+  employeeId: string,
+  employeeName?: string,
+  referenceDate = todayISO(),
+): EmployeeWorkMetrics {
+  const ownedVisits = visits.filter((visit) =>
+    visitBelongsToEmployee(visit, employeeId, employeeName),
+  );
+  const monthPrefix = referenceDate.slice(0, 7);
+  const endOfReferenceDay = new Date(`${referenceDate}T23:59:59`).getTime();
+  const sevenDaysAgo = endOfReferenceDay - 6 * 86400000;
+  const uniqueTags = (items: Array<{ tag: string }>) =>
+    new Set(items.map((item) => item.tag.trim().toLocaleLowerCase("pt-BR"))).size;
+  const problemVisits = ownedVisits.filter((visit) =>
+    visit.feet.some((foot) => !foot.ok && !foot.resolved && !foot.data_liberacao),
+  ).length;
+
+  return {
+    totalVisits: ownedVisits.length,
+    uniqueAnimals: uniqueTags(ownedVisits),
+    todayVisits: ownedVisits.filter((visit) => visit.date === referenceDate).length,
+    monthVisits: ownedVisits.filter((visit) => visit.date.startsWith(monthPrefix)).length,
+    lastSevenDaysVisits: ownedVisits.filter(
+      (visit) => visit.createdAt >= sevenDaysAgo && visit.createdAt <= endOfReferenceDay,
+    ).length,
+    problemVisits,
+    okVisits: ownedVisits.length - problemVisits,
+    pendingAnimals: uniqueTags(agendaItems),
+    overdueAnimals: uniqueTags(agendaItems.filter((item) => item.date < referenceDate)),
+    lastVisitAt: ownedVisits.length
+      ? Math.max(...ownedVisits.map((visit) => visit.createdAt))
+      : null,
+  };
+}
+
+export function calendarMonthMetricsFromVisits(
+  visits: Visit[],
+  agendaItems: AgendaItem[],
+  employeeId: string,
+  year: number,
+  month: number,
+  employeeName?: string,
+): CalendarMonthMetrics {
+  const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const monthVisits = visits.filter(
+    (visit) =>
+      visit.date.startsWith(prefix) && visitBelongsToEmployee(visit, employeeId, employeeName),
+  );
+  const monthAgenda = agendaItems.filter((item) => item.date.startsWith(prefix));
+  const uniqueTags = (items: Array<{ tag: string }>) =>
+    new Set(items.map((item) => item.tag.trim().toLocaleLowerCase("pt-BR"))).size;
+
+  return {
+    visits: monthVisits.length,
+    attendedAnimals: uniqueTags(monthVisits),
+    scheduledItems: monthAgenda.length,
+    scheduledAnimals: uniqueTags(monthAgenda),
+  };
 }
 
 function migrateFootEntry(f: LegacyFootEntry): FootEntry {

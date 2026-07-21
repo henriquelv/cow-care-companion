@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { activationService } from "@/services/activation.service";
 import { farmContextService } from "@/services/farm-context.service";
-import { authenticateBootstrapEmployee, findBootstrapClient } from "./tenant-bootstrap";
+import {
+  authenticateBootstrapEmployee,
+  findBootstrapClient,
+  saveLocalEmployeePin,
+} from "./tenant-bootstrap";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -54,6 +58,16 @@ describe("catálogo inicial de empresas", () => {
     expect(authenticateBootstrapEmployee("HULLSJOB", "Romano", "9999")).toBeNull();
     expect(authenticateBootstrapEmployee("STARMILK", "Romano", "1234")).toBeNull();
     expect(findBootstrapClient("INEXISTENTE")).toBeNull();
+  });
+
+  it("mantém o novo PIN disponível no catálogo offline deste aparelho", () => {
+    const employeeId = "30000000-0000-4000-8000-000000000002";
+    saveLocalEmployeePin(employeeId, "5678");
+
+    expect(authenticateBootstrapEmployee("HULLSJOB", "Romano", "1234")).toBeNull();
+    expect(authenticateBootstrapEmployee("HULLSJOB", "Romano", "5678")?.employee.id).toBe(
+      employeeId,
+    );
   });
 
   it("conclui a ativação offline e salva a fazenda selecionada", async () => {

@@ -1,4 +1,9 @@
-import { authenticateBootstrapEmployee, findBootstrapClient } from "@/config/tenant-bootstrap";
+import {
+  authenticateBootstrapEmployee,
+  changeBootstrapEmployeePin,
+  findBootstrapClient,
+  saveLocalEmployeePin,
+} from "@/config/tenant-bootstrap";
 import { isSupabaseConfigured, requireSupabase } from "./supabase";
 import { farmContextService, TRIAL_DAYS, type FarmContext } from "./farm-context.service";
 
@@ -224,6 +229,73 @@ export const activationService = {
     };
     farmContextService.saveContext(ctx);
     return ctx;
+  },
+
+  async changeEmployeePin(currentPin: string, newPin: string) {
+    const context = farmContextService.getContext();
+    if (!context?.client_id || !context.client_code || !context.employee_id) {
+      throw new Error("Identificação do funcionário incompleta neste aparelho.");
+    }
+    if (!/^\d{4,6}$/.test(currentPin) || !/^\d{4,6}$/.test(newPin)) {
+      throw new Error("O PIN deve ter de 4 a 6 números.");
+    }
+    if (currentPin === newPin) {
+      throw new Error("Escolha um PIN diferente do atual.");
+    }
+
+    if (!isSupabaseConfigured) {
+      const changed = changeBootstrapEmployeePin(
+        context.client_code,
+        context.employee_id,
+        currentPin,
+        newPin,
+      );
+      if (!changed) throw new Error("PIN atual incorreto.");
+      return;
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("Conecte este aparelho à internet para alterar o PIN.");
+    }
+
+    const supabase = requireSupabase();
+    const rpcResult = await supabase.rpc("change_hoof_employee_pin", {
+      p_employee_id: context.employee_id,
+      p_current_pin: currentPin,
+      p_new_pin: newPin,
+    });
+
+    let changed = false;
+    let message = "";
+    if (!rpcResult.error && rpcResult.data) {
+      const result = rpcResult.data as { ok?: boolean; message?: string };
+      changed = result.ok === true;
+      message = result.message ?? "";
+    } else {
+      let response: Response;
+      try {
+        response = await fetch("/api/change-pin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientId: context.client_id,
+            employeeId: context.employee_id,
+            currentPin,
+            newPin,
+          }),
+        });
+      } catch {
+        throw new Error("Não foi possível conectar ao serviço de PIN.");
+      }
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        message?: string;
+      } | null;
+      changed = response.ok && result?.ok === true;
+      message = result?.message ?? "";
+    }
+
+    if (!changed) throw new Error(message || "Não foi possível alterar o PIN.");
+    saveLocalEmployeePin(context.employee_id, newPin);
   },
 
   async validateCurrentAccess(): Promise<{ ok: boolean; message?: string; offline?: boolean }> {

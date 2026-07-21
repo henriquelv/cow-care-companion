@@ -8,6 +8,47 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-21 - Meu trabalho, métricas no calendário e troca de PIN
+
+### O que foi feito
+
+- A quinta aba do rodapé agora é `Trabalho`, dedicada ao funcionário autenticado; o resumo da fazenda continua no card `Resumo do dia` da tela inicial.
+- Criada a tela `Meu trabalho` com visitas de hoje, dos últimos 7 dias, do mês e total acumulado.
+- Adicionados totais de animais atendidos, atendimentos sem problema, atendimentos com problema, animais pendentes e animais atrasados.
+- Visitas antigas sem `employee_id` só entram no indicador quando o nome registrado corresponde ao funcionário atual.
+- O calendário agora mostra, para o mês exibido, animais atendidos, animais a fazer e visitas realizadas.
+- Cada dia do calendário distingue atendidos em verde e atividades a fazer em amarelo; pendências atrasadas continuam vermelhas.
+- Adicionada troca de PIN na aba `Trabalho`, validando PIN atual, novo PIN e confirmação de 4 a 6 números.
+- A troca de PIN não usa campo HTML de senha, preservando a correção do aviso do gerenciador de senhas do navegador.
+- Criado endpoint protegido da Vercel para atualizar o hash do PIN sem expor a chave secreta do Supabase no navegador.
+- Criada a migration `202607210001_employee_pin_change.sql` com a RPC equivalente para instalações que executarem todas as migrations.
+- O novo PIN também é guardado como credencial offline apenas no aparelho que realizou a alteração.
+- Adicionados testes de isolamento por funcionário, contagem mensal, animais únicos e substituição local do PIN.
+
+### Por que foi feito
+
+- Dar ao funcionário uma visão simples da própria produção sem misturar os números dos colegas.
+- Tornar o calendário uma ferramenta de trabalho, mostrando o que já foi concluído e o que ainda precisa ser atendido.
+- Permitir que cada funcionário deixe de usar o PIN temporário compartilhado.
+- Manter a troca de credencial segura, com validação no servidor e hash no banco de dados.
+
+### Como validar
+
+- Entrar em uma fazenda e tocar em `Trabalho` no rodapé.
+- Registrar visitas com dois funcionários diferentes e confirmar que cada um vê somente seus próprios totais.
+- Abrir `Calendário`, mudar o mês e conferir `Atendidos`, `A fazer` e `Visitas`.
+- Confirmar que dias com trabalho concluído exibem marcador verde e dias com pendência exibem marcador amarelo ou vermelho.
+- Alterar o PIN, sair da empresa e confirmar que o PIN antigo é recusado e o novo é aceito.
+- Validar em 390x844 e 1024x768 sem rolagem horizontal.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint` e `npm run build:vercel`.
+
+### Próximos passos
+
+- Criar relatório gerencial comparando produção por funcionário, sem mostrar esse ranking no fluxo de campo.
+- Adicionar filtro semanal e por fazenda na visão gerencial.
+- Definir política de recuperação de PIN para funcionários que esquecerem a credencial.
+- Validar a troca de PIN em Android e iPad reais usando teclado numérico.
+
 ## 2026-07-21 - PIN, agenda do funcionário e revisão visual
 
 ### O que foi feito

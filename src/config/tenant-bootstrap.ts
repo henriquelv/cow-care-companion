@@ -36,6 +36,42 @@ interface BootstrapAccess {
   employees: Array<BootstrapEmployee & { temporary_password: string }>;
 }
 
+const LOCAL_PIN_OVERRIDES_KEY = "casco.employee_pin_overrides.v1";
+
+function readLocalPinOverrides(): Record<string, string> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_PIN_OVERRIDES_KEY) ?? "{}") as Record<
+      string,
+      string
+    >;
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalEmployeePin(employeeId: string, pin: string) {
+  if (typeof localStorage === "undefined") return;
+  const overrides = readLocalPinOverrides();
+  overrides[employeeId] = pin;
+  localStorage.setItem(LOCAL_PIN_OVERRIDES_KEY, JSON.stringify(overrides));
+}
+
+export function changeBootstrapEmployeePin(
+  clientCode: string,
+  employeeId: string,
+  currentPin: string,
+  newPin: string,
+) {
+  const tenant = TENANTS.find((item) => item.client.activation_code === clientCode);
+  const employee = tenant?.employees.find((item) => item.id === employeeId);
+  if (!employee) return false;
+  const expectedPin = readLocalPinOverrides()[employee.id] ?? employee.temporary_password;
+  if (expectedPin !== currentPin) return false;
+  saveLocalEmployeePin(employee.id, newPin);
+  return true;
+}
+
 const TENANTS: BootstrapAccess[] = [
   {
     client: {
@@ -144,9 +180,10 @@ export function authenticateBootstrapEmployee(code: string, login: string, pin: 
   if (!tenant) return null;
 
   const normalizedLogin = login.trim().toLocaleLowerCase("pt-BR");
+  const pinOverrides = readLocalPinOverrides();
   const employee = tenant.employees.find(
     (item) =>
-      item.temporary_password === pin &&
+      (pinOverrides[item.id] ?? item.temporary_password) === pin &&
       (item.employee_code === login.trim() ||
         item.login_name.toLocaleLowerCase("pt-BR") === normalizedLogin),
   );

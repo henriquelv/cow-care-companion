@@ -1,4 +1,12 @@
-import { useEffect, useRef, useMemo, useState } from "react";
+import {
+  cloneElement,
+  useEffect,
+  useRef,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Plus,
@@ -36,6 +44,10 @@ import {
   WifiOff,
   EllipsisVertical,
   ClipboardList,
+  KeyRound,
+  Eye,
+  EyeOff,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -53,13 +65,16 @@ import {
   loadVisits,
   saveFarm,
   agendaByDate,
+  calendarMonthMetricsFromVisits,
   curativeFollowups,
   curativeMetrics,
+  employeeWorkMetricsFromVisits,
   severityBucket,
   todayISO,
   uid,
   visitsByTag,
   visitsForDay,
+  visitBelongsToEmployee,
   allAnimals,
   footWorstSeverity,
   footsWorstSeverity,
@@ -136,7 +151,8 @@ type Screen =
   | { name: "config" }
   | { name: "filters" }
   | { name: "calendar" }
-  | { name: "preventivo" };
+  | { name: "preventivo" }
+  | { name: "profile" };
 
 function newDraft(tag = ""): Visit {
   return {
@@ -232,7 +248,8 @@ export function Index() {
     screen.name === "today" ||
     screen.name === "calendar" ||
     screen.name === "summary" ||
-    screen.name === "preventivo";
+    screen.name === "preventivo" ||
+    screen.name === "profile";
 
   const helpScreen =
     screen.name === "register"
@@ -241,9 +258,11 @@ export function Index() {
         ? "history"
         : screen.name === "summary"
           ? "summary"
-          : screen.name === "preventivo"
-            ? "today"
-            : "today";
+          : screen.name === "profile"
+            ? "summary"
+            : screen.name === "preventivo"
+              ? "today"
+              : "today";
 
   return (
     <div className="app-bottom-space min-h-screen overflow-x-hidden">
@@ -308,6 +327,7 @@ export function Index() {
           />
         )}
         {screen.name === "summary" && <SummaryScreen />}
+        {screen.name === "profile" && <EmployeeWorkScreen />}
         {screen.name === "calendar" && (
           <CalendarScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
         )}
@@ -396,11 +416,11 @@ export function Index() {
             ariaLabel="Calendário de revisões"
           />
           <NavTab
-            icon={<BarChart3 className="h-5 w-5" />}
-            label="Resumo"
-            active={screen.name === "summary"}
-            onClick={() => setScreen({ name: "summary" })}
-            ariaLabel="Resumo estatístico"
+            icon={<User className="h-5 w-5" />}
+            label="Trabalho"
+            active={screen.name === "profile"}
+            onClick={() => setScreen({ name: "profile" })}
+            ariaLabel="Meu trabalho e segurança"
           />
         </div>
       </nav>
@@ -994,6 +1014,7 @@ function Header({
     config: "Configuração",
     filters: "Filtros",
     preventivo: "Casqueamento Preventivo",
+    profile: "Meu trabalho",
   };
 
   return (
@@ -2285,6 +2306,21 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
     () => agendaByDate(today, employeeContext?.employee_id),
     [today, employeeContext?.employee_id],
   );
+  const attendedByDate = useMemo(() => {
+    const tagsByDate = new Map<string, Set<string>>();
+    for (const visit of loadVisits()) {
+      if (
+        !employeeContext?.employee_id ||
+        !visitBelongsToEmployee(visit, employeeContext.employee_id, employeeContext.employee_name)
+      ) {
+        continue;
+      }
+      const tags = tagsByDate.get(visit.date) ?? new Set<string>();
+      tags.add(visit.tag.trim().toLocaleLowerCase("pt-BR"));
+      tagsByDate.set(visit.date, tags);
+    }
+    return new Map(Array.from(tagsByDate, ([date, tags]) => [date, tags.size]));
+  }, [employeeContext?.employee_id, employeeContext?.employee_name]);
   const { year, month } = currentMonth;
 
   const firstDay = new Date(year, month, 1).getDay();
@@ -2312,6 +2348,19 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
   const selectedItems = agendaMap.get(selectedDate) ?? [];
   const allPending = Array.from(agendaMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const pendingTotal = allPending.reduce((acc, [, items]) => acc + items.length, 0);
+  const agendaItems = useMemo(() => Array.from(agendaMap.values()).flat(), [agendaMap]);
+  const monthMetrics = useMemo(
+    () =>
+      calendarMonthMetricsFromVisits(
+        loadVisits(),
+        agendaItems,
+        employeeContext?.employee_id ?? "",
+        year,
+        month,
+        employeeContext?.employee_name,
+      ),
+    [agendaItems, employeeContext?.employee_id, employeeContext?.employee_name, month, year],
+  );
 
   return (
     <div className="space-y-4">
@@ -2352,6 +2401,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
         <button
           onClick={prevMonth}
           className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface"
+          aria-label="Mês anterior"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -2359,10 +2409,39 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
         <button
           onClick={nextMonth}
           className="tap flex h-11 w-11 items-center justify-center rounded-full bg-surface"
+          aria-label="Próximo mês"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
       </div>
+
+      <section
+        className="grid grid-cols-3 overflow-hidden rounded-xl border border-border bg-card"
+        aria-label={`Movimento de ${monthName}`}
+      >
+        <div className="border-r border-border px-2 py-3 text-center sm:py-4">
+          <p className="font-display text-2xl font-black text-primary sm:text-3xl">
+            {monthMetrics.attendedAnimals}
+          </p>
+          <p className="text-[9px] font-bold uppercase text-muted-foreground sm:text-[10px]">
+            Atendidos
+          </p>
+        </div>
+        <div className="border-r border-border px-2 py-3 text-center sm:py-4">
+          <p className="font-display text-2xl font-black text-warn-foreground sm:text-3xl">
+            {monthMetrics.scheduledAnimals}
+          </p>
+          <p className="text-[9px] font-bold uppercase text-muted-foreground sm:text-[10px]">
+            A fazer
+          </p>
+        </div>
+        <div className="px-2 py-3 text-center sm:py-4">
+          <p className="font-display text-2xl font-black sm:text-3xl">{monthMetrics.visits}</p>
+          <p className="text-[9px] font-bold uppercase text-muted-foreground sm:text-[10px]">
+            Visitas
+          </p>
+        </div>
+      </section>
 
       {/* Grade do calendário */}
       <div className="rounded-2xl bg-card p-3">
@@ -2378,6 +2457,15 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
           ))}
         </div>
 
+        <div className="mb-2 flex items-center justify-end gap-3 text-[9px] font-bold uppercase text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-good" /> Atendidos
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-warn" /> A fazer
+          </span>
+        </div>
+
         <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: firstDay }).map((_, i) => (
             <div key={`e${i}`} />
@@ -2387,6 +2475,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
             const isToday = dateStr === today;
             const isSel = dateStr === selectedDate;
             const count = agendaMap.get(dateStr)?.length ?? 0;
+            const attended = attendedByDate.get(dateStr) ?? 0;
             const isPast = dateStr < today && count > 0;
             return (
               <button
@@ -2402,20 +2491,34 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
                 )}
               >
                 <span className="font-display text-sm font-black leading-none">{day}</span>
-                {count > 0 && (
-                  <span
-                    className={cn(
-                      "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black",
-                      isSel
-                        ? "bg-primary-foreground text-primary"
-                        : isPast
-                          ? "bg-danger text-danger-foreground"
-                          : "bg-warn text-warn-foreground",
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
+                <span className="mt-1 flex h-4 items-center justify-center gap-0.5">
+                  {attended > 0 && (
+                    <span
+                      className={cn(
+                        "flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-black",
+                        isSel
+                          ? "bg-primary-foreground text-primary"
+                          : "bg-good text-good-foreground",
+                      )}
+                    >
+                      {attended}
+                    </span>
+                  )}
+                  {count > 0 && (
+                    <span
+                      className={cn(
+                        "flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-black",
+                        isSel
+                          ? "bg-primary-foreground text-primary"
+                          : isPast
+                            ? "bg-danger text-danger-foreground"
+                            : "bg-warn text-warn-foreground",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}
@@ -2434,10 +2537,13 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
           {selectedDate < today && selectedItems.length > 0 && (
             <span className="ml-1 text-danger"> — Atrasada!</span>
           )}
+          <span className="mt-1 block normal-case tracking-normal text-muted-foreground">
+            {attendedByDate.get(selectedDate) ?? 0} atendido(s) · {selectedItems.length} a fazer
+          </span>
         </p>
         {selectedItems.length === 0 ? (
           <div className="rounded-2xl border-2 border-dashed border-border/50 bg-surface/50 p-8 text-center">
-            <p className="text-5xl">📅</p>
+            <CalendarDays className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="mt-3 font-display text-base font-black uppercase text-muted-foreground">
               Agenda livre neste dia
             </p>
@@ -2501,7 +2607,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
       {/* Zero pendências */}
       {allPending.length === 0 && (
         <div className="rounded-2xl border-2 border-dashed border-good/40 bg-good/5 p-8 text-center">
-          <p className="text-5xl">✅</p>
+          <CheckCircle2 className="mx-auto h-10 w-10 text-good" aria-hidden="true" />
           <p className="mt-3 font-display text-base font-black uppercase text-good">
             Agenda em dia
           </p>
@@ -3591,6 +3697,275 @@ function HistoryScreen({
           })}
         </ol>
       )}
+    </div>
+  );
+}
+
+/* ───────────── Meu trabalho ───────────── */
+function EmployeeWorkScreen() {
+  const context = farmContextService.getContext();
+  const today = todayISO();
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [showPins, setShowPins] = useState(false);
+  const [savingPin, setSavingPin] = useState(false);
+  const [pinStatus, setPinStatus] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  const agendaItems = useMemo(
+    () => Array.from(agendaByDate(today, context?.employee_id).values()).flat(),
+    [context?.employee_id, today],
+  );
+  const metrics = useMemo(
+    () =>
+      employeeWorkMetricsFromVisits(
+        loadVisits(),
+        agendaItems,
+        context?.employee_id ?? "",
+        context?.employee_name,
+        today,
+      ),
+    [agendaItems, context?.employee_id, context?.employee_name, today],
+  );
+  const monthLabel = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", {
+    month: "long",
+  });
+  const pinIsValid =
+    /^\d{4,6}$/.test(currentPin) &&
+    /^\d{4,6}$/.test(newPin) &&
+    newPin === confirmPin &&
+    currentPin !== newPin;
+
+  async function handlePinChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPinStatus(null);
+    if (newPin !== confirmPin) {
+      setPinStatus({ tone: "error", message: "A confirmação não corresponde ao novo PIN." });
+      return;
+    }
+    setSavingPin(true);
+    try {
+      await activationService.changeEmployeePin(currentPin, newPin);
+      setCurrentPin("");
+      setNewPin("");
+      setConfirmPin("");
+      setPinStatus({
+        tone: "success",
+        message: "PIN alterado. Use o novo número no próximo acesso.",
+      });
+    } catch (error) {
+      setPinStatus({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Não foi possível alterar o PIN.",
+      });
+    } finally {
+      setSavingPin(false);
+    }
+  }
+
+  if (!context) return null;
+
+  const pinInputClass = cn(
+    "mt-1 min-h-14 w-full rounded-xl border-2 border-border bg-surface px-4 text-lg outline-none focus:border-primary",
+    !showPins && "[-webkit-text-security:disc]",
+  );
+
+  return (
+    <div className="space-y-5 pb-6">
+      <section className="flex items-center gap-4 border-b border-border pb-5">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <User className="h-7 w-7" aria-hidden="true" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-muted-foreground">Funcionário</p>
+          <h1 className="truncate font-display text-2xl font-black uppercase">
+            {context.employee_name}
+          </h1>
+          <p className="truncate text-sm text-muted-foreground">
+            {context.client_name ? `${context.client_name} · ` : ""}
+            {context.farm_name}
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="producao-funcionario">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase text-muted-foreground">Minha produção</p>
+            <h2 id="producao-funcionario" className="font-display text-xl font-black uppercase">
+              {monthLabel}
+            </h2>
+          </div>
+          <p className="text-right text-xs text-muted-foreground">
+            {metrics.lastVisitAt
+              ? `Última: ${new Date(metrics.lastVisitAt).toLocaleDateString("pt-BR")}`
+              : "Sem visitas"}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <WorkMetric label="Hoje" value={metrics.todayVisits} />
+          <WorkMetric label="7 dias" value={metrics.lastSevenDaysVisits} />
+          <WorkMetric label="No mês" value={metrics.monthVisits} />
+          <WorkMetric label="Total" value={metrics.totalVisits} />
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4">
+        <WorkSummary label="Animais atendidos" value={metrics.uniqueAnimals} icon={<Users />} />
+        <WorkSummary label="Sem problema" value={metrics.okVisits} icon={<CheckCircle2 />} />
+        <WorkSummary label="Com problema" value={metrics.problemVisits} icon={<AlertTriangle />} />
+        <WorkSummary label="Para atender" value={metrics.pendingAnimals} icon={<CalendarDays />} />
+      </section>
+
+      <section
+        className={cn(
+          "flex items-center gap-3 rounded-xl border px-4 py-3",
+          metrics.overdueAnimals > 0 ? "border-danger/40 bg-danger/5" : "border-good/35 bg-good/5",
+        )}
+      >
+        {metrics.overdueAnimals > 0 ? (
+          <Clock className="h-6 w-6 shrink-0 text-danger" aria-hidden="true" />
+        ) : (
+          <ClipboardCheck className="h-6 w-6 shrink-0 text-good" aria-hidden="true" />
+        )}
+        <div>
+          <p className="font-display text-sm font-black uppercase">
+            {metrics.overdueAnimals > 0
+              ? `${metrics.overdueAnimals} animal(is) em atraso`
+              : "Agenda sem atrasos"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {metrics.pendingAnimals} animal(is) aguardando revisão ou curativo
+          </p>
+        </div>
+      </section>
+
+      <section className="border-t border-border pt-5" aria-labelledby="seguranca-pin">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <KeyRound className="h-6 w-6 text-primary" aria-hidden="true" />
+            <div>
+              <h2 id="seguranca-pin" className="font-display text-lg font-black uppercase">
+                Alterar PIN
+              </h2>
+              <p className="text-xs text-muted-foreground">Use de 4 a 6 números</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPins((value) => !value)}
+            className="flex h-11 w-11 items-center justify-center rounded-xl bg-surface text-primary"
+            aria-label={showPins ? "Ocultar PINs" : "Mostrar PINs"}
+            title={showPins ? "Ocultar PINs" : "Mostrar PINs"}
+          >
+            {showPins ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+          </button>
+        </div>
+
+        <form className="space-y-3" onSubmit={handlePinChange}>
+          <label className="block">
+            <span className="text-xs font-bold uppercase text-muted-foreground">PIN atual</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              pattern="[0-9]*"
+              value={currentPin}
+              onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, ""))}
+              className={pinInputClass}
+              aria-label="PIN atual"
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-bold uppercase text-muted-foreground">Novo PIN</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                pattern="[0-9]*"
+                value={newPin}
+                onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ""))}
+                className={pinInputClass}
+                aria-label="Novo PIN"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-bold uppercase text-muted-foreground">
+                Confirmar novo PIN
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                pattern="[0-9]*"
+                value={confirmPin}
+                onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, ""))}
+                className={pinInputClass}
+                aria-label="Confirmar novo PIN"
+              />
+            </label>
+          </div>
+
+          {pinStatus && (
+            <p
+              role={pinStatus.tone === "error" ? "alert" : "status"}
+              className={cn(
+                "rounded-xl px-3 py-2.5 text-sm font-semibold",
+                pinStatus.tone === "error" ? "bg-danger/10 text-danger" : "bg-good/10 text-good",
+              )}
+            >
+              {pinStatus.message}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={!pinIsValid || savingPin}
+            className={cn(
+              "min-h-14 w-full rounded-xl font-display text-base font-black uppercase",
+              pinIsValid && !savingPin
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {savingPin ? "Salvando..." : "Salvar novo PIN"}
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function WorkMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-4 text-center">
+      <p className="font-display text-3xl font-black leading-none text-primary">{value}</p>
+      <p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function WorkSummary({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: number;
+  icon: ReactElement<{ className?: string }>;
+}) {
+  return (
+    <div className="flex min-h-28 flex-col items-center justify-center border-b border-r border-border px-2 py-3 text-center sm:border-b-0">
+      {cloneElement(icon, { className: "h-5 w-5 text-primary" })}
+      <p className="mt-1 font-display text-2xl font-black">{value}</p>
+      <p className="text-[9px] font-bold uppercase leading-tight text-muted-foreground">{label}</p>
     </div>
   );
 }
