@@ -35,6 +35,8 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Executado teste real em Chrome limpo: código da empresa, login de Romano, seleção da Fazenda Vitória, ativação do aparelho e abertura da home.
 - Confirmado no Supabase que o dispositivo foi criado com empresa, fazenda e funcionário corretos; o dispositivo de teste foi removido depois da validação.
 - Confirmado que não restaram visitas, mídias ou dispositivos temporários no banco.
+- Criado deploy de produção na Vercel e identificado que o adaptador Cloudflare gerava uma publicação sem rota web.
+- Adicionada uma build SPA exclusiva para Vercel, com `index.html`, entrada React própria, assets PWA e fallback de todas as rotas para a aplicação.
 
 ### Por que foi feito
 

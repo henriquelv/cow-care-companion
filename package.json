@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build && node scripts/ensure-preview-entry.mjs",
+    "build:vercel": "vite build --config vite.vercel.config.ts",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "test": "vitest run",

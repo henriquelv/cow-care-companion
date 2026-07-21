@@ -577,7 +577,7 @@ function ActivationScreen({
               type="button"
               onClick={validateCode}
               disabled={!code.trim() || loading}
-              className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed disabled:opacity-60"
+              className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed"
             >
               {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
               Continuar
