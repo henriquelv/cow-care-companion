@@ -22,6 +22,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Corrigidas mensagens brancas sobre fundos claros em status Online, Tudo OK, Curado e Agenda em dia.
 - Substituída a aparência bege/escura por superfícies neutras, verde mais contrastante e tipografia utilitária IBM Plex Sans.
 - Removidos emojis decorativos dos principais comandos, usando ícones consistentes nos atalhos e abas.
+- Padronizados também os estados vazios de animais e busca com ícones de interface, sem ilustrações de protótipo.
 - Removido do código o tutorial ilustrativo antigo; a ajuda agora é contextual, curta e sem dados fictícios.
 - Atualizado o cache PWA para `v7`.
 - Adicionado teste de domínio para garantir que o mesmo brinco continue separado entre fazendas na agenda geral.

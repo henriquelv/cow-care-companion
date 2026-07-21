@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   Plus,
   Search,
+  SearchX,
   ArrowLeft,
   Save,
   Trash2,
@@ -34,6 +35,7 @@ import {
   Bandage,
   WifiOff,
   EllipsisVertical,
+  ClipboardList,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -290,7 +292,7 @@ export function Index() {
               showToast(
                 v.preventivo
                   ? "Casqueamento preventivo registrado! ✂️"
-                  : "Visita registrada com sucesso! 🐄",
+                  : "Visita registrada com sucesso!",
               );
               goToday();
             }}
@@ -1457,13 +1459,13 @@ function TodayScreen({
       {/* Lista */}
       {animals.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">
-          <p className="text-4xl">🐄</p>
+          <ClipboardList className="mx-auto h-10 w-10 text-primary" aria-hidden="true" />
           <p className="mt-2 font-display text-lg uppercase">Nenhum animal cadastrado</p>
           <p className="mt-1 text-sm text-muted-foreground">Toque em Nova para começar</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
-          <p className="text-4xl">🔍</p>
+          <SearchX className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden="true" />
           <p className="mt-2 font-display text-base uppercase">Nenhum resultado</p>
           <button
             onClick={() => {
@@ -4047,7 +4049,7 @@ function ConfigScreen({
               </div>
               {animais.length === 0 && (
                 <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
-                  <p className="text-3xl">🐄</p>
+                  <ClipboardList className="mx-auto h-9 w-9 text-primary" aria-hidden="true" />
                   <p className="mt-2 font-display text-base uppercase text-muted-foreground">
                     Nenhum animal cadastrado
                   </p>
