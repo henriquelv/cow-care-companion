@@ -23,6 +23,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Criado endpoint protegido da Vercel para atualizar o hash do PIN sem expor a chave secreta do Supabase no navegador.
 - Criada a migration `202607210001_employee_pin_change.sql` com a RPC equivalente para instalações que executarem todas as migrations.
 - O novo PIN também é guardado como credencial offline apenas no aparelho que realizou a alteração.
+- Atualizado o cache PWA para `v8`, forçando aparelhos instalados a receberem a nova navegação.
 - Adicionados testes de isolamento por funcionário, contagem mensal, animais únicos e substituição local do PIN.
 
 ### Por que foi feito

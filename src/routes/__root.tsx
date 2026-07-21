@@ -105,7 +105,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <script src="/register-sw.js?v=7" defer />
+        <script src="/register-sw.js?v=8" defer />
         <Scripts />
       </body>
     </html>
