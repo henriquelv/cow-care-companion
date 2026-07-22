@@ -1,5 +1,7 @@
 import {
   cloneElement,
+  lazy,
+  Suspense,
   useEffect,
   useRef,
   useMemo,
@@ -7,7 +9,6 @@ import {
   type FormEvent,
   type ReactElement,
 } from "react";
-import { createFileRoute } from "@tanstack/react-router";
 import {
   Plus,
   Search,
@@ -19,6 +20,7 @@ import {
   History,
   Calendar,
   CalendarDays,
+  CalendarClock,
   Clock,
   X,
   ChevronRight,
@@ -37,6 +39,7 @@ import {
   Upload,
   Database,
   ShieldCheck,
+  ShieldOff,
   RefreshCw,
   LogOut,
   CalendarPlus,
@@ -106,10 +109,11 @@ import { isSupabaseConfigured } from "@/services/supabase";
 import { syncService } from "@/services/sync.service";
 import { getPhotoDisplayUrl, mediaRef, savePhotoBlob } from "@/services/media.service";
 import { employeeAgendaService, type EmployeeAgendaItem } from "@/services/employee-agenda.service";
+import { adminService } from "@/services/admin.service";
 
-export const Route = createFileRoute("/")({
-  component: Index,
-});
+const AdminScreen = lazy(() =>
+  import("@/components/admin/AdminScreen").then((module) => ({ default: module.AdminScreen })),
+);
 
 type Filters = {
   dateFrom: string;
@@ -145,22 +149,25 @@ function hasActiveFilters(f: Filters): boolean {
 
 type Screen =
   | { name: "today" }
-  | { name: "register"; tag?: string }
+  | { name: "register"; tag?: string; correctionOf?: string }
   | { name: "history"; tag: string }
   | { name: "summary" }
   | { name: "config" }
+  | { name: "admin" }
   | { name: "filters" }
   | { name: "calendar" }
   | { name: "preventivo" }
   | { name: "profile" };
 
 function newDraft(tag = ""): Visit {
+  const employeeName = farmContextService.getEmployeeName();
   return {
     id: uid(),
     date: todayISO(),
     createdAt: Date.now(),
     tag,
     sex: "vaca",
+    visitante_nome: employeeName || undefined,
     feet: (["FE", "FD", "TE", "TD"] as FootKey[]).map((f) => ({
       foot: f,
       ok: true,
@@ -180,9 +187,18 @@ export function Index() {
   const [showHelp, setShowHelp] = useState(false);
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
   const [toast, setToast] = useState<string | null>(null);
+  const [activationMessage, setActivationMessage] = useState("");
+  const [accessBlocked, setAccessBlocked] = useState(() => {
+    if (typeof navigator === "undefined" || navigator.onLine || !farmContextService.isActivated()) {
+      return "";
+    }
+    const status = farmContextService.getOfflineAccessStatus();
+    return status.allowed ? "" : (status.message ?? "Acesso offline encerrado.");
+  });
 
   const refresh = () => setTick((t) => t + 1);
   const goToday = () => setScreen({ name: "today" });
+  const appContext = farmContextService.getContext();
 
   function showToast(msg: string) {
     setToast(msg);
@@ -206,6 +222,18 @@ export function Index() {
     setSyncInfo("syncing");
     try {
       const result = await syncService.syncAll();
+      if (result.requiresActivation) {
+        setActivationMessage(result.message ?? "Entre novamente para continuar.");
+        adminService.clear();
+        farmContextService.clearContext();
+        setActivated(false);
+        return;
+      }
+      if (!result.ok && result.message?.includes("Licença")) {
+        setAccessBlocked(result.message);
+      } else if (result.ok) {
+        setAccessBlocked("");
+      }
       setSyncInfo(result.ok ? "ok" : "error");
       if (!result.ok && result.message) showToast(result.message);
       refresh();
@@ -226,6 +254,7 @@ export function Index() {
   if (!activated) {
     return (
       <ActivationScreen
+        initialMessage={activationMessage}
         onActivated={() => {
           const ctx = farmContextService.getContext();
           const nextFarm = {
@@ -237,10 +266,46 @@ export function Index() {
           saveFarm(nextFarm);
           setFarm(nextFarm);
           setActivated(true);
+          setActivationMessage("");
           setScreen({ name: "today" });
           refresh();
         }}
       />
+    );
+  }
+
+  if (accessBlocked) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+        <section className="w-full max-w-md text-center" aria-labelledby="access-blocked-title">
+          <CalendarClock className="mx-auto h-12 w-12 text-warn-foreground" aria-hidden="true" />
+          <h1 id="access-blocked-title" className="mt-4 font-display text-xl font-black uppercase">
+            Verificação necessária
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">{accessBlocked}</p>
+          <button
+            type="button"
+            onClick={() => void runSync()}
+            disabled={syncInfo === "syncing"}
+            className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display font-black uppercase text-primary-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-5 w-5", syncInfo === "syncing" && "animate-spin")} />
+            Validar agora
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              adminService.clear();
+              farmContextService.clearContext();
+              setAccessBlocked("");
+              setActivated(false);
+            }}
+            className="mt-2 min-h-12 w-full rounded-lg bg-surface px-4 text-sm font-bold"
+          >
+            Trocar empresa
+          </button>
+        </section>
+      </main>
     );
   }
 
@@ -271,7 +336,9 @@ export function Index() {
       </a>
       <Header
         farm={farm}
+        isAdmin={appContext?.is_admin === true}
         onConfig={() => setScreen({ name: "config" })}
+        onAdmin={() => setScreen({ name: "admin" })}
         showBack={!isHomeLevel}
         onBack={goToday}
         screen={screen.name}
@@ -281,6 +348,8 @@ export function Index() {
         onDeactivate={() => {
           if (!confirm("Trocar a fazenda deste aparelho e voltar para a seleção?")) return;
           farmContextService.clearContext();
+          adminService.clear();
+          setActivationMessage("");
           setActivated(false);
         }}
       />
@@ -303,6 +372,7 @@ export function Index() {
         {screen.name === "register" && (
           <RegisterScreen
             initialTag={screen.tag ?? ""}
+            correctionOfId={screen.correctionOf}
             farm={farm}
             onSave={(v) => {
               addVisit(v);
@@ -323,7 +393,9 @@ export function Index() {
           <HistoryScreen
             tag={screen.tag}
             onBack={goToday}
-            onCorrect={(tag) => setScreen({ name: "register", tag })}
+            onCorrect={(visit) =>
+              setScreen({ name: "register", tag: visit.tag, correctionOf: visit.id })
+            }
           />
         )}
         {screen.name === "summary" && <SummaryScreen />}
@@ -356,6 +428,18 @@ export function Index() {
               goToday();
             }}
           />
+        )}
+        {screen.name === "admin" && (
+          <Suspense
+            fallback={
+              <div className="flex min-h-48 items-center justify-center text-primary" role="status">
+                <RefreshCw className="h-6 w-6 animate-spin" aria-hidden="true" />
+                <span className="sr-only">Carregando administração</span>
+              </div>
+            }
+          >
+            <AdminScreen />
+          </Suspense>
         )}
         {screen.name === "preventivo" && (
           <PreventiveScreen
@@ -443,7 +527,13 @@ export function Index() {
 }
 
 /* ───────────── Ativação ───────────── */
-function ActivationScreen({ onActivated }: { onActivated: () => void }) {
+function ActivationScreen({
+  onActivated,
+  initialMessage = "",
+}: {
+  onActivated: () => void;
+  initialMessage?: string;
+}) {
   const [code, setCode] = useState("");
   const [client, setClient] = useState<RemoteClient | null>(null);
   const [farms, setFarms] = useState<RemoteFarm[]>([]);
@@ -453,10 +543,14 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
   const [pin, setPin] = useState("");
   const [showEmployeeAgenda, setShowEmployeeAgenda] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  const [error, setError] = useState(initialMessage);
+
+  useEffect(() => setHydrated(true), []);
 
   async function validateCode() {
     setError("");
+    farmContextService.savePendingSession(null);
     if (!code.trim()) {
       setError("Digite o link ou código da empresa.");
       return;
@@ -524,6 +618,7 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
   function backOneStep() {
     setError("");
     if (employee) {
+      farmContextService.savePendingSession(null);
       setEmployee(null);
       setFarms([]);
       setFarm(null);
@@ -531,6 +626,7 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
       setPin("");
       return;
     }
+    farmContextService.savePendingSession(null);
     setClient(null);
     setEmployeeLogin("");
     setPin("");
@@ -612,13 +708,7 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
           </div>
 
           {!client && (
-            <form
-              className="space-y-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void validateCode();
-              }}
-            >
+            <div className="space-y-3">
               <label className="block">
                 <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Link ou código da empresa
@@ -627,6 +717,7 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
                   name="link-fazenda"
                   aria-label="Link ou código da empresa"
                   value={code}
+                  disabled={!hydrated}
                   onChange={(event) => {
                     setCode(event.target.value);
                     setClient(null);
@@ -649,14 +740,15 @@ function ActivationScreen({ onActivated }: { onActivated: () => void }) {
               </label>
 
               <button
-                type="submit"
-                disabled={loading}
+                type="button"
+                onClick={() => void validateCode()}
+                disabled={loading || !hydrated}
                 className="tap-lg flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:cursor-not-allowed"
               >
                 {loading && !farm ? <RefreshCw className="h-5 w-5 animate-spin" /> : null}
                 Continuar
               </button>
-            </form>
+            </div>
           )}
 
           {client && (
@@ -985,7 +1077,9 @@ function EmployeeAgendaScreen({
 /* ───────────── Header ───────────── */
 function Header({
   farm,
+  isAdmin,
   onConfig,
+  onAdmin,
   showBack,
   onBack,
   screen,
@@ -995,7 +1089,9 @@ function Header({
   onDeactivate,
 }: {
   farm: FarmConfig;
+  isAdmin: boolean;
   onConfig: () => void;
+  onAdmin: () => void;
   showBack: boolean;
   onBack: () => void;
   screen: string;
@@ -1012,6 +1108,7 @@ function Header({
     history: "Histórico",
     summary: "Resumo",
     config: "Configuração",
+    admin: "Administração",
     filters: "Filtros",
     preventivo: "Casqueamento Preventivo",
     profile: "Meu trabalho",
@@ -1037,13 +1134,9 @@ function Header({
           {titles[screen] ? (
             <p className="font-display text-lg uppercase">{titles[screen]}</p>
           ) : (
-            <button
-              onClick={onConfig}
-              aria-label="Abrir configuração da fazenda"
-              className="text-left w-full"
-            >
+            <div className="w-full text-left">
               <p className="font-display text-base uppercase leading-tight truncate">
-                {farm.farmName || "Toque para configurar"}
+                {farm.farmName || "Fazenda"}
               </p>
               <p className="text-xs text-muted-foreground leading-tight">
                 {farm.worker ? `${farm.worker} · ` : ""}
@@ -1053,7 +1146,7 @@ function Header({
                   month: "short",
                 })}
               </p>
-            </button>
+            </div>
           )}
         </div>
         <button
@@ -1100,17 +1193,32 @@ function Header({
                 <HelpCircle className="h-5 w-5 text-primary" />
                 Ajuda
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowMenu(false);
-                  onConfig();
-                }}
-                className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
-              >
-                <Cog className="h-5 w-5 text-primary" />
-                Configurações
-              </button>
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onAdmin();
+                    }}
+                    className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
+                  >
+                    <ShieldCheck className="h-5 w-5 text-primary" />
+                    Administração
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onConfig();
+                    }}
+                    className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
+                  >
+                    <Cog className="h-5 w-5 text-primary" />
+                    Configurações locais
+                  </button>
+                </>
+              )}
               {onDeactivate && (
                 <button
                   type="button"
@@ -2625,19 +2733,24 @@ type RegStep = "worker" | "feet" | "disease" | "treatment" | "notes" | "review";
 
 function RegisterScreen({
   initialTag,
+  correctionOfId,
   farm,
   onSave,
   onCancel,
   onOpenHistory,
 }: {
   initialTag: string;
+  correctionOfId?: string;
   farm: FarmConfig;
   onSave: (v: Visit) => void;
   onCancel: () => void;
   onOpenHistory: (tag: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [visit, setVisit] = useState<Visit>(() => newDraft(initialTag));
+  const [visit, setVisit] = useState<Visit>(() => ({
+    ...newDraft(initialTag),
+    correction_of_id: correctionOfId,
+  }));
   const [step, setStep] = useState<RegStep>("worker");
   const [badFeet, setBadFeet] = useState<FootKey[]>([]);
   const [footIdx, setFootIdx] = useState(0);
@@ -2784,6 +2897,28 @@ function RegisterScreen({
             </p>
             <h2 className="font-display text-3xl font-black uppercase">Brinco</h2>
           </div>
+          {visit.correction_of_id && (
+            <section className="rounded-lg border-2 border-warn/50 bg-warn/10 p-4">
+              <div className="flex items-center gap-2 text-warn-foreground">
+                <Pencil className="h-5 w-5 shrink-0" aria-hidden="true" />
+                <p className="font-display text-sm font-black uppercase">Correção auditável</p>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A visita original não será alterada. Informe o motivo desta correção.
+              </p>
+              <textarea
+                required
+                rows={2}
+                value={visit.correction_reason ?? ""}
+                onChange={(event) =>
+                  updateVisit({ correction_reason: event.target.value || undefined })
+                }
+                placeholder="Ex.: pé informado incorretamente"
+                aria-label="Motivo da correção"
+                className="mt-3 w-full resize-none rounded-lg border-2 border-border bg-background px-3 py-3 text-sm outline-none focus:border-primary"
+              />
+            </section>
+          )}
           <section className="rounded-2xl bg-card p-4 space-y-3 stamp">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Digite só o número
@@ -2884,11 +3019,15 @@ function RegisterScreen({
           </section>
           <button
             type="button"
-            disabled={!visit.tag.trim()}
+            disabled={
+              !visit.tag.trim() ||
+              Boolean(visit.correction_of_id && (visit.correction_reason?.trim().length ?? 0) < 3)
+            }
             onClick={() => setStep("feet")}
             className={cn(
               "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl font-display text-xl uppercase py-5 transition-all",
-              visit.tag.trim()
+              visit.tag.trim() &&
+                (!visit.correction_of_id || (visit.correction_reason?.trim().length ?? 0) >= 3)
                 ? "bg-primary text-primary-foreground stamp"
                 : "bg-muted text-muted-foreground",
             )}
@@ -3168,6 +3307,14 @@ function RegisterScreen({
       {step === "review" && (
         <div className="space-y-4">
           <h2 className="font-display text-2xl font-black uppercase">Resumo da Visita</h2>
+          {visit.correction_of_id && (
+            <div className="rounded-lg border border-warn/50 bg-warn/10 p-3">
+              <p className="font-display text-sm font-black uppercase text-warn-foreground">
+                Correção de registro
+              </p>
+              <p className="mt-1 text-sm">{visit.correction_reason}</p>
+            </div>
+          )}
           <div className="rounded-2xl bg-card p-4 space-y-3 stamp">
             <div className="flex items-center gap-3 rounded-xl bg-surface px-3 py-2">
               <Clock className="h-5 w-5 shrink-0 text-muted-foreground" />
@@ -3467,7 +3614,7 @@ function HistoryScreen({
 }: {
   tag: string;
   onBack: () => void;
-  onCorrect: (tag: string) => void;
+  onCorrect: (visit: Visit) => void;
 }) {
   const items = visitsByTag(tag);
   const hasRecheck = items.some((v) => v.feet.some((f) => f.recheck));
@@ -3483,7 +3630,8 @@ function HistoryScreen({
         <p className="text-sm text-muted-foreground">{items.length} visita(s) registrada(s)</p>
         <button
           type="button"
-          onClick={() => onCorrect(tag)}
+          onClick={() => items[0] && onCorrect(items[0])}
+          disabled={items.length === 0}
           className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-primary bg-primary/10 px-4 py-2 font-display text-sm uppercase text-primary"
         >
           <Pencil className="h-4 w-4" />
@@ -3555,6 +3703,11 @@ function HistoryScreen({
                         </p>
                       )}
                       <div className="mt-1 flex flex-wrap gap-1.5">
+                        {v.correction_of_id && (
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                            Correção registrada
+                          </span>
+                        )}
                         <span className="text-xs text-muted-foreground">
                           {bad.length === 0
                             ? "✅ Todos os pés bons"
@@ -3576,6 +3729,21 @@ function HistoryScreen({
                       Auditável
                     </span>
                   </div>
+
+                  {v.correction_of_id && v.correction_reason && (
+                    <div className="mt-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
+                      <strong>Motivo da correção:</strong> {v.correction_reason}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => onCorrect(v)}
+                    className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 text-xs font-bold text-primary"
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    Corrigir esta visita
+                  </button>
 
                   {/* Mini mapa 4 pés */}
                   <div className="mt-3 grid grid-cols-2 gap-1.5">
@@ -4161,7 +4329,13 @@ function ConfigScreen({
   onImport: () => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
-  const [managerUnlocked, setManagerUnlocked] = useState(() => !farm.configured);
+  const context = farmContextService.getContext();
+  const [managerUnlocked, setManagerUnlocked] = useState(
+    () => !isSupabaseConfigured || adminService.isUnlocked(),
+  );
+  const [managerPin, setManagerPin] = useState("");
+  const [managerError, setManagerError] = useState("");
+  const [managerLoading, setManagerLoading] = useState(false);
   const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">("dados");
   const [cadastrosTab, setCadastrosTab] = useState<"lotes" | "animais">("lotes");
 
@@ -4244,36 +4418,85 @@ function ConfigScreen({
       active ? "bg-primary text-primary-foreground stamp" : "bg-surface text-muted-foreground",
     );
 
+  async function unlockManager(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setManagerLoading(true);
+    setManagerError("");
+    try {
+      await adminService.unlock(managerPin);
+      setManagerPin("");
+      setManagerUnlocked(true);
+    } catch (error) {
+      setManagerError(error instanceof Error ? error.message : "Não foi possível validar o PIN.");
+    } finally {
+      setManagerLoading(false);
+    }
+  }
+
+  if (!context?.is_admin) {
+    return (
+      <section className="py-12 text-center">
+        <ShieldOff className="mx-auto h-12 w-12 text-danger" aria-hidden="true" />
+        <h1 className="mt-4 font-display text-xl font-black uppercase">Acesso restrito</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Somente o administrador pode alterar cadastros e backups.
+        </p>
+      </section>
+    );
+  }
+
   if (!managerUnlocked) {
     return (
-      <div className="space-y-4 pb-8">
-        <div className="rounded-2xl border-2 border-primary/30 bg-card p-5 text-center stamp">
-          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <ShieldCheck className="h-8 w-8" />
+      <div className="mx-auto max-w-md space-y-4 pb-8 pt-6">
+        <div className="border-b border-border pb-5 text-center">
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <ShieldCheck className="h-7 w-7" />
           </div>
-          <p className="font-display text-2xl uppercase">Modo gerente</p>
+          <p className="font-display text-xl font-black uppercase">Configurações locais</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Cadastros e backups ficam separados do uso de campo.
+            Confirme seu PIN para alterar cadastros e backups deste aparelho.
           </p>
-          <button
-            type="button"
-            onClick={() => setManagerUnlocked(true)}
-            className="tap-lg mt-4 w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp"
-          >
-            Entrar no modo gerente
-          </button>
         </div>
+        <form onSubmit={unlockManager} className="space-y-3">
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            maxLength={6}
+            value={managerPin}
+            onChange={(event) => setManagerPin(event.target.value.replace(/\D/g, ""))}
+            className="min-h-14 w-full rounded-lg border-2 border-border bg-surface px-4 text-center text-xl font-bold outline-none [-webkit-text-security:disc] focus:border-primary"
+            aria-label="PIN do administrador"
+            placeholder="Seu PIN"
+          />
+          <button
+            type="submit"
+            disabled={managerLoading || managerPin.length < 4}
+            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display font-black uppercase text-primary-foreground disabled:opacity-50"
+          >
+            {managerLoading ? (
+              <RefreshCw className="h-5 w-5 animate-spin" />
+            ) : (
+              <KeyRound className="h-5 w-5" />
+            )}
+            Entrar
+          </button>
+        </form>
+        {managerError ? (
+          <p role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">
+            {managerError}
+          </p>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="space-y-4 pb-8">
-      <div className="text-center">
-        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-3xl text-primary-foreground stamp">
-          🐄
-        </div>
-        <h1 className="font-display text-3xl uppercase">Configuração</h1>
+      <div className="border-b border-border pb-4">
+        <p className="text-xs font-bold uppercase text-muted-foreground">Este aparelho</p>
+        <h1 className="font-display text-2xl font-black uppercase">Configurações locais</h1>
       </div>
 
       {/* Tabs principais */}

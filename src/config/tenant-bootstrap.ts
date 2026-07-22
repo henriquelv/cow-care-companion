@@ -27,7 +27,6 @@ export interface BootstrapEmployee {
   name: string;
   status: "active";
   is_admin: boolean;
-  admin_pin: null;
 }
 
 interface BootstrapAccess {
@@ -100,11 +99,10 @@ const TENANTS: BootstrapAccess[] = [
         client_id: "10000000-0000-4000-8000-000000000001",
         farm_id: "20000000-0000-4000-8000-000000000001",
         employee_code: "001",
-        login_name: "StarMilk",
-        name: "StarMilk",
+        login_name: "Sandro",
+        name: "Sandro",
         status: "active",
         is_admin: true,
-        admin_pin: null,
         temporary_password: "1234",
       },
     ],
@@ -139,8 +137,7 @@ const TENANTS: BootstrapAccess[] = [
         login_name: "Romano",
         name: "Romano",
         status: "active",
-        is_admin: false,
-        admin_pin: null,
+        is_admin: true,
         temporary_password: "1234",
       },
       {
@@ -152,7 +149,6 @@ const TENANTS: BootstrapAccess[] = [
         name: "Jeová",
         status: "active",
         is_admin: false,
-        admin_pin: null,
         temporary_password: "1234",
       },
       {
@@ -164,7 +160,6 @@ const TENANTS: BootstrapAccess[] = [
         name: "Patrick",
         status: "active",
         is_admin: false,
-        admin_pin: null,
         temporary_password: "1234",
       },
     ],

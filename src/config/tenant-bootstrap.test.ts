@@ -38,6 +38,12 @@ describe("catálogo inicial de empresas", () => {
     expect(starMilk?.id).toBe("10000000-0000-4000-8000-000000000001");
     expect(hullsjob?.id).toBe("10000000-0000-4000-8000-000000000002");
     expect(starMilk?.id).not.toBe(hullsjob?.id);
+    expect(authenticateBootstrapEmployee("STARMILK", "Sandro", "1234")?.employee.is_admin).toBe(
+      true,
+    );
+    expect(authenticateBootstrapEmployee("HULLSJOB", "Romano", "1234")?.employee.is_admin).toBe(
+      true,
+    );
   });
 
   it.each([
@@ -70,14 +76,16 @@ describe("catálogo inicial de empresas", () => {
     );
   });
 
-  it("conclui a ativação offline e salva a fazenda selecionada", async () => {
-    const { client } = await activationService.validateActivationCode("HULLSJOB");
-    const access = await activationService.authenticateEmployee("HULLSJOB", "002", "1234");
+  it("conclui a ativação local de desenvolvimento e salva a fazenda selecionada", async () => {
+    const client = findBootstrapClient("HULLSJOB")!;
+    const access = authenticateBootstrapEmployee("HULLSJOB", "002", "1234")!;
     const context = await activationService.activate(access.farms[0], access.employee, client);
 
     expect(context.client_id).toBe(client.id);
     expect(context.farm_name).toBe("Fazenda Vitória");
     expect(context.employee_name).toBe("Jeová");
+    expect(context.employee_code).toBe("002");
+    expect(context.is_admin).toBe(false);
     expect(context.trial_expires_at).toBeTruthy();
     expect(farmContextService.getContext()).toEqual(context);
   });

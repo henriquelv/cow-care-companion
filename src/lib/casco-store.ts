@@ -83,6 +83,8 @@ export interface Visit {
   employee_id?: string;
   employee_name?: string;
   device_id?: string;
+  correction_of_id?: string;
+  correction_reason?: string;
   feet: FootEntry[];
 }
 
@@ -189,6 +191,19 @@ export function createVisitSyncPayloads(v: Visit) {
     visit: toHoofVisitPayload(v),
     feet: toHoofFeetPayloads(v),
     media: toHoofMediaPayloads(v),
+    correction:
+      v.correction_of_id && v.correction_reason
+        ? {
+            id: `correction_${v.id}`,
+            farm_id: v.farm_id,
+            original_visit_id: v.correction_of_id,
+            correction_visit_id: v.id,
+            reason: v.correction_reason,
+            employee_id: v.employee_id,
+            device_id: v.device_id,
+            created_at: new Date(v.createdAt).toISOString(),
+          }
+        : null,
   };
 }
 
@@ -672,6 +687,8 @@ export async function hydrateVisitsFromIndexedDb() {
       employee_id: payload?.employee_id ?? data.employee_id,
       employee_name: payload?.employee_name ?? data.employee_name,
       device_id: payload?.device_id ?? data.device_id,
+      correction_of_id: payload?.correction_of_id,
+      correction_reason: payload?.correction_reason,
       feet,
     } satisfies Visit;
   });
@@ -741,6 +758,17 @@ export function addVisit(v: Visit) {
           synced: false,
         }),
       ),
+      ...(syncPayloads.correction
+        ? [
+            putLocalRecord("hoof_corrections", {
+              id: syncPayloads.correction.id,
+              farm_id: v.farm_id!,
+              data: syncPayloads.correction,
+              updated_at: updatedAt,
+              synced: false,
+            }),
+          ]
+        : []),
     ]);
   }
   void enqueueOutboxMany([
@@ -762,6 +790,16 @@ export function addVisit(v: Visit) {
       op: "upsert" as const,
       payload,
     })),
+    ...(syncPayloads.correction
+      ? [
+          {
+            farm_id: v.farm_id!,
+            tableName: "hoof_corrections",
+            op: "insert" as const,
+            payload: syncPayloads.correction,
+          },
+        ]
+      : []),
   ]);
 }
 

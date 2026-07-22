@@ -32,6 +32,7 @@ class CascoLocalDatabase extends Dexie {
   hoof_visits!: Table<LocalRecord>;
   hoof_feet!: Table<LocalRecord>;
   hoof_media!: Table<LocalRecord>;
+  hoof_corrections!: Table<LocalRecord>;
   animals!: Table<LocalRecord>;
   farm_lotes!: Table<LocalRecord>;
   farm_settings!: Table<LocalRecord>;
@@ -73,6 +74,9 @@ class CascoLocalDatabase extends Dexie {
             item.farm_id = payload?.farm_id ?? "legacy-unscoped";
           }),
       );
+    this.version(4).stores({
+      hoof_corrections: "id, farm_id, synced, updated_at",
+    });
   }
 }
 
@@ -85,6 +89,7 @@ export async function putLocalRecord<T>(
     | "hoof_visits"
     | "hoof_feet"
     | "hoof_media"
+    | "hoof_corrections"
     | "animals"
     | "farm_lotes"
     | "farm_settings"

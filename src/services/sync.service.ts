@@ -12,6 +12,7 @@ const SYNC_TABLES = [
   "farm_lotes",
   "farm_settings",
   "hoof_media",
+  "hoof_corrections",
 ] as const;
 
 function conflictTarget(tableName: string) {
@@ -52,13 +53,24 @@ export function scopeSyncPayload(
         employee_name: context.employee_name,
         device_id: context.device_id,
       }
-    : scopedPayload;
+    : tableName === "hoof_corrections"
+      ? {
+          ...scopedPayload,
+          employee_id: context.employee_id,
+          device_id: context.device_id,
+        }
+      : scopedPayload;
 }
 
 export const syncService = {
   isSyncing: false,
 
-  async syncAll(): Promise<{ ok: boolean; count: number; message?: string }> {
+  async syncAll(): Promise<{
+    ok: boolean;
+    count: number;
+    message?: string;
+    requiresActivation?: boolean;
+  }> {
     if (!isSupabaseConfigured) return { ok: true, count: 0, message: "Modo local." };
     if (this.isSyncing) return { ok: true, count: 0 };
     if (!navigator.onLine) return { ok: false, count: 0, message: "Offline." };
@@ -67,7 +79,13 @@ export const syncService = {
     if (!ctx) return { ok: false, count: 0, message: "Aplicativo não ativado." };
 
     const access = await activationService.validateCurrentAccess();
-    if (!access.ok) return { ok: false, count: 0, message: access.message };
+    if (!access.ok) {
+      const message = access.message ?? "Acesso não autorizado.";
+      const requiresActivation = ["Sessão", "Aparelho", "Funcionário", "Acesso"].some((term) =>
+        message.includes(term),
+      );
+      return { ok: false, count: 0, message, requiresActivation };
+    }
 
     const supabase = requireSupabase();
     const items = await pendingOutbox(ctx.farm_id);
@@ -118,15 +136,25 @@ export const syncService = {
         }
 
         const table = supabase.from(tableName);
-        const result =
-          item.op === "delete"
-            ? await table
-                .delete()
-                .eq("id", (finalPayload as { id?: string }).id)
-                .eq("farm_id", ctx.farm_id)
-            : await table.upsert(finalPayload, { onConflict: conflictTarget(tableName) });
+        const rowId = (finalPayload as { id?: string }).id;
+        let result;
+        if (item.op === "delete") {
+          result = await table.delete().eq("id", rowId).eq("farm_id", ctx.farm_id);
+        } else if (item.op === "insert") {
+          result = await table.insert(finalPayload);
+        } else if (item.op === "update") {
+          const { id: _id, ...updates } = finalPayload;
+          result = await table.update(updates).eq("id", rowId).eq("farm_id", ctx.farm_id);
+        } else {
+          result = await table.upsert(finalPayload, { onConflict: conflictTarget(tableName) });
+        }
 
         if (result.error) {
+          if (tableName === "hoof_corrections" && result.error.code === "23505") {
+            await localdb.outbox.update(item.id!, { status: "done", errorMessage: undefined });
+            count += 1;
+            continue;
+          }
           await localdb.outbox.update(item.id!, {
             status: "error",
             errorMessage: result.error.message,

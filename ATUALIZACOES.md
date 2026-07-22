@@ -1027,3 +1027,74 @@ Critério de sucesso:
 - Registrar uma vaca com 1 pé lesionado.
 - Exportar backup e importar novamente.
 - Abrir histórico e usar "Registrar correção".
+
+# 2026-07-22 - Segurança de produção, administração e auditoria clínica
+
+## O que foi feito
+
+- Criada migration de produção com sessões de funcionário armazenadas por hash, validade de 30 dias e revogação por aparelho.
+- Adicionado limite de tentativas de PIN para reduzir ataques de força bruta.
+- Ativado RLS em todas as tabelas e isolamento real por empresa, fazenda, funcionário e aparelho.
+- Restringido o Storage de fotos ao caminho da fazenda permitida para a sessão atual.
+- Definidos Sandro como administrador da StarMilk e Romano como administrador da Hullsjob.
+- O primeiro acesso agora exige conexão quando o Supabase está configurado; depois da ativação, o trabalho continua offline.
+- A ativação valida empresa, fazenda, licença, vínculo do funcionário e limite de aparelhos no próprio banco.
+- Criado painel administrativo responsivo com fazendas, funcionários, vínculos, aparelhos, licenças, redefinição de PIN e auditoria.
+- O modo gerente agora exige nova confirmação do PIN e libera o painel por apenas 15 minutos.
+- Configurações e administração deixaram de aparecer para funcionários sem permissão de gerente.
+- Criado fluxo de correção clínica auditável, com visita original, nova visita, motivo, funcionário, aparelho e horário.
+- Data, hora, funcionário e aparelho da visita passaram a ser imutáveis no banco.
+- Correções e registros administrativos passaram a ser somente de inclusão; visitas não têm exclusão física pelo app.
+- A fila offline e o IndexedDB agora incluem `hoof_corrections`.
+- Removida a API antiga e redundante de troca de PIN e a dependência `bcryptjs` do frontend/projeto Vercel.
+- Adicionado bloqueio após o fim da janela offline de licença, com opção de revalidar ao conectar.
+- Administração passou a carregar em um bundle separado para reduzir o JavaScript inicial.
+- PWA atualizado para cache `v9`, orientação livre em celular/tablet e mensagens de erro em português.
+- Adicionados cabeçalhos de segurança e políticas de cache no Vercel.
+- Corrigida a tela inicial para não recarregar se o usuário tocar em Continuar antes da hidratação do React.
+- Criado teste Playwright para Romano/Hullsjob, Jeová sem permissão de gerente, Sandro/StarMilk e reabertura offline.
+- Criado verificador de produção que testa RLS público, sessões, gerente e tentativa de acesso entre empresas.
+- A agenda antes da seleção da fazenda agora usa uma função restrita ao próprio funcionário.
+- Licenças ficaram somente para consulta pelos gerentes da empresa; validade é controlada pelo fornecedor para não permitir contorno da cobrança.
+- Novas fazendas criadas pelo gerente recebem automaticamente 15 dias de teste.
+- Hash do PIN e função de administrador da plataforma deixaram de ser acessíveis por consultas diretas do navegador.
+- Removido o último fallback de produção que consultava tabelas diretamente quando uma RPC não existia; servidor antigo agora é bloqueado com uma mensagem clara.
+- O bloqueio de aparelho passou a revogar somente sessões da empresa atual, sem afetar outra empresa usada no mesmo navegador.
+- Confirmado que o bundle da Vercel não contém o catálogo local de empresas, funcionários ou PINs de QA.
+- A bateria Playwright passou a cobrir também uma visita completa sem lesão, com funcionário e horário automáticos e classificação em `OK`.
+- Removidos o servidor Cloudflare/SSR, o roteador duplicado, arquivos Bun obsoletos e componentes genéricos que não eram importados por nenhuma tela.
+- Removidos 303 pacotes transitivos sem uso; o projeto agora possui uma única configuração Vite para desenvolvimento, build e Vercel.
+- `npm audit --omit=dev` passou sem vulnerabilidades conhecidas nas dependências de produção.
+- A configuração da Vercel não pede mais chave secreta: somente URL e chave pública do Supabase ficam no build do navegador.
+- A atualização do PWA não recarrega mais a tela no meio de um atendimento; a nova versão entra silenciosamente na próxima abertura.
+- Cache offline atualizado para `v10`, removendo automaticamente arquivos antigos após a publicação.
+
+## Por que foi feito
+
+- Impedir que dados da StarMilk e Hullsjob sejam consultados ou alterados fora da empresa/fazenda autorizada.
+- Evitar que o fallback de demonstração permita acesso quando o servidor real falhar.
+- Dar autonomia operacional a Sandro e Romano sem expor a chave secreta do Supabase no navegador.
+- Preservar histórico clínico e autoria para uso profissional e conferência posterior.
+- Tornar bloqueio de funcionário, aparelho ou licença efetivo também no próximo sincronismo.
+
+## Como validar
+
+- Executar `supabase/migrations/202607220001_production_security.sql` no SQL Editor do Supabase.
+- Entrar em `STARMILK` com Sandro e confirmar que só aparece a fazenda StarMilk.
+- Entrar em `HULLSJOB` com Romano e confirmar que só aparece a Fazenda Vitória.
+- Confirmar que Jeová e Patrick não veem Administração nem Configurações locais.
+- Abrir Administração com o PIN do gerente, criar um funcionário, redefinir seu PIN e bloquear/reativar um aparelho.
+- Registrar uma visita, abrir o histórico, escolher "Corrigir esta visita" e confirmar o vínculo em `hoof_corrections`.
+- Registrar uma visita offline, fechar o app, reabrir e sincronizar quando a conexão voltar.
+- Verificar que uma sessão StarMilk não consulta dados da Hullsjob via REST.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck` e `npm run build:vercel`.
+- Rodar `npm run test:e2e` e, depois de aplicar a migration, `npm run verify:production`.
+- Resultado local desta rodada: 28 testes de domínio aprovados, lint sem erros, typecheck aprovado, dois builds aprovados e 6 fluxos Playwright aprovados em celular/tablet.
+
+## Próximos passos
+
+- Aplicar a migration no Supabase e executar o teste de segurança no banco real.
+- Fazer QA visual final em 360x800, 768x1024 e 1280x800, incluindo orientação paisagem.
+- Girar as chaves secret/service role que foram compartilhadas durante a configuração antes de inserir dados reais.
+- Publicar no GitHub e Vercel somente depois do teste multiempresa, offline e Storage.
+- Configurar monitoramento de erros e uma rotina externa de backup do banco Supabase.

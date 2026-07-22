@@ -12,14 +12,8 @@ dist
 dist-ssr
 dist-vercel
 .output
-.vinxi
-.tanstack/**
-.nitro
 *.local
-
-# Wrangler / Cloudflare
 .wrangler/
-.dev.vars
 
 # Editor directories and files
 .vscode/*
@@ -35,3 +29,8 @@ dist-vercel
 # Local agent tooling and discarded prototypes
 skills/
 Casco.cod
+
+# Artefatos de QA local
+qa-*.png
+test-results/
+playwright-report/

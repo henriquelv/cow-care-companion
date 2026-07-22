@@ -109,14 +109,13 @@ export const employeeAgendaService = {
 
     if (canUseRemote) {
       const supabase = requireSupabase();
-      const { data, error } = await supabase
-        .from("hoof_visits")
-        .select("*")
-        .eq("employee_id", employeeId)
-        .in("farm_id", farmIds)
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.rpc("hoof_employee_agenda");
       if (!error) {
-        const visits = (data ?? []).map((row) => normalizeVisit(row as RemoteVisitRow));
+        const visits = ((data ?? []) as RemoteVisitRow[])
+          .map((row) => normalizeVisit(row))
+          .filter(
+            (visit) => visit.employee_id === employeeId && farmIds.includes(visit.farm_id ?? ""),
+          );
         return { items: buildAgenda(visits, employeeId, farms), source: "remote" };
       }
     }

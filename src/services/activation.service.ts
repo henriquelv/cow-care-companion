@@ -1,9 +1,3 @@
-import {
-  authenticateBootstrapEmployee,
-  changeBootstrapEmployeePin,
-  findBootstrapClient,
-  saveLocalEmployeePin,
-} from "@/config/tenant-bootstrap";
 import { isSupabaseConfigured, requireSupabase } from "./supabase";
 import { farmContextService, TRIAL_DAYS, type FarmContext } from "./farm-context.service";
 
@@ -36,7 +30,6 @@ export interface RemoteEmployee {
   name: string;
   status?: string | null;
   is_admin?: boolean | null;
-  admin_pin?: string | null;
 }
 
 function normalizeActivationInput(input: string) {
@@ -74,7 +67,24 @@ function canReachServer() {
   return isSupabaseConfigured && (typeof navigator === "undefined" || navigator.onLine !== false);
 }
 
-function localClientOrThrow(code: string) {
+function isMissingRpc(error: { code?: string | null; message?: string | null } | null) {
+  return Boolean(
+    error &&
+    (error.code === "PGRST202" ||
+      error.message?.includes("Could not find the function") ||
+      error.message?.includes("schema cache")),
+  );
+}
+
+async function developmentBootstrap() {
+  if (!import.meta.env.DEV) {
+    throw new Error("Servidor não configurado para este ambiente.");
+  }
+  return import("@/config/tenant-bootstrap");
+}
+
+async function localClientOrThrow(code: string) {
+  const { findBootstrapClient } = await developmentBootstrap();
   const client = findBootstrapClient(code);
   if (!client) throw new Error("Link ou código da empresa inválido.");
   return client;
@@ -85,22 +95,26 @@ export const activationService = {
     const normalized = normalizeActivationInput(code);
     if (!normalized) throw new Error("Informe o link ou código da empresa.");
 
+    if (!isSupabaseConfigured) {
+      return { client: await localClientOrThrow(normalized) };
+    }
+
     if (!canReachServer()) {
-      return { client: localClientOrThrow(normalized) };
+      throw new Error("Conecte este aparelho à internet para fazer o primeiro acesso.");
     }
 
     const supabase = requireSupabase();
-    const { data: client, error: clientError } = await supabase
-      .from("clients")
-      .select("*")
-      .eq("activation_code", normalized)
-      .maybeSingle();
+    const rpcResult = await supabase.rpc("resolve_hoof_client", {
+      p_activation_code: normalized,
+    });
 
-    if (clientError) {
-      const bootstrapClient = findBootstrapClient(normalized);
-      if (bootstrapClient) return { client: bootstrapClient };
-      throw clientError;
+    if (isMissingRpc(rpcResult.error)) {
+      throw new Error("O servidor precisa da atualização de segurança antes deste acesso.");
     }
+    if (rpcResult.error) {
+      throw new Error("Não foi possível consultar a empresa. Tente novamente.");
+    }
+    const client = rpcResult.data as RemoteClient | null;
     if (!client) throw new Error("Link ou código da empresa inválido.");
     if (client.status && client.status !== "active") {
       throw new Error("Empresa bloqueada ou inativa.");
@@ -118,10 +132,15 @@ export const activationService = {
       throw new Error("Informe o funcionário e o PIN.");
     }
 
-    if (!canReachServer()) {
+    if (!isSupabaseConfigured) {
+      const { authenticateBootstrapEmployee } = await developmentBootstrap();
       const localResult = authenticateBootstrapEmployee(normalizedCode, login, pin);
       if (!localResult) throw new Error("Funcionário ou PIN inválidos.");
       return localResult;
+    }
+
+    if (!canReachServer()) {
+      throw new Error("Conecte este aparelho à internet para fazer o primeiro acesso.");
     }
 
     const supabase = requireSupabase();
@@ -130,24 +149,34 @@ export const activationService = {
       p_login: login.trim(),
       p_password: pin,
     });
-    if (error) {
-      const localResult = authenticateBootstrapEmployee(normalizedCode, login, pin);
-      if (localResult) return localResult;
-      throw error;
-    }
+    if (error) throw new Error("Não foi possível validar o acesso. Tente novamente.");
     if (!data) throw new Error("Funcionário ou PIN inválidos.");
 
     const result = data as {
       client?: RemoteClient;
       employee?: RemoteEmployee;
       farms?: RemoteFarm[];
+      error?: string;
+      message?: string;
+      session_token?: string;
+      session_expires_at?: string;
     };
+    if (result.error) throw new Error(result.message || "Não foi possível validar o acesso.");
     if (!result.client || !result.employee) {
       throw new Error("Não foi possível validar este funcionário.");
     }
     if (!result.farms?.length) {
       throw new Error("Este funcionário não possui fazenda ativa vinculada.");
     }
+
+    if (!result.session_token) {
+      throw new Error("O servidor precisa da atualização de segurança antes deste acesso.");
+    }
+
+    farmContextService.savePendingSession({
+      token: result.session_token,
+      expires_at: result.session_expires_at,
+    });
 
     return {
       client: { ...result.client, source: "remote" },
@@ -176,12 +205,14 @@ export const activationService = {
         farm_name: farm.name,
         employee_id: String(employee.id),
         employee_name: employee.name,
+        employee_code: employee.employee_code ?? undefined,
+        employee_login: employee.login_name ?? undefined,
+        is_admin: employee.is_admin === true,
         device_id: deviceId,
         last_license_check_at: now,
         grace_period_days: farm.grace_period_days ?? 7,
         trial_started_at: now,
         trial_expires_at: expiresAt.toISOString(),
-        admin_pin: employee.admin_pin ?? undefined,
       };
       farmContextService.saveContext(ctx);
       return ctx;
@@ -189,28 +220,29 @@ export const activationService = {
 
     const supabase = requireSupabase();
 
-    const { data: licenses, error: licenseError } = await supabase
-      .from("licenses")
-      .select("starts_at,expires_at")
-      .eq("farm_id", farm.id)
-      .eq("status", "active")
-      .order("expires_at", { ascending: false, nullsFirst: true })
-      .limit(1);
-    if (licenseError) throw licenseError;
-    const license = licenses?.[0];
+    const pendingSession = farmContextService.getPendingSession();
+    if (!pendingSession?.token) throw new Error("Sessão de ativação inválida. Entre novamente.");
 
-    const { error: deviceError } = await supabase.from("devices").upsert(
-      {
-        farm_id: farm.id,
-        employee_id: employee.id,
-        device_id: deviceId,
-        device_name: navigator.userAgent.slice(0, 120),
-        status: "active",
-        last_seen_at: now,
-      },
-      { onConflict: "farm_id,device_id" },
-    );
-    if (deviceError) throw deviceError;
+    const activationResult = await supabase.rpc("activate_hoof_device", {
+      p_farm_id: farm.id,
+      p_device_name:
+        typeof navigator === "undefined" ? "Navegador" : navigator.userAgent.slice(0, 120),
+    });
+    if (activationResult.error) {
+      if (isMissingRpc(activationResult.error)) {
+        throw new Error("O servidor precisa da atualização de segurança antes deste acesso.");
+      }
+      throw new Error("Não foi possível ativar este aparelho. Tente novamente.");
+    }
+    const activation = activationResult.data as {
+      ok?: boolean;
+      message?: string;
+      license_starts_at?: string | null;
+      license_expires_at?: string | null;
+    } | null;
+    if (!activation?.ok) {
+      throw new Error(activation?.message || "Não foi possível ativar este aparelho.");
+    }
 
     const ctx: FarmContext = {
       client_id: client?.id ?? farm.client_id ?? undefined,
@@ -220,12 +252,18 @@ export const activationService = {
       farm_name: farm.name,
       employee_id: String(employee.id),
       employee_name: employee.name,
+      employee_code: employee.employee_code ?? undefined,
+      employee_login: employee.login_name ?? undefined,
+      is_admin: employee.is_admin === true,
       device_id: deviceId,
+      session_token: pendingSession.token,
+      session_expires_at: pendingSession.expires_at,
       last_license_check_at: now,
       grace_period_days: farm.grace_period_days ?? 7,
-      trial_started_at: license?.expires_at ? (license.starts_at ?? now) : undefined,
-      trial_expires_at: license?.expires_at ?? undefined,
-      admin_pin: employee.admin_pin ?? undefined,
+      trial_started_at: activation.license_expires_at
+        ? (activation.license_starts_at ?? now)
+        : undefined,
+      trial_expires_at: activation.license_expires_at ?? undefined,
     };
     farmContextService.saveContext(ctx);
     return ctx;
@@ -244,6 +282,7 @@ export const activationService = {
     }
 
     if (!isSupabaseConfigured) {
+      const { changeBootstrapEmployeePin } = await developmentBootstrap();
       const changed = changeBootstrapEmployeePin(
         context.client_code,
         context.employee_id,
@@ -264,124 +303,57 @@ export const activationService = {
       p_new_pin: newPin,
     });
 
-    let changed = false;
-    let message = "";
-    if (!rpcResult.error && rpcResult.data) {
-      const result = rpcResult.data as { ok?: boolean; message?: string };
-      changed = result.ok === true;
-      message = result.message ?? "";
-    } else {
-      let response: Response;
-      try {
-        response = await fetch("/api/change-pin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientId: context.client_id,
-            employeeId: context.employee_id,
-            currentPin,
-            newPin,
-          }),
-        });
-      } catch {
-        throw new Error("Não foi possível conectar ao serviço de PIN.");
-      }
-      const result = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        message?: string;
-      } | null;
-      changed = response.ok && result?.ok === true;
-      message = result?.message ?? "";
-    }
+    if (rpcResult.error) throw new Error("Não foi possível conectar ao serviço de PIN.");
+    const result = rpcResult.data as { ok?: boolean; message?: string } | null;
+    const changed = result?.ok === true;
+    const message = result?.message ?? "";
 
     if (!changed) throw new Error(message || "Não foi possível alterar o PIN.");
-    saveLocalEmployeePin(context.employee_id, newPin);
   },
 
   async validateCurrentAccess(): Promise<{ ok: boolean; message?: string; offline?: boolean }> {
     const ctx = farmContextService.getContext();
     if (!ctx) return { ok: false, message: "Aplicativo não ativado." };
-    if (!canReachServer()) return { ok: true, offline: true };
+    if (!canReachServer()) {
+      const offlineAccess = farmContextService.getOfflineAccessStatus();
+      return offlineAccess.allowed
+        ? { ok: true, offline: true }
+        : { ok: false, message: offlineAccess.message };
+    }
 
     const supabase = requireSupabase();
-    const [farmResult, employeeResult, assignmentResult, deviceResult, licensesResult] =
-      await Promise.all([
-        supabase.from("farms").select("*").eq("id", ctx.farm_id).maybeSingle(),
-        supabase
-          .from("employees")
-          .select("id,farm_id,client_id,employee_code,login_name,name,status,is_admin,admin_pin")
-          .eq("id", ctx.employee_id)
-          .maybeSingle(),
-        supabase
-          .from("employee_farms")
-          .select("farm_id")
-          .eq("employee_id", ctx.employee_id)
-          .eq("farm_id", ctx.farm_id)
-          .maybeSingle(),
-        supabase
-          .from("devices")
-          .select("*")
-          .eq("farm_id", ctx.farm_id)
-          .eq("device_id", ctx.device_id)
-          .maybeSingle(),
-        supabase.from("licenses").select("*").eq("farm_id", ctx.farm_id),
-      ]);
-
-    if (farmResult.error) throw farmResult.error;
-    if (employeeResult.error) throw employeeResult.error;
-    if (assignmentResult.error) throw assignmentResult.error;
-    if (deviceResult.error) throw deviceResult.error;
-    if (licensesResult.error) throw licensesResult.error;
-    if (!farmResult.data || farmResult.data.status !== "active")
-      return { ok: false, message: "Fazenda bloqueada." };
-    if (!employeeResult.data || employeeResult.data.status === "blocked") {
-      return { ok: false, message: "Funcionário bloqueado." };
-    }
-    if (
-      employeeResult.data.client_id &&
-      farmResult.data?.client_id &&
-      employeeResult.data.client_id !== farmResult.data.client_id
-    ) {
-      return { ok: false, message: "Funcionário não pertence a esta empresa." };
-    }
-    if (!assignmentResult.data) {
-      return { ok: false, message: "Funcionário sem acesso a esta fazenda." };
-    }
-    if (deviceResult.data?.status === "blocked") {
-      return { ok: false, message: "Aparelho bloqueado." };
-    }
-
-    const activeLicense = (licensesResult.data ?? []).some((license) => {
-      if (license.status && license.status !== "active") return false;
-      if (license.expires_at && new Date(license.expires_at).getTime() < Date.now()) return false;
-      return true;
+    const sessionResult = await supabase.rpc("validate_hoof_access", {
+      p_farm_id: ctx.farm_id,
     });
-    if (!activeLicense) return { ok: false, message: "Licença expirada ou bloqueada." };
-
-    if (!deviceResult.data) {
-      const { error: deviceError } = await supabase.from("devices").upsert(
-        {
-          farm_id: ctx.farm_id,
-          employee_id: ctx.employee_id,
-          device_id: ctx.device_id,
-          device_name:
-            typeof navigator === "undefined" ? "Navegador" : navigator.userAgent.slice(0, 120),
-          status: "active",
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "farm_id,device_id" },
-      );
-      if (deviceError) throw deviceError;
+    if (!sessionResult.error) {
+      const session = sessionResult.data as {
+        ok?: boolean;
+        message?: string;
+        employee?: RemoteEmployee;
+        farm?: RemoteFarm;
+        license_expires_at?: string | null;
+      } | null;
+      if (!session?.ok) {
+        return { ok: false, message: session?.message || "Sessão expirada. Entre novamente." };
+      }
+      farmContextService.updateContext({
+        farm_name: session.farm?.name ?? ctx.farm_name,
+        employee_name: session.employee?.name ?? ctx.employee_name,
+        employee_code: session.employee?.employee_code ?? ctx.employee_code,
+        employee_login: session.employee?.login_name ?? ctx.employee_login,
+        is_admin: session.employee?.is_admin === true,
+        session_expires_at: ctx.session_expires_at,
+        last_license_check_at: new Date().toISOString(),
+        trial_expires_at: session.license_expires_at ?? ctx.trial_expires_at,
+      });
+      return { ok: true };
     }
-
-    farmContextService.updateContext({
-      client_id: farmResult.data.client_id ?? ctx.client_id,
-      farm_name: farmResult.data.name,
-      employee_name: employeeResult.data.name,
-      admin_pin: employeeResult.data.admin_pin ?? ctx.admin_pin,
-      last_license_check_at: new Date().toISOString(),
-      grace_period_days: farmResult.data.grace_period_days ?? ctx.grace_period_days,
-    });
-    return { ok: true };
+    if (isMissingRpc(sessionResult.error)) {
+      return {
+        ok: false,
+        message: "O servidor precisa da atualização de segurança antes deste acesso.",
+      };
+    }
+    throw new Error("Não foi possível validar a sessão deste aparelho.");
   },
 };

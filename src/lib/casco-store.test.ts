@@ -422,6 +422,28 @@ describe("casco-store domain rules", () => {
     });
   });
 
+  it("gera vínculo auditável entre a visita original e a correção", () => {
+    const v = visit({
+      id: "visit-correction",
+      farm_id: "farm-1",
+      employee_id: "employee-1",
+      device_id: "device-1",
+      correction_of_id: "visit-original",
+      correction_reason: "Pé informado incorretamente",
+    });
+
+    const payloads = createVisitSyncPayloads(v);
+    expect(payloads.correction).toMatchObject({
+      id: "correction_visit-correction",
+      farm_id: "farm-1",
+      original_visit_id: "visit-original",
+      correction_visit_id: "visit-correction",
+      reason: "Pé informado incorretamente",
+      employee_id: "employee-1",
+      device_id: "device-1",
+    });
+  });
+
   it("hidrata visitas a partir do IndexedDB com pés e mídia remota", async () => {
     vi.useRealTimers();
     await localdb.open();
