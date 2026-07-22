@@ -8,6 +8,39 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-22 - Auditoria de prontidão para produção
+
+### O que foi feito
+
+- Revisado o estado do frontend, Supabase, Vercel, sincronização, PIN, modo gerente e pendências acumuladas.
+- Confirmado que a versão publicada está adequada para demonstração e piloto controlado, mas ainda não para entrada de dados reais em escala.
+- Confirmado no projeto remoto que a chave anônima ainda recebe resposta direta das tabelas de empresas, fazendas, funcionários, dispositivos, licenças e configurações.
+- Identificado que a separação atual por `farm_id` é aplicada pelo aplicativo, mas falta a barreira equivalente no banco com sessão assinada e RLS.
+- Identificado que `Modo gerente` separa visualmente os cadastros, porém ainda pode ser aberto sem validação real de administrador.
+- Confirmado que ainda não existe painel completo para criar empresas/fazendas, administrar funcionários, bloquear aparelhos, recuperar PIN e controlar licenças.
+
+### Por que foi feito
+
+- Evitar tratar uma interface funcional como produto seguro antes de fechar o isolamento entre clientes.
+- Priorizar proteção de dados, controle administrativo e recuperação operacional antes de adicionar novos relatórios.
+- Deixar claro o que pode ser usado em piloto e o que precisa estar concluído antes da operação comercial.
+
+### Como validar
+
+- Consultar as tabelas pelo endpoint REST usando somente a chave anônima e confirmar que, após a fase de segurança, requisições sem sessão retornam zero registros ou acesso negado.
+- Autenticar dois funcionários de empresas diferentes e provar que cada sessão acessa somente as fazendas permitidas.
+- Tentar abrir cadastros e backups com funcionário comum e confirmar bloqueio.
+- Bloquear aparelho, funcionário e licença separadamente e confirmar que a sincronização é recusada.
+
+### Próximos passos
+
+1. Criar sessão curta assinada depois do PIN e aplicar RLS por empresa, fazenda e funcionário em todas as tabelas e no Storage.
+2. Adicionar limite de tentativas de PIN, expiração de sessão e recuperação administrativa de credencial.
+3. Proteger de verdade o modo gerente e definir quais funcionários são administradores da Hullsjob e da StarMilk.
+4. Criar painel administrativo para empresas, fazendas, funcionários, aparelhos e licenças, incluindo o cadastro de nova fazenda.
+5. Concluir auditoria de correções imutáveis e teste de sincronização com dois aparelhos, fotos e perda de conexão.
+6. Executar piloto de 15 dias em Android/tablet real, revisar backup/restauração e configurar monitoramento antes da venda.
+
 ## 2026-07-21 - Meu trabalho, métricas no calendário e troca de PIN
 
 ### O que foi feito
