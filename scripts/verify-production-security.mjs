@@ -28,20 +28,23 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function authenticate(company, login, pin, deviceId) {
+async function authenticate(company, login, pin, deviceId, expectedAdmin) {
   const result = await request("rpc/authenticate_hoof_employee", {
     method: "POST",
     deviceId,
     body: { p_activation_code: company, p_login: login, p_password: pin },
   });
   assert(result?.session_token, `${company}: sessão não emitida.`);
-  assert(result?.employee?.is_admin === true, `${login}: administrador não reconhecido.`);
+  assert(
+    result?.employee?.is_admin === expectedAdmin,
+    `${login}: permissão administrativa incorreta.`,
+  );
   assert(result?.farms?.length > 0, `${login}: nenhuma fazenda permitida.`);
   return result;
 }
 
 async function verifyTenant({ company, login, pin, deviceId, expectedFarmName }) {
-  const access = await authenticate(company, login, pin, deviceId);
+  const access = await authenticate(company, login, pin, deviceId, true);
   const farm = access.farms[0];
   assert(farm.name === expectedFarmName, `${company}: fazenda incorreta.`);
 
@@ -101,6 +104,28 @@ async function main() {
     deviceId: "qa-production-hullsjob",
     expectedFarmName: "Fazenda Vitória",
   });
+  const jeova = await authenticate(
+    "HULLSJOB",
+    "Jeová",
+    process.env.QA_HULLSJOB_PIN ?? "1234",
+    "qa-production-hullsjob-jeova",
+    false,
+  );
+  const patrick = await authenticate(
+    "HULLSJOB",
+    "Patrick",
+    process.env.QA_HULLSJOB_PIN ?? "1234",
+    "qa-production-hullsjob-patrick",
+    false,
+  );
+  assert(
+    jeova.farms.length === 1 && jeova.farms[0].id === hullsjob.farm.id,
+    "Jeová: fazenda incorreta.",
+  );
+  assert(
+    patrick.farms.length === 1 && patrick.farms[0].id === hullsjob.farm.id,
+    "Patrick: fazenda incorreta.",
+  );
 
   assert(
     !starMilk.overview.farms.some((farm) => farm.id === hullsjob.farm.id),
@@ -135,6 +160,7 @@ async function main() {
         hullsjob: {
           farm: hullsjob.farm.name,
           employees: hullsjob.overview.employees.length,
+          common_employees_verified: 2,
         },
         cross_tenant_rows: crossFarmRows.length,
       },

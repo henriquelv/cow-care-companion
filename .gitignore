@@ -14,6 +14,7 @@ dist-vercel
 .output
 *.local
 .wrangler/
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*
@@ -34,3 +35,5 @@ Casco.cod
 qa-*.png
 test-results/
 playwright-report/
+
+.vercel

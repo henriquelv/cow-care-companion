@@ -1098,3 +1098,44 @@ Critério de sucesso:
 - Girar as chaves secret/service role que foram compartilhadas durante a configuração antes de inserir dados reais.
 - Publicar no GitHub e Vercel somente depois do teste multiempresa, offline e Storage.
 - Configurar monitoramento de erros e uma rotina externa de backup do banco Supabase.
+
+# 2026-07-24 - Backend real e preparação da publicação
+
+## O que foi feito
+
+- Criado um projeto Supabase exclusivo para o Gestão de Cascos na região de São Paulo.
+- Aplicadas e conferidas as cinco migrations do app no banco novo.
+- Criados o bucket privado `media`, as políticas por fazenda e os dados iniciais das empresas.
+- Validado o acesso da StarMilk com Sandro e da Hullsjob com Romano, Jeová e Patrick.
+- Confirmado que Sandro e Romano têm acesso de gerente e que Jeová e Patrick permanecem como funcionários comuns.
+- Confirmado por teste real que uma sessão da StarMilk não enxerga registros da Fazenda Vitória.
+- Testados upload, leitura privada e remoção de foto no Storage com sessão de funcionário.
+- A Vercel passou a usar somente a URL e a chave pública do projeto novo em produção, prévia e desenvolvimento.
+- Removida da Vercel a variável antiga com chave secreta do Supabase.
+- O verificador de produção agora cobre também os dois funcionários comuns da Hullsjob.
+- Metadados locais do Supabase e da Vercel foram adicionados ao ignore do Git.
+
+## Por que foi feito
+
+- Colocar a apresentação em um backend real e isolado, sem depender de protótipos ou dados embutidos no frontend.
+- Garantir que empresa, fazenda, funcionário, dispositivo, licença e mídias respeitem o mesmo isolamento.
+- Evitar qualquer chave administrativa no navegador ou no build publicado.
+- Deixar uma verificação repetível para confirmar os acessos antes de cada publicação importante.
+
+## Como validar
+
+- Rodar `npm run verify:production`.
+- Entrar com o código `STARMILK`, funcionário Sandro e a senha inicial definida.
+- Entrar com o código `HULLSJOB` e conferir Romano, Jeová e Patrick.
+- Confirmar que somente Sandro e Romano veem a área de Administração.
+- Registrar uma visita com foto, sincronizar e reabrir o histórico.
+- Desligar a conexão após o primeiro acesso, registrar uma visita e sincronizar ao voltar a internet.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck` e `npm run build:vercel`.
+
+## Próximos passos
+
+- Fazer a apresentação e um piloto curto em um celular e um tablet reais.
+- Trocar os PINs iniciais no próprio app antes do uso diário.
+- Ativar uma rotina automática de backup e monitoramento de erros.
+- Cadastrar novos funcionários e fazendas somente pela Administração.
+- Girar no projeto Supabase antigo as credenciais que foram compartilhadas durante a configuração.
