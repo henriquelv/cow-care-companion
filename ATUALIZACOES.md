@@ -1192,6 +1192,9 @@ Critério de sucesso:
 - Confirmar que outra fazenda não recebeu as alterações.
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run test:e2e`.
 - Resultado desta rodada: 32 testes unitários, lint, typecheck, build Vercel e 8 fluxos Playwright aprovados.
+- Migration `202607240001_configurable_clinical_rules.sql` aplicada no Supabase de produção.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`.
+- No domínio público, Sandro abriu as regras, Romano recebeu a sugestão de 7 dias e Jeová permaneceu sem ações de gerente.
 
 ## Próximos passos
 
