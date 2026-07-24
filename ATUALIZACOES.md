@@ -1145,3 +1145,58 @@ Critério de sucesso:
 - Ativar uma rotina automática de backup e monitoramento de erros.
 - Cadastrar novos funcionários e fazendas somente pela Administração.
 - Girar no projeto Supabase antigo as credenciais que foram compartilhadas durante a configuração.
+
+# 2026-07-24 - Gestão de animais, lotes e regras clínicas
+
+## O que foi feito
+
+- Os prazos clínicos passaram a fazer parte da configuração de cada fazenda.
+- Mantidos como valores iniciais:
+  - Dermatite Digital: 7 dias.
+  - Úlcera de Sola: 21 dias.
+  - Linha Branca: 21 dias.
+  - Demais doenças e curativos: 30 dias.
+- Ao registrar uma doença, o app agora marca e preenche automaticamente a revisão sugerida.
+- Quando o pé tem mais de uma doença, o app usa o menor prazo por ser o atendimento mais urgente.
+- A sugestão aparece claramente na etapa “Revisão e foto” e ainda permite data manual.
+- O prazo usado no atendimento fica preservado no registro e na agenda.
+- A área protegida por PIN foi renomeada para “Gestão da fazenda”.
+- Lotes agora podem ser adicionados, renomeados e removidos diretamente na lista.
+- Animais agora podem ser adicionados, editados e removidos, incluindo brinco, tipo e lote.
+- Doenças agora podem ser adicionadas, renomeadas, removidas/restauradas e ter o prazo alterado entre 1 e 365 dias.
+- Remover uma doença a oculta dos próximos atendimentos, mas preserva seu nome no histórico.
+- Cadastros e regras continuam isolados por fazenda e são enviados ao Supabase.
+- Exclusões e renomeações agora são reconciliadas entre aparelhos sem apagar visitas antigas.
+- Pendências criadas offline são preservadas durante a reconciliação.
+- O catálogo inicial foi adicionado em migration própria para existir centralmente no banco.
+- Cache offline atualizado para `v11`.
+- A interface foi conferida em celular 390x844 e tablet 768x1024.
+
+## Por que foi feito
+
+- Evitar que o funcionário precise calcular datas durante o atendimento.
+- Dar autonomia ao gerente para adaptar os protocolos clínicos de cada fazenda.
+- Reunir cadastros e regras em um fluxo direto, com edição na própria lista.
+- Preservar histórico e auditoria mesmo quando um animal ou uma doença deixa de ser usado.
+- Fazer alterações feitas em um aparelho aparecerem corretamente nos demais.
+
+## Como validar
+
+- Entrar como Sandro ou Romano e abrir “Gestão da fazenda”.
+- Em “Cadastros”, adicionar, editar e remover um lote e um animal.
+- Em “Regras”, mudar Dermatite Digital de 7 para outro prazo e salvar.
+- Adicionar uma doença personalizada, definir seu prazo, remover e restaurar.
+- Registrar um pé com Dermatite Digital e confirmar a revisão automática.
+- Registrar duas doenças no mesmo pé e confirmar que o menor prazo foi selecionado.
+- Sincronizar e conferir os cadastros em outro aparelho da mesma fazenda.
+- Confirmar que outra fazenda não recebeu as alterações.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run test:e2e`.
+- Resultado desta rodada: 32 testes unitários, lint, typecheck, build Vercel e 8 fluxos Playwright aprovados.
+
+## Próximos passos
+
+- Validar com o responsável técnico se cada prazo inicial deve permanecer igual nas duas fazendas.
+- Cadastrar os lotes e animais reais antes do piloto.
+- Trocar os PINs iniciais dos gerentes e funcionários.
+- Fazer um atendimento real com foto e revisão automática em celular Android.
+- Configurar backup e monitoramento antes de ampliar para mais fazendas.

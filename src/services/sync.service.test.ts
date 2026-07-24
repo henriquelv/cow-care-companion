@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scopeSyncPayload } from "./sync.service";
+import { scopeSyncPayload, staleSyncedRecordIds } from "./sync.service";
 
 const context = {
   farm_id: "farm-1",
@@ -50,5 +50,18 @@ describe("payload de sincronização", () => {
       employee_id: "employee-1",
       device_id: "device-1",
     });
+  });
+
+  it("remove cópias sincronizadas apagadas no servidor sem perder pendências locais", () => {
+    expect(
+      staleSyncedRecordIds(
+        [
+          { id: "mantido", synced: true },
+          { id: "removido", synced: true },
+          { id: "pendente-offline", synced: false },
+        ],
+        [{ id: "mantido" }],
+      ),
+    ).toEqual(["removido"]);
   });
 });

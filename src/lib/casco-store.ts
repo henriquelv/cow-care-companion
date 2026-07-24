@@ -9,23 +9,7 @@ export type FootKey = "FE" | "FD" | "TE" | "TD";
 export type Severity = 0 | 1 | 2 | 3;
 export type Zone = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
-export type LesionCode =
-  | "SH"
-  | "SU"
-  | "BU"
-  | "DD"
-  | "HHE"
-  | "J"
-  | "X"
-  | "TS"
-  | "P"
-  | "WU"
-  | "TU"
-  | "LB"
-  | "HI"
-  | "FF"
-  | "LM"
-  | "SOLE_ABSCESS";
+export type LesionCode = string;
 
 export type TreatmentCode =
   | "TRIM"
@@ -47,6 +31,15 @@ export interface DiseaseEntry {
   code: LesionCode;
   severity: Severity;
   zones?: Zone[]; // mantido para compatibilidade com dados existentes
+}
+
+export interface DiseaseDefinition {
+  code: LesionCode;
+  name: string;
+  full: string;
+  emoji: string;
+  recheckDays: number;
+  active: boolean;
 }
 
 export interface FootEntry {
@@ -90,6 +83,7 @@ export interface Visit {
 
 export interface RegisteredAnimal {
   tag: string;
+  sex?: Sex;
   lote?: string;
 }
 
@@ -100,6 +94,7 @@ export interface FarmConfig {
   lotes: string[];
   dias_para_preventivo: number;
   animais: RegisteredAnimal[]; // animais cadastrados manualmente
+  diseases: DiseaseDefinition[];
 }
 
 const VISITS_KEY = "casco.visits.v3";
@@ -221,29 +216,204 @@ export const FOOT_LABEL: Record<FootKey, string> = {
   TD: "Trás Dir.",
 };
 
-export const LESIONS: {
-  code: LesionCode;
-  name: string;
-  full: string;
-  emoji: string;
-}[] = [
-  { code: "SH", name: "Laminite", full: "Hemorragia de Sola / Laminite", emoji: "🟡" },
-  { code: "SU", name: "Úlcera Sola", full: "Úlcera de Sola", emoji: "🔴" },
-  { code: "BU", name: "Fratura Sola", full: "Fratura de Sola", emoji: "🟠" },
-  { code: "SOLE_ABSCESS", name: "Abscesso", full: "Abscesso de Sola", emoji: "🟤" },
-  { code: "WU", name: "Úlcera Parede", full: "Úlcera de Parede", emoji: "🧱" },
-  { code: "TU", name: "Necrose", full: "Úlcera da Ponta / Necrose", emoji: "⚫" },
-  { code: "LB", name: "Linha Branca", full: "Linha Branca", emoji: "⬜" },
-  { code: "DD", name: "Derm. Digital", full: "Dermatite Digital", emoji: "🦠" },
-  { code: "HHE", name: "Talão c/ Lama", full: "Talão por Lama / Esterco", emoji: "💧" },
-  { code: "HI", name: "Hiperplasia", full: "Hiperplasia Interdigital", emoji: "🌿" },
-  { code: "FF", name: "Fleimão", full: "Fleimão / Podridão do Pé", emoji: "🦨" },
-  { code: "J", name: "Inf. Articular", full: "Infecção Articular", emoji: "🔩" },
-  { code: "LM", name: "Les. Membro", full: "Lesão de Membro", emoji: "🦵" },
-  { code: "TS", name: "Sola Fina", full: "Sola Fina", emoji: "📏" },
-  { code: "P", name: "Perfuração", full: "Perfuração", emoji: "📌" },
-  { code: "X", name: "Descarte", full: "Descarte — Retirar do Lote", emoji: "❌" },
+export const LESIONS: DiseaseDefinition[] = [
+  {
+    code: "SH",
+    name: "Laminite",
+    full: "Hemorragia de Sola / Laminite",
+    emoji: "🟡",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "SU",
+    name: "Úlcera Sola",
+    full: "Úlcera de Sola",
+    emoji: "🔴",
+    recheckDays: 21,
+    active: true,
+  },
+  {
+    code: "BU",
+    name: "Fratura Sola",
+    full: "Fratura de Sola",
+    emoji: "🟠",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "SOLE_ABSCESS",
+    name: "Abscesso",
+    full: "Abscesso de Sola",
+    emoji: "🟤",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "WU",
+    name: "Úlcera Parede",
+    full: "Úlcera de Parede",
+    emoji: "🧱",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "TU",
+    name: "Necrose",
+    full: "Úlcera da Ponta / Necrose",
+    emoji: "⚫",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "LB",
+    name: "Linha Branca",
+    full: "Linha Branca",
+    emoji: "⬜",
+    recheckDays: 21,
+    active: true,
+  },
+  {
+    code: "DD",
+    name: "Derm. Digital",
+    full: "Dermatite Digital",
+    emoji: "🦠",
+    recheckDays: 7,
+    active: true,
+  },
+  {
+    code: "HHE",
+    name: "Talão c/ Lama",
+    full: "Talão por Lama / Esterco",
+    emoji: "💧",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "HI",
+    name: "Hiperplasia",
+    full: "Hiperplasia Interdigital",
+    emoji: "🌿",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "FF",
+    name: "Fleimão",
+    full: "Fleimão / Podridão do Pé",
+    emoji: "🦨",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "J",
+    name: "Inf. Articular",
+    full: "Infecção Articular",
+    emoji: "🔩",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "LM",
+    name: "Les. Membro",
+    full: "Lesão de Membro",
+    emoji: "🦵",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "TS",
+    name: "Sola Fina",
+    full: "Sola Fina",
+    emoji: "📏",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "P",
+    name: "Perfuração",
+    full: "Perfuração",
+    emoji: "📌",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "X",
+    name: "Descarte",
+    full: "Descarte — Retirar do Lote",
+    emoji: "❌",
+    recheckDays: 30,
+    active: true,
+  },
 ];
+
+function normalizeRecheckDays(value: unknown, fallback: number = CURATIVE_DEADLINES.other) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(1, Math.min(365, Math.round(numeric)));
+}
+
+function normalizeDiseaseCatalog(stored?: DiseaseDefinition[]) {
+  const storedByCode = new Map(
+    (Array.isArray(stored) ? stored : [])
+      .filter((disease) => disease && typeof disease.code === "string")
+      .map((disease) => [disease.code, disease]),
+  );
+  const defaults = LESIONS.map((disease) => {
+    const saved = storedByCode.get(disease.code);
+    storedByCode.delete(disease.code);
+    return {
+      ...disease,
+      ...saved,
+      code: disease.code,
+      name: saved?.name?.trim() || disease.name,
+      full: saved?.full?.trim() || saved?.name?.trim() || disease.full,
+      emoji: saved?.emoji || disease.emoji,
+      recheckDays: normalizeRecheckDays(saved?.recheckDays, disease.recheckDays),
+      active: saved?.active !== false,
+    } satisfies DiseaseDefinition;
+  });
+  const custom = Array.from(storedByCode.values()).map((disease) => ({
+    code: disease.code,
+    name: disease.name?.trim() || "Doença sem nome",
+    full: disease.full?.trim() || disease.name?.trim() || "Doença sem nome",
+    emoji: disease.emoji || "🩺",
+    recheckDays: normalizeRecheckDays(disease.recheckDays),
+    active: disease.active !== false,
+  }));
+  return [...defaults, ...custom];
+}
+
+export function defaultDiseaseCatalog() {
+  return normalizeDiseaseCatalog();
+}
+
+export function diseaseCatalog(farm = loadFarm(), includeInactive = true) {
+  const catalog = normalizeDiseaseCatalog(farm.diseases);
+  return includeInactive ? catalog : catalog.filter((disease) => disease.active);
+}
+
+export function diseaseDefinition(code: LesionCode, farm = loadFarm()) {
+  return diseaseCatalog(farm).find((disease) => disease.code === code);
+}
+
+export function recommendedRecheckForDiseases(
+  diseases: DiseaseEntry[] = [],
+  catalog: DiseaseDefinition[] = diseaseCatalog(),
+) {
+  const activeCodes = new Set(
+    diseases.filter((disease) => disease.severity > 0).map((disease) => disease.code),
+  );
+  const matchingRules = catalog.filter(
+    (disease) => activeCodes.has(disease.code) && disease.recheckDays > 0,
+  );
+  if (matchingRules.length === 0) return null;
+  const days = Math.min(...matchingRules.map((disease) => disease.recheckDays));
+  return {
+    days,
+    diseases: matchingRules.filter((disease) => disease.recheckDays === days),
+  };
+}
 
 export const TREATMENTS: { code: TreatmentCode; label: string; emoji: string }[] = [
   { code: "TRIM", label: "Casquear", emoji: "🔪" },
@@ -396,21 +566,24 @@ function daysBetweenISO(fromISO: string, toISO: string) {
   return Math.max(0, Math.round((to - from) / 86400000));
 }
 
-export function curativeDeadlineForDiseases(diseases: DiseaseEntry[] = []): {
+export function curativeDeadlineForDiseases(
+  diseases: DiseaseEntry[] = [],
+  catalog: DiseaseDefinition[] = diseaseCatalog(),
+): {
   days: number;
   category: CurativeCategory;
 } {
   const activeCodes = diseases.filter((d) => d.severity > 0).map((d) => d.code);
-  if (activeCodes.includes("DD")) {
-    return { days: CURATIVE_DEADLINES.digitalDermatitis, category: "digital_dermatitis" };
-  }
-  if (activeCodes.some((code) => code === "SU" || code === "LB")) {
-    return {
-      days: CURATIVE_DEADLINES.soleUlcerOrWhiteLine,
-      category: "sole_ulcer_white_line",
-    };
-  }
-  return { days: CURATIVE_DEADLINES.other, category: "other" };
+  const configuredDays = activeCodes
+    .map((code) => catalog.find((disease) => disease.code === code)?.recheckDays)
+    .filter((days): days is number => typeof days === "number" && days > 0);
+  const days = configuredDays.length > 0 ? Math.min(...configuredDays) : CURATIVE_DEADLINES.other;
+  const category = activeCodes.includes("DD")
+    ? "digital_dermatitis"
+    : activeCodes.some((code) => code === "SU" || code === "LB")
+      ? "sole_ulcer_white_line"
+      : "other";
+  return { days, category };
 }
 
 type LegacyFootEntry = Partial<FootEntry> & {
@@ -844,9 +1017,18 @@ function normalizeFarm(stored: Partial<FarmConfig>): FarmConfig {
     farmName: stored.farmName ?? "",
     worker: stored.worker ?? "",
     configured: stored.configured ?? false,
-    lotes: stored.lotes ?? [],
+    lotes: Array.from(
+      new Set((stored.lotes ?? []).map((lote) => lote.trim().toUpperCase()).filter(Boolean)),
+    ),
     dias_para_preventivo: stored.dias_para_preventivo ?? 180,
-    animais: stored.animais ?? [],
+    animais: (stored.animais ?? [])
+      .filter((animal) => animal?.tag?.trim())
+      .map((animal) => ({
+        tag: animal.tag.trim(),
+        sex: animal.sex === "touro" ? "touro" : "vaca",
+        lote: animal.lote?.trim().toUpperCase() || undefined,
+      })),
+    diseases: normalizeDiseaseCatalog(stored.diseases),
   };
 }
 
@@ -935,7 +1117,7 @@ export function allAnimals(): {
     if (!map.has(key)) {
       map.set(key, {
         tag: a.tag,
-        sex: "vaca",
+        sex: a.sex ?? "vaca",
         lote: a.lote,
         lastVisit: 0,
         totalVisits: 0,
@@ -1011,7 +1193,7 @@ export function preventiveList(diasThreshold: number): PreventiveAnimal[] {
     const key = a.tag.toLowerCase();
     animals.set(key, {
       tag: a.tag,
-      sex: "vaca",
+      sex: a.sex ?? "vaca",
       lote: a.lote,
       hasActiveProblem: false,
       hasProblemaHistorico: false,
@@ -1079,6 +1261,7 @@ const FARM_DEFAULT: FarmConfig = {
   lotes: [],
   dias_para_preventivo: 180,
   animais: [],
+  diseases: defaultDiseaseCatalog(),
 };
 
 export function loadFarm(): FarmConfig {
@@ -1086,26 +1269,80 @@ export function loadFarm(): FarmConfig {
   return readStoredFarm();
 }
 
-export function deleteAnimal(tag: string) {
-  const farm = loadFarm();
-  farm.animais = farm.animais.filter((a) => a.tag.toLowerCase() !== tag.toLowerCase());
-  saveFarm(farm);
-  saveVisits(loadVisits().filter((v) => v.tag.toLowerCase() !== tag.toLowerCase()));
+export async function hydrateFarmFromIndexedDb() {
+  const ctx = farmContextService.getContext();
+  if (!ctx || !canUseStorage()) return loadFarm();
+
+  const [settingsRows, loteRows, animalRows] = await Promise.all([
+    localdb.farm_settings.where("farm_id").equals(ctx.farm_id).toArray(),
+    localdb.farm_lotes.where("farm_id").equals(ctx.farm_id).toArray(),
+    localdb.animals.where("farm_id").equals(ctx.farm_id).toArray(),
+  ]);
+  const settingsRow = [...settingsRows].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+  const settingsData = settingsRow?.data as
+    | { payload?: Partial<FarmConfig>; dias_para_preventivo?: number }
+    | undefined;
+  const previous = loadFarm();
+  const next = normalizeFarm({
+    ...previous,
+    ...(settingsData?.payload ?? {}),
+    farmName: ctx.farm_name || settingsData?.payload?.farmName || previous.farmName,
+    worker: ctx.employee_name || settingsData?.payload?.worker || previous.worker,
+    configured: true,
+    dias_para_preventivo:
+      settingsData?.dias_para_preventivo ??
+      settingsData?.payload?.dias_para_preventivo ??
+      previous.dias_para_preventivo,
+    lotes: loteRows.map((row) => {
+      const data = row.data as { name?: string; status?: string };
+      return data.status === "blocked" ? "" : (data.name ?? "");
+    }),
+    animais: animalRows.flatMap((row): RegisteredAnimal[] => {
+      const data = row.data as {
+        tag?: string;
+        sex?: Sex;
+        lote?: string;
+        status?: string;
+      };
+      if (!data.tag || data.status === "blocked") return [];
+      return [{ tag: data.tag, sex: data.sex, lote: data.lote }];
+    }),
+  });
+
+  localStorage.setItem(scopedKey(FARM_KEY), JSON.stringify(next));
+  return next;
 }
 
 export function saveFarm(f: FarmConfig) {
   if (!canUseStorage()) return;
-  localStorage.setItem(scopedKey(FARM_KEY), JSON.stringify(f));
+  const previous = loadFarm();
+  const normalized = normalizeFarm(f);
+  localStorage.setItem(scopedKey(FARM_KEY), JSON.stringify(normalized));
   const ctx = farmContextService.getContext();
-  if (ctx) {
+  if (ctx?.is_admin) {
+    const currentLoteIds = new Set(normalized.lotes.map((lote) => `${ctx.farm_id}_${lote}`));
+    const currentAnimalIds = new Set(
+      normalized.animais.map((animal) => `${ctx.farm_id}_${animal.tag}`),
+    );
+    const removedLotes = previous.lotes
+      .map((lote) => `${ctx.farm_id}_${lote}`)
+      .filter((id) => !currentLoteIds.has(id));
+    const removedAnimals = previous.animais
+      .map((animal) => `${ctx.farm_id}_${animal.tag}`)
+      .filter((id) => !currentAnimalIds.has(id));
+
     void putLocalRecord("farm_settings", {
       id: ctx.farm_id,
       farm_id: ctx.farm_id,
-      data: f,
+      data: normalized,
       updated_at: new Date().toISOString(),
       synced: false,
     });
-    for (const lote of f.lotes) {
+    void Promise.all([
+      ...removedLotes.map((id) => localdb.farm_lotes.delete(id)),
+      ...removedAnimals.map((id) => localdb.animals.delete(id)),
+    ]);
+    for (const lote of normalized.lotes) {
       void putLocalRecord("farm_lotes", {
         id: `${ctx.farm_id}_${lote}`,
         farm_id: ctx.farm_id,
@@ -1114,7 +1351,7 @@ export function saveFarm(f: FarmConfig) {
         synced: false,
       });
     }
-    for (const animal of f.animais) {
+    for (const animal of normalized.animais) {
       void putLocalRecord("animals", {
         id: `${ctx.farm_id}_${animal.tag}`,
         farm_id: ctx.farm_id,
@@ -1122,7 +1359,7 @@ export function saveFarm(f: FarmConfig) {
           id: `${ctx.farm_id}_${animal.tag}`,
           farm_id: ctx.farm_id,
           tag: animal.tag,
-          sex: "vaca",
+          sex: animal.sex ?? "vaca",
           lote: animal.lote,
           status: "active",
         },
@@ -1138,11 +1375,23 @@ export function saveFarm(f: FarmConfig) {
         payload: {
           id: ctx.farm_id,
           farm_id: ctx.farm_id,
-          dias_para_preventivo: f.dias_para_preventivo,
-          payload: f,
+          dias_para_preventivo: normalized.dias_para_preventivo,
+          payload: normalized,
         },
       },
-      ...f.lotes.map((lote) => ({
+      ...removedLotes.map((id) => ({
+        farm_id: ctx.farm_id,
+        tableName: "farm_lotes",
+        op: "delete" as const,
+        payload: { id, farm_id: ctx.farm_id },
+      })),
+      ...removedAnimals.map((id) => ({
+        farm_id: ctx.farm_id,
+        tableName: "animals",
+        op: "delete" as const,
+        payload: { id, farm_id: ctx.farm_id },
+      })),
+      ...normalized.lotes.map((lote) => ({
         farm_id: ctx.farm_id,
         tableName: "farm_lotes",
         op: "upsert" as const,
@@ -1153,7 +1402,7 @@ export function saveFarm(f: FarmConfig) {
           status: "active",
         },
       })),
-      ...f.animais.map((animal) => ({
+      ...normalized.animais.map((animal) => ({
         farm_id: ctx.farm_id,
         tableName: "animals",
         op: "upsert" as const,
@@ -1161,7 +1410,7 @@ export function saveFarm(f: FarmConfig) {
           id: `${ctx.farm_id}_${animal.tag}`,
           farm_id: ctx.farm_id,
           tag: animal.tag,
-          sex: "vaca",
+          sex: animal.sex ?? "vaca",
           lote: animal.lote,
           status: "active",
         },
@@ -1262,9 +1511,13 @@ export function curativeFollowupsFromVisits(
       }
 
       const rule = curativeDeadlineForDiseases(activeDiseases);
-      const dueDate = dateAfterDays(rule.days, visit.date);
+      const targetDays =
+        foot.recheck && foot.intervalo_revisao_dias
+          ? normalizeRecheckDays(foot.intervalo_revisao_dias, rule.days)
+          : rule.days;
+      const dueDate = dateAfterDays(targetDays, visit.date);
       const elapsedDays = daysBetweenISO(visit.date, referenceDate);
-      const remainingDays = rule.days - elapsedDays;
+      const remainingDays = targetDays - elapsedDays;
       followups.push({
         id: `${visit.id}_${foot.foot}_curative`,
         farm_id: visit.farm_id,
@@ -1275,7 +1528,7 @@ export function curativeFollowupsFromVisits(
         visitId: visit.id,
         treatmentDate: visit.date,
         dueDate,
-        targetDays: rule.days,
+        targetDays,
         elapsedDays,
         remainingDays,
         category: rule.category,

@@ -11,6 +11,7 @@ import {
   curativeFollowups,
   curativeMetrics,
   dateAfterDays,
+  defaultDiseaseCatalog,
   employeeWorkMetricsFromVisits,
   exportBackupJson,
   footWorstSeverity,
@@ -21,6 +22,7 @@ import {
   loadLastBackupAt,
   normalizeSeverity,
   preventiveList,
+  recommendedRecheckForDiseases,
   rechecksByDate,
   saveFarm,
   saveVisits,
@@ -59,6 +61,7 @@ const farm: FarmConfig = {
   lotes: ["A1"],
   dias_para_preventivo: 180,
   animais: [],
+  diseases: defaultDiseaseCatalog(),
 };
 
 function foot(overrides: Partial<FootEntry> = {}): FootEntry {
@@ -155,6 +158,51 @@ describe("casco-store domain rules", () => {
     expect(
       curativeDeadlineForDiseases([{ code: "SOLE_ABSCESS", severity: 3, zones: [3] }]).days,
     ).toBe(30);
+  });
+
+  it("usa o menor prazo configurado quando há mais de uma doença", () => {
+    const catalog = defaultDiseaseCatalog().map((disease) =>
+      disease.code === "DD"
+        ? { ...disease, recheckDays: 9 }
+        : disease.code === "SU"
+          ? { ...disease, recheckDays: 18 }
+          : disease,
+    );
+    const diseases = [
+      { code: "SU", severity: 2 as const },
+      { code: "DD", severity: 1 as const },
+    ];
+
+    expect(recommendedRecheckForDiseases(diseases, catalog)).toMatchObject({
+      days: 9,
+      diseases: [{ code: "DD" }],
+    });
+    expect(curativeDeadlineForDiseases(diseases, catalog).days).toBe(9);
+  });
+
+  it("preserva o prazo escolhido no atendimento para o acompanhamento", () => {
+    saveVisits([
+      visit({
+        id: "curativo-personalizado",
+        date: "2026-05-10",
+        createdAt: new Date("2026-05-10T12:00:00-03:00").getTime(),
+        feet: [
+          foot({
+            ok: false,
+            diseases: [{ code: "DD", severity: 2 }],
+            treatments: ["SPRAY"],
+            recheck: true,
+            recheckDate: "2026-05-19",
+            intervalo_revisao_dias: 9,
+          }),
+        ],
+      }),
+    ]);
+
+    expect(curativeFollowups("2026-05-12")[0]).toMatchObject({
+      dueDate: "2026-05-19",
+      targetDays: 9,
+    });
   });
 
   it("leva curativos abertos para a agenda e calcula atraso", () => {
@@ -339,6 +387,50 @@ describe("casco-store domain rules", () => {
     const starMilkQueue = await pendingOutbox("farm-starmilk");
     expect(starMilkQueue).toHaveLength(1);
     expect(starMilkQueue[0].farm_id).toBe("farm-starmilk");
+  });
+
+  it("envia remoções de lotes e animais para os outros aparelhos", async () => {
+    vi.useRealTimers();
+    await localdb.open();
+    await localdb.outbox.clear();
+    localStorage.setItem(
+      "casco.farm_context.v2",
+      JSON.stringify({
+        farm_id: "farm-1",
+        farm_name: "Fazenda Teste",
+        employee_id: "manager-1",
+        employee_name: "Gerente",
+        device_id: "device-1",
+        is_admin: true,
+        last_license_check_at: new Date().toISOString(),
+        grace_period_days: 7,
+      }),
+    );
+    saveFarm({
+      ...farm,
+      lotes: ["A1", "B2"],
+      animais: [{ tag: "100", sex: "vaca", lote: "A1" }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await localdb.outbox.clear();
+
+    saveFarm({ ...farm, lotes: ["B2"], animais: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const queue = await pendingOutbox("farm-1");
+    const removals = queue.filter((item) => item.op === "delete");
+
+    expect(removals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "farm_lotes",
+          payload: { id: "farm-1_A1", farm_id: "farm-1" },
+        }),
+        expect.objectContaining({
+          tableName: "animals",
+          payload: { id: "farm-1_100", farm_id: "farm-1" },
+        }),
+      ]),
+    );
   });
 
   it("lista preventivo para animais saudáveis e exclui problema ativo", () => {

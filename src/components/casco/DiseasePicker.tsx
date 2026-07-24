@@ -1,7 +1,13 @@
-import { LESIONS, type DiseaseEntry, type LesionCode, type Severity } from "@/lib/casco-store";
+import {
+  type DiseaseDefinition,
+  type DiseaseEntry,
+  type LesionCode,
+  type Severity,
+} from "@/lib/casco-store";
 import { cn } from "@/lib/utils";
 
 interface Props {
+  catalog: DiseaseDefinition[];
   diseases: DiseaseEntry[];
   onChange: (diseases: DiseaseEntry[]) => void;
 }
@@ -33,7 +39,7 @@ function DiseaseRow({
   return (
     <div
       className={cn(
-        "rounded-2xl border-2 p-3 transition-all",
+        "rounded-2xl border-2 p-3 transition-colors",
         isActive ? "border-danger/50 bg-danger/5" : "border-border bg-surface",
       )}
     >
@@ -62,8 +68,9 @@ function DiseaseRow({
             key={s}
             type="button"
             onClick={() => onSet(s)}
+            aria-label={`${full}: ${s === 0 ? "ausente" : `grau ${s}`}`}
             className={cn(
-              "flex flex-col items-center justify-center gap-1 rounded-xl border-2 py-2.5 transition-all active:scale-95",
+              "flex flex-col items-center justify-center gap-1 rounded-xl border-2 py-2.5 transition-[transform,background-color,border-color,color] active:scale-95",
               severity === s
                 ? cn("border-transparent scale-[1.06] stamp", SEV_STYLES[s])
                 : "border-border bg-card text-muted-foreground",
@@ -99,7 +106,7 @@ function DiseaseRow({
   );
 }
 
-export function DiseasePicker({ diseases, onChange }: Props) {
+export function DiseasePicker({ catalog, diseases, onChange }: Props) {
   function getSeverity(code: LesionCode): Severity {
     return diseases.find((d) => d.code === code)?.severity ?? 0;
   }
@@ -121,12 +128,17 @@ export function DiseasePicker({ diseases, onChange }: Props) {
 
   return (
     <div className="space-y-2">
+      {catalog.length === 0 && (
+        <p className="rounded-xl border-2 border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          Nenhuma doença ativa. O gerente pode ativar ou cadastrar doenças em Configurações.
+        </p>
+      )}
       {activeDiseases.length > 0 && (
         <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-bold text-danger">
           {activeDiseases.length} doença(s) marcada(s)
         </p>
       )}
-      {LESIONS.map((l) => (
+      {catalog.map((l) => (
         <DiseaseRow
           key={l.code}
           code={l.code}

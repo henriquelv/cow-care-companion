@@ -3,7 +3,7 @@ import { activationService } from "./activation.service";
 import { farmContextService } from "./farm-context.service";
 import { localdb, pendingOutbox } from "./localdb";
 import { uploadPhotoBlob } from "./media.service";
-import { hydrateVisitsFromIndexedDb } from "@/lib/casco-store";
+import { hydrateFarmFromIndexedDb, hydrateVisitsFromIndexedDb } from "@/lib/casco-store";
 
 const SYNC_TABLES = [
   "hoof_visits",
@@ -60,6 +60,14 @@ export function scopeSyncPayload(
           device_id: context.device_id,
         }
       : scopedPayload;
+}
+
+export function staleSyncedRecordIds(
+  localRows: Array<{ id: string; synced: boolean }>,
+  remoteRows: Array<{ id: unknown }>,
+) {
+  const remoteIds = new Set(remoteRows.map((row) => String(row.id)));
+  return localRows.filter((row) => row.synced && !remoteIds.has(row.id)).map((row) => row.id);
 }
 
 export const syncService = {
@@ -191,6 +199,9 @@ export const syncService = {
           .eq("farm_id", ctx.farm_id);
         if (error) throw error;
         const table = localdb[tableName];
+        const localRows = await table.where("farm_id").equals(ctx.farm_id).toArray();
+        const staleIds = staleSyncedRecordIds(localRows, data ?? []);
+        if (staleIds.length > 0) await table.bulkDelete(staleIds);
         await table.bulkPut(
           (data ?? []).map((row) => ({
             id: String(row.id),
@@ -202,7 +213,7 @@ export const syncService = {
         );
       }
 
-      await hydrateVisitsFromIndexedDb();
+      await Promise.all([hydrateVisitsFromIndexedDb(), hydrateFarmFromIndexedDb()]);
       localStorage.setItem("casco.last_sync_at.v1", new Date().toISOString());
       return { ok: true, count };
     } finally {

@@ -24,13 +24,37 @@ test("Jeová não recebe ações de gerente", async ({ page }) => {
   await activate(page, "HULLSJOB", "Jeová");
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await expect(page.getByRole("button", { name: "Administração" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Configurações locais" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Gestão da fazenda" })).toHaveCount(0);
 });
 
 test("Sandro entra na StarMilk no tablet", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");
   await expect(page.getByText("StarMilk", { exact: true }).first()).toBeVisible();
+});
+
+test("Sandro gerencia doenças e prazos da fazenda", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "STARMILK", "Sandro");
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Gestão da fazenda" }).click();
+  await page.getByRole("button", { name: "Regras" }).click();
+
+  await page.getByLabel("Dias para revisão de Dermatite Digital").fill("8");
+  await page.getByLabel("Nome da nova doença").fill("Dermatite interdigital");
+  await page.getByLabel("Dias para revisão da nova doença").fill("12");
+  await page.getByRole("button", { name: "Adicionar doença" }).click();
+  await expect(page.getByLabel("Nome da doença Dermatite interdigital")).toBeVisible();
+  await page.getByRole("button", { name: "Salvar regras" }).click();
+
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Gestão da fazenda" }).click();
+  await page.getByRole("button", { name: "Regras" }).click();
+  await expect(page.getByLabel("Dias para revisão de Dermatite Digital")).toHaveValue("8");
+  await page.getByRole("button", { name: "Remover doença Dermatite interdigital" }).click();
+  await expect(
+    page.getByRole("button", { name: "Restaurar doença Dermatite interdigital" }),
+  ).toBeVisible();
 });
 
 test("Romano consulta a agenda antes de escolher a fazenda", async ({ page }) => {
@@ -63,10 +87,30 @@ test("Romano registra visita sem lesão com auditoria automática", async ({ pag
   await expect(page.getByText("9876", { exact: true }).first()).toBeVisible();
 });
 
+test("Dermatite Digital sugere revisão automática em 7 dias", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("7654");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /FE Frente Esq/i }).click();
+  await page.getByRole("button", { name: /1 pé\(s\) com problema/i }).click();
+  await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await page.getByRole("button", { name: /Confirmar/i }).click();
+  await page.getByRole("button", { name: /Spray.*Produto/i }).click();
+  await page.getByRole("button", { name: /Confirmar/i }).click();
+  await expect(page.getByText("Prazo sugerido: 7 dias")).toBeVisible();
+  await expect(page.getByLabel("Escolher data da revisão")).not.toHaveValue("");
+});
+
 test("aparelho ativado reabre sem internet", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.waitForTimeout(500);
+  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, {
+    timeout: 15_000,
+  });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();

@@ -51,10 +51,10 @@ import {
   Eye,
   EyeOff,
   ClipboardCheck,
+  RotateCcw,
 } from "lucide-react";
 import {
   FOOT_LABEL,
-  LESIONS,
   TREATMENTS,
   COMMENTS,
   QUICK_RECHECK_OPTIONS,
@@ -71,7 +71,10 @@ import {
   calendarMonthMetricsFromVisits,
   curativeFollowups,
   curativeMetrics,
+  diseaseCatalog,
+  diseaseDefinition,
   employeeWorkMetricsFromVisits,
+  recommendedRecheckForDiseases,
   severityBucket,
   todayISO,
   uid,
@@ -83,6 +86,7 @@ import {
   footsWorstSeverity,
   preventiveList,
   type DiseaseEntry,
+  type DiseaseDefinition,
   type FarmConfig,
   type FootEntry,
   type FootKey,
@@ -236,6 +240,7 @@ export function Index() {
       }
       setSyncInfo(result.ok ? "ok" : "error");
       if (!result.ok && result.message) showToast(result.message);
+      if (result.ok) setFarm(loadFarm());
       refresh();
     } catch (error) {
       setSyncInfo("error");
@@ -398,7 +403,7 @@ export function Index() {
             }
           />
         )}
-        {screen.name === "summary" && <SummaryScreen />}
+        {screen.name === "summary" && <SummaryScreen farm={farm} />}
         {screen.name === "profile" && <EmployeeWorkScreen />}
         {screen.name === "calendar" && (
           <CalendarScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
@@ -406,6 +411,7 @@ export function Index() {
         {screen.name === "filters" && (
           <FiltersScreen
             current={homeFilters}
+            farm={farm}
             onApply={(f) => {
               setHomeFilters(f);
               goToday();
@@ -1107,7 +1113,7 @@ function Header({
     register: "Nova Visita",
     history: "Histórico",
     summary: "Resumo",
-    config: "Configuração",
+    config: "Gestão da Fazenda",
     admin: "Administração",
     filters: "Filtros",
     preventivo: "Casqueamento Preventivo",
@@ -1215,7 +1221,7 @@ function Header({
                     className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
                   >
                     <Cog className="h-5 w-5 text-primary" />
-                    Configurações locais
+                    Gestão da fazenda
                   </button>
                 </>
               )}
@@ -1694,7 +1700,7 @@ function TodayScreen({
                             const topD = ft.diseases
                               ?.filter((d) => d.severity > 0)
                               .sort((x, y) => y.severity - x.severity)[0];
-                            const l = LESIONS.find((x) => x.code === topD?.code);
+                            const l = topD ? diseaseDefinition(topD.code) : undefined;
                             return `${FOOT_LABEL[ft.foot]}${l ? ` · ${l.emoji} ${l.name}` : ""}`;
                           })
                           .join("\n")}
@@ -2104,7 +2110,7 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
                 const topDisease = f.diseases
                   ?.filter((d) => d.severity > 0)
                   .sort((a, b) => b.severity - a.severity)[0];
-                const lesion = LESIONS.find((l) => l.code === topDisease?.code);
+                const lesion = topDisease ? diseaseDefinition(topDisease.code) : undefined;
                 return (
                   <span
                     key={f.foot}
@@ -2149,14 +2155,17 @@ function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
 /* ───────────── Filtros ───────────── */
 function FiltersScreen({
   current,
+  farm,
   onApply,
   onBack,
 }: {
   current: Filters;
+  farm: FarmConfig;
   onApply: (f: Filters) => void;
   onBack: () => void;
 }) {
   const [f, setF] = useState<Filters>(current);
+  const availableDiseases = useMemo(() => diseaseCatalog(farm, false), [farm]);
 
   function toggleDisease(code: LesionCode) {
     setF((p) => ({
@@ -2269,7 +2278,7 @@ function FiltersScreen({
           Doença
         </p>
         <div className="grid grid-cols-2 gap-1.5">
-          {LESIONS.map((l) => (
+          {availableDiseases.map((l) => (
             <button
               key={l.code}
               type="button"
@@ -2760,6 +2769,15 @@ function RegisterScreen({
   const currentFoot = badFeet[footIdx] ?? null;
   const currentFootEntry = visit.feet.find((f) => f.foot === currentFoot);
   const previous = visit.tag.trim() ? visitsByTag(visit.tag.trim()) : [];
+  const fullDiseaseCatalog = useMemo(() => diseaseCatalog(farm), [farm]);
+  const displayedDiseaseCatalog = fullDiseaseCatalog.filter(
+    (disease) =>
+      disease.active ||
+      (currentFootEntry?.diseases ?? []).some((entry) => entry.code === disease.code),
+  );
+  const currentRecommendation = currentFootEntry
+    ? recommendedRecheckForDiseases(currentFootEntry.diseases ?? [], fullDiseaseCatalog)
+    : null;
 
   function updateVisit(partial: Partial<Visit>) {
     setVisit((v) => ({ ...v, ...partial }));
@@ -2793,6 +2811,17 @@ function RegisterScreen({
     } else {
       setStep("review");
     }
+  }
+
+  function advanceFromTreatment() {
+    if (currentRecommendation && currentFootEntry && !currentFootEntry.recheckDate) {
+      updateCurrentFoot({
+        recheck: true,
+        recheckDate: dateAfterDays(currentRecommendation.days, visit.date),
+        intervalo_revisao_dias: currentRecommendation.days,
+      });
+    }
+    setStep("notes");
   }
 
   function goBack() {
@@ -3073,6 +3102,7 @@ function RegisterScreen({
             <CheckCircle2 className="h-6 w-6 shrink-0" /> Este pé está CURADO
           </button>
           <DiseasePicker
+            catalog={displayedDiseaseCatalog}
             diseases={currentFootEntry.diseases ?? []}
             onChange={(d) => updateCurrentFoot({ diseases: d })}
           />
@@ -3126,7 +3156,7 @@ function RegisterScreen({
           </div>
           <button
             type="button"
-            onClick={() => setStep("notes")}
+            onClick={advanceFromTreatment}
             className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
           >
             Confirmar <ChevronRight className="h-6 w-6" />
@@ -3143,10 +3173,29 @@ function RegisterScreen({
             </p>
             <h2 className="font-display text-2xl font-black uppercase">Revisão e foto</h2>
           </div>
+          {currentRecommendation && (
+            <div className="flex items-start gap-3 rounded-xl border-2 border-primary/30 bg-primary/10 p-3">
+              <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <div>
+                <p className="font-display text-sm font-black uppercase text-primary">
+                  Prazo sugerido: {currentRecommendation.days} dias
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Regra da fazenda para{" "}
+                  {currentRecommendation.diseases.map((disease) => disease.full).join(", ")}. Você
+                  ainda pode escolher outra data.
+                </p>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={() =>
-              updateCurrentFoot({ recheck: !currentFootEntry.recheck, recheckDate: undefined })
+              updateCurrentFoot({
+                recheck: !currentFootEntry.recheck,
+                recheckDate: undefined,
+                intervalo_revisao_dias: undefined,
+              })
             }
             className={cn(
               "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
@@ -3382,7 +3431,7 @@ function RegisterScreen({
                         <p className="text-sm font-bold text-good">Marcado como CURADO</p>
                       )}
                       {activeDiseases.map((d) => {
-                        const l = LESIONS.find((x) => x.code === d.code);
+                        const l = diseaseDefinition(d.code);
                         return (
                           <p key={d.code} className="flex items-center gap-2 text-sm">
                             <span>{l && l.emoji}</span>
@@ -3523,7 +3572,7 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
 
   const rows: DiseaseRow[] = [];
   for (const code of allCodes) {
-    const lesion = LESIONS.find((l) => l.code === code)!;
+    const lesion = diseaseDefinition(code);
     let firstDate = Infinity;
     let worstSev: Severity = 0;
     let currentSev: Severity = 0;
@@ -3550,8 +3599,8 @@ function DiseaseTimeline({ visits }: { visits: Visit[] }) {
     const isCured = currentSev === 0 || curedInLatest;
     rows.push({
       code,
-      emoji: lesion.emoji,
-      full: lesion.full,
+      emoji: lesion?.emoji ?? "🩺",
+      full: lesion?.full ?? code,
       firstDate,
       worstSev,
       currentSev,
@@ -3753,7 +3802,7 @@ function HistoryScreen({
                       const topDisease = f.diseases
                         ?.filter((d) => d.severity > 0)
                         .sort((a, b) => b.severity - a.severity)[0];
-                      const lesion = LESIONS.find((l) => l.code === topDisease?.code);
+                      const lesion = topDisease ? diseaseDefinition(topDisease.code) : undefined;
                       return (
                         <div
                           key={k}
@@ -3813,7 +3862,7 @@ function HistoryScreen({
                                 </span>
                               )}
                               {activeDiseases.map((d) => {
-                                const l = LESIONS.find((x) => x.code === d.code);
+                                const l = diseaseDefinition(d.code);
                                 return (
                                   <span key={d.code}>
                                     {l?.emoji} {l?.name ?? d.code}{" "}
@@ -4139,11 +4188,12 @@ function WorkSummary({
 }
 
 /* ───────────── Summary ───────────── */
-function SummaryScreen() {
+function SummaryScreen({ farm }: { farm: FarmConfig }) {
   const today = todayISO();
   const visits = visitsForDay(today);
   const all = loadVisits();
   const treatmentMetrics = curativeMetrics(today);
+  const clinicalRules = diseaseCatalog(farm, false);
 
   const buckets = { leve: 0, medio: 0, grave: 0 };
   let badFeet = 0;
@@ -4201,7 +4251,7 @@ function SummaryScreen() {
               <div className="relative h-7 flex-1 overflow-hidden rounded-lg bg-surface">
                 <div
                   className={cn(
-                    "h-full rounded-lg transition-all",
+                    "h-full rounded-lg transition-[width,background-color]",
                     b === "leve" && "bg-good",
                     b === "medio" && "bg-warn",
                     b === "grave" && "bg-danger",
@@ -4243,9 +4293,15 @@ function SummaryScreen() {
         </div>
 
         <div className="mt-4 divide-y divide-border rounded-xl border border-border bg-surface px-3">
-          <ClinicalDeadline label="Dermatite digital" days={7} />
-          <ClinicalDeadline label="Úlcera de sola e linha branca" days={21} />
-          <ClinicalDeadline label="Outros curativos" days={30} />
+          {clinicalRules
+            .filter((disease) => ["DD", "SU", "LB"].includes(disease.code))
+            .map((disease) => (
+              <ClinicalDeadline
+                key={disease.code}
+                label={disease.full}
+                days={disease.recheckDays}
+              />
+            ))}
         </div>
       </section>
 
@@ -4256,7 +4312,7 @@ function SummaryScreen() {
           </p>
           <ul className="space-y-2">
             {topLesions.map(([code, n]) => {
-              const l = LESIONS.find((x) => x.code === code);
+              const l = diseaseDefinition(code, farm);
               return (
                 <li key={code} className="flex items-center gap-3 text-sm">
                   <span className="text-xl">{l?.emoji}</span>
@@ -4350,8 +4406,26 @@ function ConfigScreen({
   const [animais, setAnimais] = useState<RegisteredAnimal[]>(farm.animais ?? []);
   const [newAnimalTag, setNewAnimalTag] = useState("");
   const [newAnimalLote, setNewAnimalLote] = useState("");
+  const [newAnimalSex, setNewAnimalSex] = useState<Sex>("vaca");
+  const [diseases, setDiseases] = useState<DiseaseDefinition[]>(() => diseaseCatalog(farm));
+  const [newDiseaseName, setNewDiseaseName] = useState("");
+  const [newDiseaseDays, setNewDiseaseDays] = useState(30);
 
-  const valid = name.trim().length > 0;
+  const cleanLotes = lotes.map((lote) => lote.trim().toUpperCase()).filter(Boolean);
+  const cleanAnimalTags = animais.map((animal) => animal.tag.trim()).filter(Boolean);
+  const valid =
+    name.trim().length > 0 &&
+    cleanLotes.length === lotes.length &&
+    new Set(cleanLotes).size === cleanLotes.length &&
+    cleanAnimalTags.length === animais.length &&
+    new Set(cleanAnimalTags.map((tag) => tag.toLocaleLowerCase("pt-BR"))).size ===
+      cleanAnimalTags.length &&
+    diseases.every(
+      (disease) =>
+        disease.full.trim().length > 0 && disease.recheckDays >= 1 && disease.recheckDays <= 365,
+    );
+  const activeDiseases = diseases.filter((disease) => disease.active);
+  const inactiveDiseases = diseases.filter((disease) => !disease.active);
   const lastBackupAt = loadLastBackupAt();
 
   function addLote() {
@@ -4363,18 +4437,85 @@ function ConfigScreen({
 
   function removeLote(lt: string) {
     setLotes((prev) => prev.filter((x) => x !== lt));
+    setAnimais((prev) =>
+      prev.map((animal) => (animal.lote === lt ? { ...animal, lote: undefined } : animal)),
+    );
+  }
+
+  function renameLote(index: number, nextName: string) {
+    const previousName = lotes[index];
+    const normalizedName = nextName.toUpperCase();
+    setLotes((current) =>
+      current.map((lote, currentIndex) => (currentIndex === index ? normalizedName : lote)),
+    );
+    setAnimais((current) =>
+      current.map((animal) =>
+        animal.lote === previousName ? { ...animal, lote: normalizedName || undefined } : animal,
+      ),
+    );
   }
 
   function addAnimal() {
     const tag = newAnimalTag.trim();
     if (!tag || animais.some((a) => a.tag === tag)) return;
-    setAnimais((prev) => [...prev, { tag, lote: newAnimalLote.trim().toUpperCase() || undefined }]);
+    setAnimais((prev) => [
+      ...prev,
+      {
+        tag,
+        sex: newAnimalSex,
+        lote: newAnimalLote.trim().toUpperCase() || undefined,
+      },
+    ]);
     setNewAnimalTag("");
     setNewAnimalLote("");
+    setNewAnimalSex("vaca");
   }
 
-  function removeAnimal(tag: string) {
-    setAnimais((prev) => prev.filter((a) => a.tag !== tag));
+  function removeAnimal(index: number) {
+    setAnimais((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function updateAnimal(index: number, partial: Partial<RegisteredAnimal>) {
+    setAnimais((current) =>
+      current.map((animal, currentIndex) =>
+        currentIndex === index ? { ...animal, ...partial } : animal,
+      ),
+    );
+  }
+
+  function updateDisease(code: string, partial: Partial<DiseaseDefinition>) {
+    setDiseases((current) =>
+      current.map((disease) =>
+        disease.code === code
+          ? {
+              ...disease,
+              ...partial,
+              recheckDays:
+                partial.recheckDays === undefined
+                  ? disease.recheckDays
+                  : Math.max(1, Math.min(365, Math.round(partial.recheckDays))),
+            }
+          : disease,
+      ),
+    );
+  }
+
+  function addDisease() {
+    const full = newDiseaseName.trim();
+    if (!full) return;
+    setDiseases((current) => [
+      ...current,
+      {
+        code: `CUSTOM_${uid().toUpperCase()}`,
+        name: full,
+        full,
+        emoji: "🩺",
+        recheckDays: Math.max(1, Math.min(365, Math.round(newDiseaseDays))),
+        active: true,
+      },
+    ]);
+    setNewDiseaseName("");
+    setNewDiseaseDays(30);
   }
 
   function currentFarm(): FarmConfig {
@@ -4385,6 +4526,7 @@ function ConfigScreen({
       lotes,
       dias_para_preventivo: diasPreventivo,
       animais,
+      diseases,
     };
   }
 
@@ -4414,7 +4556,7 @@ function ConfigScreen({
 
   const tabBtnCls = (active: boolean) =>
     cn(
-      "flex-1 rounded-xl py-2.5 font-display text-sm uppercase transition-all",
+      "flex-1 rounded-xl py-2.5 font-display text-sm uppercase transition-colors",
       active ? "bg-primary text-primary-foreground stamp" : "bg-surface text-muted-foreground",
     );
 
@@ -4439,7 +4581,7 @@ function ConfigScreen({
         <ShieldOff className="mx-auto h-12 w-12 text-danger" aria-hidden="true" />
         <h1 className="mt-4 font-display text-xl font-black uppercase">Acesso restrito</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Somente o administrador pode alterar cadastros e backups.
+          Somente o gerente pode alterar cadastros e regras da fazenda.
         </p>
       </section>
     );
@@ -4452,9 +4594,9 @@ function ConfigScreen({
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <ShieldCheck className="h-7 w-7" />
           </div>
-          <p className="font-display text-xl font-black uppercase">Configurações locais</p>
+          <p className="font-display text-xl font-black uppercase">Gestão da fazenda</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Confirme seu PIN para alterar cadastros e backups deste aparelho.
+            Confirme seu PIN para alterar animais, lotes e regras clínicas.
           </p>
         </div>
         <form onSubmit={unlockManager} className="space-y-3">
@@ -4495,8 +4637,13 @@ function ConfigScreen({
   return (
     <div className="space-y-4 pb-8">
       <div className="border-b border-border pb-4">
-        <p className="text-xs font-bold uppercase text-muted-foreground">Este aparelho</p>
-        <h1 className="font-display text-2xl font-black uppercase">Configurações locais</h1>
+        <p className="text-xs font-bold uppercase text-muted-foreground">
+          {farm.farmName || "Fazenda atual"}
+        </p>
+        <h1 className="font-display text-2xl font-black uppercase">Gestão da fazenda</h1>
+        <p className="mt-1 text-xs text-muted-foreground">
+          As alterações serão sincronizadas com os outros aparelhos.
+        </p>
       </div>
 
       {/* Tabs principais */}
@@ -4514,9 +4661,14 @@ function ConfigScreen({
           onClick={() => setConfigTab("avancado")}
           className={tabBtnCls(configTab === "avancado")}
         >
-          Avançado
+          Regras
         </button>
       </div>
+      {!valid && (
+        <p role="alert" className="rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">
+          Revise campos vazios ou repetidos antes de salvar.
+        </p>
+      )}
 
       {/* ── TAB: DADOS ── */}
       {configTab === "dados" && (
@@ -4588,24 +4740,24 @@ function ConfigScreen({
               {lotes.length === 0 && (
                 <p className="text-sm text-muted-foreground">Nenhum lote cadastrado.</p>
               )}
-              <div className="flex flex-wrap gap-2">
-                {lotes.map((lt) => (
-                  <span
-                    key={lt}
-                    className="flex items-center gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/10 px-3 py-1.5"
-                  >
-                    <span className="font-display text-sm font-black uppercase text-primary">
-                      {lt}
-                    </span>
+              <div className="divide-y divide-border rounded-xl border-2 border-border bg-surface px-3">
+                {lotes.map((lt, index) => (
+                  <div key={index} className="flex items-center gap-2 py-2">
+                    <input
+                      value={lt}
+                      onChange={(event) => renameLote(index, event.target.value)}
+                      aria-label={`Nome do lote ${index + 1}`}
+                      className="min-w-0 flex-1 bg-transparent px-1 py-2 font-display text-base font-black uppercase outline-none focus:text-primary"
+                    />
                     <button
                       type="button"
                       onClick={() => removeLote(lt)}
-                      className="text-muted-foreground"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-danger"
                       aria-label={"Remover lote " + lt}
                     >
-                      <X className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
-                  </span>
+                  </div>
                 ))}
               </div>
               <div className="flex gap-2">
@@ -4629,10 +4781,13 @@ function ConfigScreen({
                 </button>
               </div>
               <button
+                disabled={!valid}
                 onClick={() => onSave(currentFarm())}
-                className="tap-lg w-full rounded-xl bg-primary py-4 font-display uppercase text-primary-foreground"
+                className="tap-lg w-full rounded-xl bg-primary py-4 font-display uppercase text-primary-foreground disabled:opacity-50"
               >
-                Salvar lotes
+                <span className="flex items-center justify-center gap-2">
+                  <Save className="h-5 w-5" /> Salvar lotes
+                </span>
               </button>
             </section>
           )}
@@ -4657,26 +4812,66 @@ function ConfigScreen({
                 </div>
               )}
               <ul className="space-y-2">
-                {animais.map((a) => (
+                {animais.map((a, index) => (
                   <li
-                    key={a.tag}
-                    className="flex items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 stamp"
+                    key={index}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-xl border-2 border-border bg-card p-3"
                   >
-                    <p className="w-12 shrink-0 font-display text-2xl font-black leading-none">
-                      {a.tag}
-                    </p>
-                    <span className="text-lg leading-none">🐄</span>
-                    {a.lote && (
-                      <span className="rounded-lg bg-primary/15 px-2 py-0.5 font-display text-xs font-black uppercase text-primary">
-                        {a.lote}
-                      </span>
-                    )}
-                    <div className="flex-1" />
+                    <div className="grid min-w-0 grid-cols-2 gap-2">
+                      <label className="min-w-0">
+                        <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                          Brinco
+                        </span>
+                        <input
+                          value={a.tag}
+                          onChange={(event) => updateAnimal(index, { tag: event.target.value })}
+                          inputMode="numeric"
+                          aria-label={`Brinco do animal ${index + 1}`}
+                          className="mt-1 w-full min-w-0 rounded-lg border-2 border-border bg-surface px-3 py-2 font-display text-lg font-black outline-none focus:border-primary"
+                        />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                          Tipo
+                        </span>
+                        <select
+                          value={a.sex ?? "vaca"}
+                          onChange={(event) =>
+                            updateAnimal(index, { sex: event.target.value as Sex })
+                          }
+                          aria-label={`Tipo do animal ${a.tag || index + 1}`}
+                          className="mt-1 w-full rounded-lg border-2 border-border bg-surface px-2 py-2.5 text-sm outline-none focus:border-primary"
+                        >
+                          <option value="vaca">Vaca</option>
+                          <option value="touro">Touro</option>
+                        </select>
+                      </label>
+                      <label className="col-span-2 min-w-0">
+                        <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                          Lote
+                        </span>
+                        <select
+                          value={a.lote ?? ""}
+                          onChange={(event) =>
+                            updateAnimal(index, { lote: event.target.value || undefined })
+                          }
+                          aria-label={`Lote do animal ${a.tag || index + 1}`}
+                          className="mt-1 w-full rounded-lg border-2 border-border bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+                        >
+                          <option value="">Sem lote</option>
+                          {lotes.filter(Boolean).map((lt) => (
+                            <option key={lt} value={lt}>
+                              {lt}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => removeAnimal(a.tag)}
-                      className="tap flex h-9 w-9 items-center justify-center rounded-xl bg-danger/10 text-danger"
-                      aria-label="Remover animal"
+                      onClick={() => removeAnimal(index)}
+                      className="flex h-11 w-11 items-center justify-center self-center rounded-lg bg-danger/10 text-danger"
+                      aria-label={`Remover animal ${a.tag || index + 1}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -4687,7 +4882,7 @@ function ConfigScreen({
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Adicionar animal
                 </p>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <input
                     name="novo-animal-brinco"
                     aria-label="Brinco do animal"
@@ -4698,15 +4893,25 @@ function ConfigScreen({
                     placeholder="Brinco…"
                     autoComplete="off"
                     spellCheck={false}
-                    className="w-28 rounded-xl border-2 border-border bg-surface px-3 py-3 text-center font-display text-xl outline-none focus:border-primary"
+                    className="min-w-0 rounded-xl border-2 border-border bg-surface px-3 py-3 text-center font-display text-xl outline-none focus:border-primary"
                   />
+                  <select
+                    name="novo-animal-tipo"
+                    aria-label="Tipo do novo animal"
+                    value={newAnimalSex}
+                    onChange={(e) => setNewAnimalSex(e.target.value as Sex)}
+                    className="min-w-0 rounded-xl border-2 border-border bg-surface px-3 py-3 text-sm outline-none focus:border-primary"
+                  >
+                    <option value="vaca">Vaca</option>
+                    <option value="touro">Touro</option>
+                  </select>
                   {lotes.length > 0 && (
                     <select
                       name="novo-animal-lote"
                       aria-label="Lote do animal"
                       value={newAnimalLote}
                       onChange={(e) => setNewAnimalLote(e.target.value)}
-                      className="flex-1 rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
+                      className="min-w-0 rounded-xl border-2 border-border bg-surface px-3 py-3 font-display text-sm outline-none focus:border-primary"
                     >
                       <option value="">Lote (opcional)</option>
                       {lotes.map((lt) => (
@@ -4719,18 +4924,21 @@ function ConfigScreen({
                   <button
                     type="button"
                     onClick={addAnimal}
-                    className="tap rounded-xl border-2 border-primary bg-primary px-4 py-3 text-primary-foreground"
+                    className="tap flex min-h-12 items-center justify-center gap-2 rounded-xl border-2 border-primary bg-primary px-4 py-3 font-display text-sm uppercase text-primary-foreground"
                     aria-label="Adicionar animal"
                   >
-                    <Plus className="h-5 w-5" />
+                    <Plus className="h-5 w-5" /> Adicionar
                   </button>
                 </div>
               </div>
               <button
+                disabled={!valid}
                 onClick={() => onSave(currentFarm())}
-                className="tap-lg w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp"
+                className="tap-lg w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:opacity-50"
               >
-                💾 Salvar
+                <span className="flex items-center justify-center gap-2">
+                  <Save className="h-5 w-5" /> Salvar animais
+                </span>
               </button>
             </section>
           )}
@@ -4740,6 +4948,138 @@ function ConfigScreen({
       {/* ── TAB: AVANÇADO ── */}
       {configTab === "avancado" && (
         <div className="space-y-4">
+          <section className="overflow-hidden rounded-2xl border-2 border-border bg-card">
+            <div className="border-b-2 border-border p-4">
+              <p className="font-display text-base font-black uppercase">Doenças e revisões</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                O prazo preenche automaticamente a próxima visita. Com mais de uma doença, vale o
+                menor prazo.
+              </p>
+            </div>
+            <div className="divide-y divide-border">
+              {activeDiseases.map((disease) => (
+                <div
+                  key={disease.code}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto]"
+                >
+                  <label className="col-span-2 min-w-0 sm:col-span-1">
+                    <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                      Doença
+                    </span>
+                    <div className="mt-1 flex min-w-0 items-center gap-2">
+                      <span className="text-lg" aria-hidden="true">
+                        {disease.emoji}
+                      </span>
+                      <input
+                        value={disease.full}
+                        onChange={(event) =>
+                          updateDisease(disease.code, {
+                            name: event.target.value,
+                            full: event.target.value,
+                          })
+                        }
+                        aria-label={`Nome da doença ${disease.full}`}
+                        className="min-w-0 flex-1 bg-transparent py-2 text-sm font-bold outline-none focus:text-primary"
+                      />
+                    </div>
+                  </label>
+                  <label className="w-32 max-w-full sm:w-auto">
+                    <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                      Revisão
+                    </span>
+                    <div className="mt-1 flex items-center rounded-lg border-2 border-border bg-surface">
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={disease.recheckDays}
+                        onChange={(event) =>
+                          updateDisease(disease.code, {
+                            recheckDays: Number(event.target.value) || 1,
+                          })
+                        }
+                        aria-label={`Dias para revisão de ${disease.full}`}
+                        className="w-full min-w-0 bg-transparent px-2 py-2 text-center font-display text-lg font-black outline-none"
+                      />
+                      <span className="pr-2 text-[10px] text-muted-foreground">dias</span>
+                    </div>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => updateDisease(disease.code, { active: false })}
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-danger"
+                    aria-label={`Remover doença ${disease.full}`}
+                    title="Remover dos próximos registros"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t-2 border-border bg-surface p-3">
+              <p className="mb-2 text-[10px] font-bold uppercase text-muted-foreground">
+                Adicionar doença
+              </p>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto]">
+                <input
+                  value={newDiseaseName}
+                  onChange={(event) => setNewDiseaseName(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && addDisease()}
+                  placeholder="Nome da doença"
+                  aria-label="Nome da nova doença"
+                  className="col-span-2 min-w-0 rounded-lg border-2 border-border bg-card px-3 py-3 text-sm outline-none focus:border-primary sm:col-span-1"
+                />
+                <label className="w-32 max-w-full rounded-lg border-2 border-border bg-card sm:w-auto">
+                  <span className="sr-only">Dias para revisão da nova doença</span>
+                  <div className="flex h-full items-center">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={newDiseaseDays}
+                      onChange={(event) => setNewDiseaseDays(Number(event.target.value) || 1)}
+                      aria-label="Dias para revisão da nova doença"
+                      className="w-full min-w-0 bg-transparent px-2 text-center font-display text-lg font-black outline-none"
+                    />
+                    <span className="pr-2 text-[10px] text-muted-foreground">dias</span>
+                  </div>
+                </label>
+                <button
+                  type="button"
+                  onClick={addDisease}
+                  disabled={!newDiseaseName.trim()}
+                  className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-40"
+                  aria-label="Adicionar doença"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {inactiveDiseases.length > 0 && (
+              <div className="border-t-2 border-border p-3">
+                <p className="mb-2 text-[10px] font-bold uppercase text-muted-foreground">
+                  Removidas dos novos registros
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {inactiveDiseases.map((disease) => (
+                    <button
+                      key={disease.code}
+                      type="button"
+                      onClick={() => updateDisease(disease.code, { active: true })}
+                      className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-left text-xs"
+                      aria-label={`Restaurar doença ${disease.full}`}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 text-primary" />
+                      <span className="max-w-48 truncate">{disease.full}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
           <section className="rounded-2xl bg-card p-5 stamp space-y-3">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Casqueamento Preventivo
@@ -4769,7 +5109,9 @@ function ConfigScreen({
               valid ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
             )}
           >
-            💾 Salvar
+            <span className="flex items-center justify-center gap-2">
+              <Save className="h-5 w-5" /> Salvar regras
+            </span>
           </button>
           <section className="rounded-2xl bg-card p-5 stamp space-y-3">
             <div className="flex items-center gap-3">

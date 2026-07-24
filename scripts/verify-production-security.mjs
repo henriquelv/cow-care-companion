@@ -64,6 +64,20 @@ async function verifyTenant({ company, login, pin, deviceId, expectedFarmName })
   });
   assert(validation?.ok === true, `${company}: sessão não validada.`);
 
+  const settings = await request(
+    `farm_settings?select=farm_id,payload&farm_id=eq.${encodeURIComponent(farm.id)}`,
+    {
+      session: access.session_token,
+      deviceId,
+    },
+  );
+  assert(settings?.length === 1, `${company}: regras clínicas não encontradas.`);
+  const diseases = settings[0]?.payload?.diseases ?? [];
+  const deadline = (code) => diseases.find((disease) => disease.code === code)?.recheckDays;
+  assert(deadline("DD") === 7, `${company}: prazo de Dermatite Digital incorreto.`);
+  assert(deadline("SU") === 21, `${company}: prazo de Úlcera de Sola incorreto.`);
+  assert(deadline("LB") === 21, `${company}: prazo de Linha Branca incorreto.`);
+
   const manager = await request("rpc/authenticate_hoof_manager", {
     method: "POST",
     session: access.session_token,
@@ -80,7 +94,7 @@ async function verifyTenant({ company, login, pin, deviceId, expectedFarmName })
   });
   assert(overview?.ok === true, `${company}: painel não carregou.`);
 
-  return { access, farm, overview };
+  return { access, farm, overview, clinicalRules: diseases.length };
 }
 
 async function main() {
@@ -156,11 +170,13 @@ async function main() {
         starmilk: {
           farm: starMilk.farm.name,
           employees: starMilk.overview.employees.length,
+          clinical_rules: starMilk.clinicalRules,
         },
         hullsjob: {
           farm: hullsjob.farm.name,
           employees: hullsjob.overview.employees.length,
           common_employees_verified: 2,
+          clinical_rules: hullsjob.clinicalRules,
         },
         cross_tenant_rows: crossFarmRows.length,
       },
