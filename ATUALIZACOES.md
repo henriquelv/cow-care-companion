@@ -1114,6 +1114,11 @@ Critério de sucesso:
 - Removida da Vercel a variável antiga com chave secreta do Supabase.
 - O verificador de produção agora cobre também os dois funcionários comuns da Hullsjob.
 - Metadados locais do Supabase e da Vercel foram adicionados ao ignore do Git.
+- Publicada a versão de produção em `https://gestao-de-cascos.vercel.app`.
+- Testados no domínio público os acessos de Sandro, Romano, Jeová e Patrick em celular/tablet.
+- Testada no domínio público a agenda do funcionário antes da seleção da fazenda.
+- Confirmado que o app reabre pelo mesmo link sem internet após a primeira ativação.
+- Removidos do banco os dispositivos e sessões temporários criados pela auditoria, deixando o cadastro limpo para o primeiro uso real.
 
 ## Por que foi feito
 
@@ -1131,6 +1136,7 @@ Critério de sucesso:
 - Registrar uma visita com foto, sincronizar e reabrir o histórico.
 - Desligar a conexão após o primeiro acesso, registrar uma visita e sincronizar ao voltar a internet.
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck` e `npm run build:vercel`.
+- Resultado final: 28 testes unitários, lint, typecheck, build Vercel, segurança multiempresa, Storage e PWA offline aprovados.
 
 ## Próximos passos
 
