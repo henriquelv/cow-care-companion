@@ -72,17 +72,18 @@ test("Romano consulta a agenda antes de escolher a fazenda", async ({ page }) =>
   await expect(page.getByRole("button", { name: /Entrar na fazenda/i })).toBeVisible();
 });
 
-test("Romano registra visita sem lesão com auditoria automática", async ({ page }) => {
+test("Romano registra casco normal como preventivo com auditoria automática", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await page.getByRole("button", { name: "Nova visita", exact: true }).click();
   await page.getByLabel("Número do brinco").fill("9876");
   await page.getByRole("button", { name: /Continuar/i }).click();
-  await page.getByRole("button", { name: /Todos os pés OK/i }).click();
+  await page.getByRole("button", { name: /Casco normal/i }).click();
   await expect(page.getByText("Horario (definido pelo app)")).toBeVisible();
   await expect(page.getByText("Romano", { exact: true })).toBeVisible();
+  await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
-  await expect(page.getByText("Visita registrada com sucesso!")).toBeVisible();
+  await expect(page.getByText(/Casqueamento preventivo registrado/i)).toBeVisible();
   await page.getByRole("button", { name: /^OK/ }).click();
   await expect(page.getByText("9876", { exact: true }).first()).toBeVisible();
 });
@@ -101,6 +102,9 @@ test("Dermatite Digital sugere revisão automática em 7 dias", async ({ page })
   await page.getByRole("button", { name: /Confirmar/i }).click();
   await expect(page.getByText("Prazo sugerido: 7 dias")).toBeVisible();
   await expect(page.getByLabel("Escolher data da revisão")).not.toHaveValue("");
+  await page.getByLabel("Intervalo personalizado em dias").fill("3");
+  await page.getByLabel("Quantidade de revisões necessárias").fill("3");
+  await expect(page.getByText(/3 revisão\(ões\) a cada 3 dia\(s\)/i)).toBeVisible();
 });
 
 test("aparelho ativado reabre sem internet", async ({ page, context }) => {

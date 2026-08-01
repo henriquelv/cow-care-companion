@@ -151,6 +151,60 @@ describe("casco-store domain rules", () => {
     expect(map.has("2026-05-25")).toBe(false);
   });
 
+  it("agenda todas as revisões recorrentes sem duplicar o prazo do curativo", () => {
+    saveVisits([
+      visit({
+        id: "plano-recorrente",
+        date: "2026-05-22",
+        employee_id: "employee-romano",
+        feet: [
+          foot({
+            ok: false,
+            diseases: [{ code: "DD", severity: 2 }],
+            treatments: ["SPRAY"],
+            recheck: true,
+            recheckDate: "2026-05-25",
+            intervalo_revisao_dias: 3,
+            revisoes_necessarias: 3,
+          }),
+        ],
+      }),
+    ]);
+
+    const agenda = agendaByDate("2026-05-22", "employee-romano");
+    expect(Array.from(agenda.keys())).toEqual(["2026-05-25", "2026-05-28", "2026-05-31"]);
+    expect(agenda.get("2026-05-25")).toHaveLength(1);
+    expect(agenda.get("2026-05-25")?.[0]).toMatchObject({
+      type: "recheck",
+      reviewNumber: 1,
+      reviewTotal: 3,
+      reviewIntervalDays: 3,
+    });
+    expect(agenda.get("2026-05-31")?.[0]?.detail).toContain("Revisão 3 de 3");
+  });
+
+  it("inclui intervalo e quantidade no payload sincronizado do pé", () => {
+    const payload = createVisitSyncPayloads(
+      visit({
+        id: "sync-plano",
+        farm_id: "farm-1",
+        feet: [
+          foot({
+            ok: false,
+            recheck: true,
+            recheckDate: "2026-05-25",
+            intervalo_revisao_dias: 3,
+            revisoes_necessarias: 4,
+          }),
+        ],
+      }),
+    );
+    expect(payload.feet[0]).toMatchObject({
+      intervalo_revisao_dias: 3,
+      revisoes_necessarias: 4,
+    });
+  });
+
   it("aplica os prazos clínicos de 7, 21 e 30 dias", () => {
     expect(curativeDeadlineForDiseases([{ code: "DD", severity: 2, zones: [6] }]).days).toBe(7);
     expect(curativeDeadlineForDiseases([{ code: "SU", severity: 2, zones: [1] }]).days).toBe(21);

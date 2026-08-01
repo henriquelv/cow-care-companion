@@ -53,6 +53,7 @@ export interface FootEntry {
   recheck?: boolean;
   recheckDate?: string; // ISO yyyy-mm-dd
   intervalo_revisao_dias?: number;
+  revisoes_necessarias?: number;
   resolved?: boolean;
   data_liberacao?: string; // ISO yyyy-mm-dd
   numero_revisoes?: number;
@@ -156,6 +157,8 @@ export function toHoofFeetPayloads(v: Visit) {
     nota: f.nota,
     recheck: f.recheck,
     recheck_date: f.recheckDate,
+    intervalo_revisao_dias: f.intervalo_revisao_dias,
+    revisoes_necessarias: f.revisoes_necessarias,
     resolved: f.resolved,
     data_liberacao: f.data_liberacao,
     numero_revisoes: f.numero_revisoes,
@@ -353,6 +356,12 @@ function normalizeRecheckDays(value: unknown, fallback: number = CURATIVE_DEADLI
   return Math.max(1, Math.min(365, Math.round(numeric)));
 }
 
+export function normalizeReviewCount(value: unknown, fallback = 1) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(1, Math.min(24, Math.round(numeric)));
+}
+
 function normalizeDiseaseCatalog(stored?: DiseaseDefinition[]) {
   const storedByCode = new Map(
     (Array.isArray(stored) ? stored : [])
@@ -513,6 +522,7 @@ export interface CurativeMetrics {
 
 export interface AgendaItem {
   id: string;
+  visit_id?: string;
   farm_id?: string;
   farm_name?: string;
   date: string;
@@ -524,6 +534,21 @@ export interface AgendaItem {
   title: string;
   detail: string;
   overdue: boolean;
+  reviewNumber?: number;
+  reviewTotal?: number;
+  reviewIntervalDays?: number;
+}
+
+export interface ScheduledRecheck {
+  visit_id: string;
+  farm_id?: string;
+  tag: string;
+  sex: Sex;
+  lote?: string;
+  feet: FootKey[];
+  sequence: number;
+  total: number;
+  intervalDays: number;
 }
 
 export interface EmployeeWorkMetrics {
@@ -677,8 +702,14 @@ export function calendarMonthMetricsFromVisits(
 
 function migrateFootEntry(f: LegacyFootEntry): FootEntry {
   const diseases: DiseaseEntry[] = [];
-  if (f.diseases) return f as FootEntry;
-  if (f.lesion && f.severity !== undefined && (f.severity as number) > 0) {
+  if (f.diseases) {
+    diseases.push(
+      ...f.diseases.map((disease) => ({
+        ...disease,
+        severity: normalizeSeverity(disease.severity),
+      })),
+    );
+  } else if (f.lesion && f.severity !== undefined && (f.severity as number) > 0) {
     const codeMap: Record<string, LesionCode> = {
       DD: "DD",
       SU: "SU",
@@ -698,15 +729,17 @@ function migrateFootEntry(f: LegacyFootEntry): FootEntry {
     foot: f.foot as FootKey,
     ok: f.ok ?? true,
     zones: f.zone !== undefined ? [f.zone as Zone] : (f.zones ?? []),
-    diseases: (diseases.length ? diseases : (f.diseases ?? [])).map((d) => ({
-      ...d,
-      severity: normalizeSeverity(d.severity),
-    })),
+    diseases,
     treatments: (
       f.treatments ?? (f.treatment && f.treatment !== "NADA" ? [f.treatment as TreatmentCode] : [])
     ).map((c: string) => (c === "BLOCO" ? "BLOCO_ON" : c)) as TreatmentCode[],
     recheck: f.recheck,
     recheckDate: f.recheckDate,
+    intervalo_revisao_dias: f.intervalo_revisao_dias,
+    revisoes_necessarias:
+      f.revisoes_necessarias !== undefined || f.recheck
+        ? normalizeReviewCount(f.revisoes_necessarias)
+        : undefined,
     resolved: f.resolved,
     data_liberacao: f.data_liberacao,
     numero_revisoes: f.numero_revisoes,
@@ -774,6 +807,8 @@ export async function hydrateVisitsFromIndexedDb() {
       nota?: string;
       recheck?: boolean;
       recheck_date?: string;
+      intervalo_revisao_dias?: number;
+      revisoes_necessarias?: number;
       resolved?: boolean;
       data_liberacao?: string;
       numero_revisoes?: number;
@@ -792,7 +827,8 @@ export async function hydrateVisitsFromIndexedDb() {
       nota: data.payload?.nota ?? data.nota,
       recheck: data.payload?.recheck ?? data.recheck,
       recheckDate: data.payload?.recheckDate ?? data.recheck_date,
-      intervalo_revisao_dias: data.payload?.intervalo_revisao_dias,
+      intervalo_revisao_dias: data.payload?.intervalo_revisao_dias ?? data.intervalo_revisao_dias,
+      revisoes_necessarias: data.payload?.revisoes_necessarias ?? data.revisoes_necessarias,
       resolved: data.payload?.resolved ?? data.resolved,
       data_liberacao: data.payload?.data_liberacao ?? data.data_liberacao,
       numero_revisoes: data.payload?.numero_revisoes ?? data.numero_revisoes,
@@ -873,7 +909,23 @@ export async function hydrateVisitsFromIndexedDb() {
 
 export function addVisit(v: Visit) {
   const all = loadVisits();
-  v = { ...v, ...currentVisitMetadata() };
+  v = {
+    ...v,
+    ...currentVisitMetadata(),
+    feet: v.feet.map((foot) =>
+      foot.recheck
+        ? {
+            ...foot,
+            revisoes_necessarias: normalizeReviewCount(foot.revisoes_necessarias),
+          }
+        : {
+            ...foot,
+            recheckDate: undefined,
+            intervalo_revisao_dias: undefined,
+            revisoes_necessarias: undefined,
+          },
+    ),
+  };
 
   // Auto-incrementa numero_revisoes para casos contínuos
   const prevVisits = all
@@ -1450,28 +1502,53 @@ export function uid() {
 export function rechecksByDateFromVisits(
   sourceVisits: Visit[],
   employeeId?: string,
-): Map<string, { farm_id?: string; tag: string; sex: Sex; feet: FootKey[] }[]> {
+): Map<string, ScheduledRecheck[]> {
   const visits = [...sourceVisits]
     .filter((visit) => !employeeId || visit.employee_id === employeeId)
     .sort((a, b) => b.createdAt - a.createdAt);
-  const map = new Map<string, { farm_id?: string; tag: string; sex: Sex; feet: FootKey[] }[]>();
+  const map = new Map<string, ScheduledRecheck[]>();
   const seen = new Set<string>();
   for (const v of visits) {
     const key = `${v.farm_id ?? "local"}:${v.tag.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const recheckFeet: FootKey[] = [];
-    let recheckDate = "";
     for (const f of v.feet) {
-      if (f.recheck && !f.resolved && !f.data_liberacao && f.recheckDate) {
-        recheckFeet.push(f.foot);
-        if (!recheckDate) recheckDate = f.recheckDate;
+      if (!f.recheck || f.resolved || f.data_liberacao || !f.recheckDate) continue;
+      const total = normalizeReviewCount(f.revisoes_necessarias);
+      const intervalDays = normalizeRecheckDays(
+        f.intervalo_revisao_dias,
+        Math.max(1, daysBetweenISO(v.date, f.recheckDate)),
+      );
+      for (let sequence = 1; sequence <= total; sequence += 1) {
+        const date =
+          sequence === 1
+            ? f.recheckDate
+            : dateAfterDays(intervalDays * (sequence - 1), f.recheckDate);
+        const existing = map.get(date) ?? [];
+        const grouped = existing.find(
+          (item) =>
+            item.visit_id === v.id &&
+            item.sequence === sequence &&
+            item.total === total &&
+            item.intervalDays === intervalDays,
+        );
+        if (grouped) {
+          grouped.feet.push(f.foot);
+        } else {
+          existing.push({
+            visit_id: v.id,
+            farm_id: v.farm_id,
+            tag: v.tag,
+            sex: v.sex,
+            lote: v.lote,
+            feet: [f.foot],
+            sequence,
+            total,
+            intervalDays,
+          });
+        }
+        map.set(date, existing);
       }
-    }
-    if (recheckFeet.length > 0 && recheckDate) {
-      const existing = map.get(recheckDate) ?? [];
-      existing.push({ farm_id: v.farm_id, tag: v.tag, sex: v.sex, feet: recheckFeet });
-      map.set(recheckDate, existing);
     }
   }
   return map;
@@ -1580,27 +1657,36 @@ export function agendaByDateFromVisits(
 ): Map<string, AgendaItem[]> {
   const map = new Map<string, AgendaItem[]>();
   const add = (item: AgendaItem) => map.set(item.date, [...(map.get(item.date) ?? []), item]);
+  const plannedRecheckKeys = new Set<string>();
 
   for (const [date, items] of rechecksByDateFromVisits(visits, employeeId)) {
     for (const item of items) {
+      item.feet.forEach((foot) => plannedRecheckKeys.add(`${item.visit_id}_${foot}`));
       add({
-        id: `recheck_${date}_${item.tag}`,
+        id: `recheck_${item.visit_id}_${item.sequence}_${date}`,
+        visit_id: item.visit_id,
         farm_id: item.farm_id,
         date,
         type: "recheck",
         tag: item.tag,
         sex: item.sex,
+        lote: item.lote,
         feet: item.feet,
         title: "Revisão clínica",
-        detail: `Pé(s): ${item.feet.join(" · ")}`,
+        detail: `Revisão ${item.sequence} de ${item.total} · Pé(s): ${item.feet.join(" · ")}`,
         overdue: date < referenceDate,
+        reviewNumber: item.sequence,
+        reviewTotal: item.total,
+        reviewIntervalDays: item.intervalDays,
       });
     }
   }
 
   for (const item of curativeFollowupsFromVisits(visits, referenceDate, employeeId)) {
+    if (plannedRecheckKeys.has(`${item.visitId}_${item.foot}`)) continue;
     add({
       id: item.id,
+      visit_id: item.visitId,
       farm_id: item.farm_id,
       date: item.dueDate,
       type: "curative",

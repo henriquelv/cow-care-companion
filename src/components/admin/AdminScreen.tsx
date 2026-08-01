@@ -3,23 +3,34 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  Download,
+  FileText,
   KeyRound,
   Laptop,
   LoaderCircle,
   LockKeyhole,
   Plus,
+  Pencil,
   RefreshCw,
   ShieldCheck,
   ShieldOff,
   UserPlus,
   Users,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { farmContextService } from "@/services/farm-context.service";
 import { adminService, type AdminEmployee, type AdminOverview } from "@/services/admin.service";
 import { isSupabaseConfigured } from "@/services/supabase";
+import { agendaByDate, loadFarm, loadVisits, todayISO } from "@/lib/casco-store";
+import {
+  exportVisitsPdf,
+  filterVisitsForReport,
+  visitReportMetrics,
+  type VisitReportStatus,
+} from "@/lib/visit-report";
 
-type AdminTab = "farms" | "employees" | "devices" | "licenses" | "audit";
+type AdminTab = "reports" | "farms" | "employees" | "devices" | "licenses" | "audit";
 
 const EMPTY_OVERVIEW: AdminOverview = {
   farms: [],
@@ -34,6 +45,7 @@ const ACTION_LABELS: Record<string, string> = {
   create_farm: "Fazenda criada",
   create_employee: "Funcionário criado",
   update_employee: "Funcionário atualizado",
+  edit_employee: "Cadastro do funcionário atualizado",
   reset_employee_pin: "PIN redefinido",
   assign_employee_farm: "Acesso à fazenda alterado",
   update_device_status: "Aparelho atualizado",
@@ -66,7 +78,7 @@ export function AdminScreen() {
   const context = farmContextService.getContext();
   const [unlocked, setUnlocked] = useState(() => adminService.isUnlocked());
   const [pin, setPin] = useState("");
-  const [tab, setTab] = useState<AdminTab>("farms");
+  const [tab, setTab] = useState<AdminTab>("reports");
   const [overview, setOverview] = useState<AdminOverview>(EMPTY_OVERVIEW);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -85,6 +97,19 @@ export function AdminScreen() {
   });
   const [resetEmployee, setResetEmployee] = useState<AdminEmployee | null>(null);
   const [resetPin, setResetPin] = useState("");
+  const [editingEmployee, setEditingEmployee] = useState<AdminEmployee | null>(null);
+  const [employeeEditForm, setEmployeeEditForm] = useState({
+    name: "",
+    login_name: "",
+    employee_code: "",
+  });
+  const today = todayISO();
+  const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
+  const [reportTo, setReportTo] = useState(today);
+  const [reportEmployeeId, setReportEmployeeId] = useState("all");
+  const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
+  const [reportLote, setReportLote] = useState("all");
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -113,6 +138,32 @@ export function AdminScreen() {
     () => new Map(overview.employees.map((employee) => [employee.id, employee.name])),
     [overview.employees],
   );
+  const reportEmployee = overview.employees.find((employee) => employee.id === reportEmployeeId);
+  const reportFilters = {
+    dateFrom: reportFrom,
+    dateTo: reportTo,
+    employeeId: reportEmployee?.id,
+    employeeName: reportEmployee?.name,
+    lote: reportLote === "all" ? undefined : reportLote,
+    status: reportStatus,
+  };
+  const reportVisits = filterVisitsForReport(loadVisits(), reportFilters);
+  const reportAgenda = Array.from(agendaByDate(today, reportEmployee?.id).values()).flat();
+  const reportMetrics = visitReportMetrics(reportVisits, reportAgenda);
+  const farmEmployees = overview.employees.filter(
+    (employee) => !context?.farm_id || employee.farm_ids.includes(context.farm_id),
+  );
+  const employeeMetricRows = farmEmployees.map((employee) => {
+    const visits = filterVisitsForReport(loadVisits(), {
+      dateFrom: reportFrom,
+      dateTo: reportTo,
+      employeeId: employee.id,
+      employeeName: employee.name,
+      lote: reportLote === "all" ? undefined : reportLote,
+      status: reportStatus,
+    });
+    return { employee, metrics: visitReportMetrics(visits) };
+  });
 
   async function unlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -137,11 +188,13 @@ export function AdminScreen() {
       await adminService.action(action, payload);
       setNotice(success);
       await loadOverview();
+      return true;
     } catch (caught) {
       const message =
         caught instanceof Error ? caught.message : "Não foi possível concluir a ação.";
       setError(message);
       if (message.includes("expirado")) setUnlocked(false);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -183,6 +236,47 @@ export function AdminScreen() {
     );
     setResetEmployee(null);
     setResetPin("");
+  }
+
+  function openEmployeeEdit(employee: AdminEmployee) {
+    setEditingEmployee(employee);
+    setEmployeeEditForm({
+      name: employee.name,
+      login_name: employee.login_name,
+      employee_code: employee.employee_code,
+    });
+  }
+
+  async function submitEmployeeEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingEmployee) return;
+    const updated = await runAction(
+      "edit_employee",
+      { employee_id: editingEmployee.id, ...employeeEditForm },
+      `Cadastro de ${employeeEditForm.name} atualizado.`,
+    );
+    if (updated) setEditingEmployee(null);
+  }
+
+  async function exportAdminPdf() {
+    setExportingPdf(true);
+    setError("");
+    try {
+      await exportVisitsPdf({
+        visits: loadVisits(),
+        agenda: reportAgenda,
+        farmName: context?.farm_name || loadFarm().farmName || "Fazenda",
+        reportTitle:
+          reportEmployeeId === "all"
+            ? "Relatório geral de casqueamento"
+            : `Relatório de casqueamento · ${reportEmployee?.name ?? "Funcionário"}`,
+        filters: reportFilters,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível gerar o PDF.");
+    } finally {
+      setExportingPdf(false);
+    }
   }
 
   if (!context?.is_admin) {
@@ -263,6 +357,7 @@ export function AdminScreen() {
   }
 
   const tabs: Array<{ id: AdminTab; label: string; icon: typeof Building2 }> = [
+    { id: "reports", label: "Relatórios", icon: FileText },
     { id: "farms", label: "Fazendas", icon: Building2 },
     { id: "employees", label: "Equipe", icon: Users },
     { id: "devices", label: "Aparelhos", icon: Laptop },
@@ -330,6 +425,152 @@ export function AdminScreen() {
           {notice}
         </p>
       ) : null}
+
+      {tab === "reports" && (
+        <section className="space-y-5" aria-labelledby="reports-title">
+          <div>
+            <h2 id="reports-title" className="font-display text-lg font-black uppercase">
+              Produção da equipe
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Filtros e PDF da fazenda atual, sem misturar outras fazendas
+            </p>
+          </div>
+
+          <div className="grid gap-3 border-y border-border py-4 sm:grid-cols-2">
+            <label>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">
+                Funcionário
+              </span>
+              <select
+                value={reportEmployeeId}
+                onChange={(event) => setReportEmployeeId(event.target.value)}
+                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+              >
+                <option value="all">Toda a equipe</option>
+                {farmEmployees.map((employee) => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">Tipo</span>
+              <select
+                value={reportStatus}
+                onChange={(event) => setReportStatus(event.target.value as VisitReportStatus)}
+                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+              >
+                <option value="all">Todos</option>
+                <option value="preventive">Preventivos</option>
+                <option value="normal">Cascos normais</option>
+                <option value="problem">Com problema</option>
+                <option value="recheck">Com revisão</option>
+              </select>
+            </label>
+            <label>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">De</span>
+              <input
+                type="date"
+                value={reportFrom}
+                max={reportTo || undefined}
+                onChange={(event) => setReportFrom(event.target.value)}
+                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+              />
+            </label>
+            <label>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">Até</span>
+              <input
+                type="date"
+                value={reportTo}
+                min={reportFrom || undefined}
+                onChange={(event) => setReportTo(event.target.value)}
+                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+              />
+            </label>
+            <label className="sm:col-span-2">
+              <span className="text-[10px] font-black uppercase text-muted-foreground">Lote</span>
+              <select
+                value={reportLote}
+                onChange={(event) => setReportLote(event.target.value)}
+                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+              >
+                <option value="all">Todos os lotes</option>
+                {loadFarm().lotes.map((lote) => (
+                  <option key={lote} value={lote}>
+                    {lote}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card sm:grid-cols-3">
+            {[
+              ["Visitas", reportMetrics.visits],
+              ["Animais", reportMetrics.animals],
+              ["Preventivos", reportMetrics.preventive],
+              ["Normais", reportMetrics.normal],
+              ["Problemas", reportMetrics.withProblem],
+              ["Revisões", reportMetrics.scheduledReviews],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="border-b border-r border-border px-2 py-3 text-center"
+              >
+                <p className="font-display text-2xl font-black text-primary">{value}</p>
+                <p className="text-[9px] font-bold uppercase text-muted-foreground">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void exportAdminPdf()}
+            disabled={exportingPdf}
+            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display font-black uppercase text-primary-foreground disabled:opacity-50"
+          >
+            {exportingPdf ? (
+              <LoaderCircle className="h-5 w-5 animate-spin" />
+            ) : (
+              <Download className="h-5 w-5" />
+            )}
+            Exportar PDF filtrado
+          </button>
+
+          {reportEmployeeId === "all" && (
+            <div>
+              <h3 className="font-display text-sm font-black uppercase">Por funcionário</h3>
+              <div className="mt-2 divide-y divide-border border-y border-border">
+                {employeeMetricRows.map(({ employee, metrics }) => (
+                  <div
+                    key={employee.id}
+                    className="grid grid-cols-[1fr_auto_auto] items-center gap-3 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold">{employee.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {metrics.animals} animal(is) · {metrics.preventive} preventivo(s)
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="font-display text-xl font-black">{metrics.visits}</p>
+                      <p className="text-[9px] uppercase text-muted-foreground">Visitas</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="font-display text-xl font-black text-warn-foreground">
+                        {metrics.withProblem}
+                      </p>
+                      <p className="text-[9px] uppercase text-muted-foreground">Problemas</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {tab === "farms" && (
         <section aria-labelledby="farms-title">
@@ -530,6 +771,13 @@ export function AdminScreen() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
+                    onClick={() => openEmployeeEdit(employee)}
+                    className="flex min-h-10 items-center gap-2 rounded-lg bg-surface px-3 text-xs font-bold"
+                  >
+                    <Pencil className="h-4 w-4 text-primary" /> Editar
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setResetEmployee(employee)}
                     className="flex min-h-10 items-center gap-2 rounded-lg bg-surface px-3 text-xs font-bold"
                   >
@@ -551,7 +799,7 @@ export function AdminScreen() {
                     }
                     className="min-h-10 rounded-lg bg-surface px-3 text-xs font-bold disabled:opacity-40"
                   >
-                    {employee.status === "active" ? "Bloquear" : "Reativar"}
+                    {employee.status === "active" ? "Remover acesso" : "Restaurar acesso"}
                   </button>
                   <button
                     type="button"
@@ -719,6 +967,78 @@ export function AdminScreen() {
             )}
           </ol>
         </section>
+      )}
+
+      {editingEmployee && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-employee-title"
+        >
+          <form
+            onSubmit={submitEmployeeEdit}
+            className="w-full max-w-md rounded-lg bg-background p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="edit-employee-title" className="font-display text-lg font-black uppercase">
+                  Editar funcionário
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">Nome, login e código de acesso</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingEmployee(null)}
+                className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface"
+                aria-label="Fechar edição de funcionário"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label>
+                <span className="text-xs font-bold uppercase text-muted-foreground">Nome</span>
+                <input
+                  required
+                  value={employeeEditForm.name}
+                  onChange={(event) =>
+                    setEmployeeEditForm((form) => ({ ...form, name: event.target.value }))
+                  }
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+              <label>
+                <span className="text-xs font-bold uppercase text-muted-foreground">Login</span>
+                <input
+                  required
+                  value={employeeEditForm.login_name}
+                  onChange={(event) =>
+                    setEmployeeEditForm((form) => ({ ...form, login_name: event.target.value }))
+                  }
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+              <label>
+                <span className="text-xs font-bold uppercase text-muted-foreground">Código</span>
+                <input
+                  required
+                  value={employeeEditForm.employee_code}
+                  onChange={(event) =>
+                    setEmployeeEditForm((form) => ({ ...form, employee_code: event.target.value }))
+                  }
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+            </div>
+            <button
+              disabled={loading}
+              className="mt-4 min-h-12 w-full rounded-lg bg-primary font-bold text-primary-foreground disabled:opacity-50"
+            >
+              Salvar alterações
+            </button>
+          </form>
+        </div>
       )}
 
       {resetEmployee && (

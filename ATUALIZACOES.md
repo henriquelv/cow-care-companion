@@ -8,6 +8,52 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-07-31 - Revisões recorrentes, PDF, histórico e gestão da equipe
+
+### O que foi feito
+
+- Adicionado plano de revisões recorrentes por pé com intervalo de 1 a 365 dias e quantidade de 1 a 24 revisões.
+- Mantidos os atalhos de 2, 3, 5 e 7 dias, acrescentando intervalo personalizado, seletor de quantidade e resumo do plano antes de salvar.
+- A agenda agora cria todos os compromissos do plano, como três revisões a cada três dias, numerando `Revisão 1 de 3`, `2 de 3` e `3 de 3`.
+- Evitada a duplicação entre uma revisão planejada e o prazo automático do mesmo curativo.
+- Adicionado `Casco normal` ao diagnóstico; essa escolha registra explicitamente um casqueamento preventivo sem lesão.
+- Tocar no animal na tela inicial agora abre seu prontuário; a ação de iniciar outra visita ficou separada e explícita.
+- Criada a tela `Histórico das vacas`, com busca e filtros para normais, problemas e preventivos.
+- O histórico individual passou a mostrar intervalo, quantidade e primeira data do plano de revisões.
+- Adicionada exportação PDF na aba `Trabalho`, limitada aos atendimentos do funcionário autenticado e filtrável por data e tipo.
+- Criada a aba administrativa `Relatórios`, com filtros por funcionário, período, lote e tipo, métricas gerais, métricas por funcionário e PDF da equipe.
+- Mantidos adicionar funcionário, redefinir PIN, conceder/remover permissão gerencial e acesso por fazenda; o bloqueio passou a ser apresentado como `Remover acesso`, preservando auditoria e histórico.
+- Adicionada edição segura de nome, login e código do funcionário pelo gerente.
+- Aplicada no Supabase a migration `202607310001_recurring_reviews_and_employee_admin.sql`, incluindo os novos campos e a RPC administrativa protegida.
+- A biblioteca de PDF foi isolada em um pacote carregado somente ao exportar, evitando aumentar o carregamento inicial do app.
+- Atualizado o cache offline para `v12`.
+
+### Por que foi feito
+
+- Garantir que um curativo programe todas as visitas necessárias, sem depender de anotações externas.
+- Tornar o casqueamento normal tão rápido quanto o registro de uma lesão e contabilizá-lo corretamente como preventivo.
+- Dar ao funcionário um comprovante do próprio trabalho sem expor dados dos colegas.
+- Dar ao gerente uma visão completa e filtrável da produção da equipe, mantendo a separação por fazenda.
+- Deixar histórico e novo atendimento como comandos diferentes, reduzindo registros acidentais.
+
+### Como validar
+
+- Registrar uma lesão, escolher intervalo de 3 dias e quantidade 3; confirmar três compromissos distintos no calendário.
+- Registrar `Casco normal`; confirmar o selo preventivo no resumo e no histórico.
+- Tocar em uma vaca na lista; confirmar abertura direta do prontuário e usar o botão separado para nova visita.
+- Abrir `Histórico` na tela inicial e testar busca e filtros.
+- Entrar em `Trabalho`, filtrar o mês e exportar o PDF; confirmar que aparecem apenas visitas do funcionário atual.
+- Como gerente, abrir `Administração > Relatórios`, filtrar funcionário/lote/período e exportar o PDF.
+- Em `Administração > Equipe`, editar cadastro, redefinir PIN e remover/restaurar o acesso de um funcionário.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint` e `npm run build`.
+
+### Próximos passos
+
+1. Validar impressão do PDF em Android e iPad reais.
+2. Testar notificações de agenda e importação de vários eventos no calendário do aparelho.
+3. Executar um ciclo real completo: tratamento, revisões recorrentes e liberação do pé.
+4. Avaliar assinatura digital do responsável no relatório somente se o cliente exigir.
+
 ## 2026-07-22 - Auditoria de prontidão para produção
 
 ### O que foi feito

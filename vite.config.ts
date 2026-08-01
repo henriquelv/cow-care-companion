@@ -13,6 +13,12 @@ export default defineConfig({
           if (id.includes("@supabase")) return "supabase";
           if (id.includes("dexie")) return "indexeddb";
           if (id.includes("lucide-react")) return "icons";
+          if (
+            ["jspdf", "jspdf-autotable", "html2canvas", "dompurify", "fflate", "fast-png"].some(
+              (dependency) => id.includes(dependency),
+            )
+          )
+            return "pdf";
           return "vendor";
         },
       },

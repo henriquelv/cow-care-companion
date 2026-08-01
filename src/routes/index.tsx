@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   Plus,
+  Minus,
   Search,
   SearchX,
   ArrowLeft,
@@ -52,6 +53,8 @@ import {
   EyeOff,
   ClipboardCheck,
   RotateCcw,
+  FileText,
+  ListChecks,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -75,6 +78,7 @@ import {
   diseaseDefinition,
   employeeWorkMetricsFromVisits,
   recommendedRecheckForDiseases,
+  normalizeReviewCount,
   severityBucket,
   todayISO,
   uid,
@@ -99,6 +103,7 @@ import {
   type Visit,
   type AgendaItem,
 } from "@/lib/casco-store";
+import { exportVisitsPdf, filterVisitsForReport, type VisitReportStatus } from "@/lib/visit-report";
 import { DiseasePicker } from "@/components/casco/DiseasePicker";
 import { HelpModal } from "@/components/casco/Tutorial";
 import { cn } from "@/lib/utils";
@@ -155,6 +160,7 @@ type Screen =
   | { name: "today" }
   | { name: "register"; tag?: string; correctionOf?: string }
   | { name: "history"; tag: string }
+  | { name: "history-list" }
   | { name: "summary" }
   | { name: "config" }
   | { name: "admin" }
@@ -326,13 +332,15 @@ export function Index() {
       ? "register"
       : screen.name === "history"
         ? "history"
-        : screen.name === "summary"
-          ? "summary"
-          : screen.name === "profile"
+        : screen.name === "history-list"
+          ? "history"
+          : screen.name === "summary"
             ? "summary"
-            : screen.name === "preventivo"
-              ? "today"
-              : "today";
+            : screen.name === "profile"
+              ? "summary"
+              : screen.name === "preventivo"
+                ? "today"
+                : "today";
 
   return (
     <div className="app-bottom-space min-h-screen overflow-x-hidden">
@@ -367,6 +375,7 @@ export function Index() {
             onNew={() => setScreen({ name: "register" })}
             onEdit={(tag) => openEdit(tag)}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
+            onOpenAllHistory={() => setScreen({ name: "history-list" })}
             onSummary={() => setScreen({ name: "summary" })}
             onCalendar={() => setScreen({ name: "calendar" })}
             onFilters={() => setScreen({ name: "filters" })}
@@ -402,6 +411,9 @@ export function Index() {
               setScreen({ name: "register", tag: visit.tag, correctionOf: visit.id })
             }
           />
+        )}
+        {screen.name === "history-list" && (
+          <AnimalHistoryListScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
         )}
         {screen.name === "summary" && <SummaryScreen farm={farm} />}
         {screen.name === "profile" && <EmployeeWorkScreen />}
@@ -1112,6 +1124,7 @@ function Header({
     calendar: "Calendário",
     register: "Nova Visita",
     history: "Histórico",
+    "history-list": "Histórico das vacas",
     summary: "Resumo",
     config: "Gestão da Fazenda",
     admin: "Administração",
@@ -1251,6 +1264,7 @@ function TodayScreen({
   onNew,
   onEdit,
   onOpenHistory,
+  onOpenAllHistory,
   onSummary,
   onCalendar,
   onFilters,
@@ -1260,6 +1274,7 @@ function TodayScreen({
   onNew: () => void;
   onEdit: (tag: string) => void;
   onOpenHistory: (tag: string) => void;
+  onOpenAllHistory: () => void;
   onSummary: () => void;
   onCalendar: () => void;
   onFilters: () => void;
@@ -1492,21 +1507,30 @@ function TodayScreen({
         </div>
       )}
 
-      {/* Resumo do dia */}
-      <button
-        onClick={onSummary}
-        className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-border bg-card px-4 py-3 text-left active:scale-[0.99] transition-transform"
-        aria-label="Ver resumo do dia"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <BarChart3 className="h-5 w-5" />
-        </span>
-        <div>
-          <p className="font-display text-base font-black uppercase">Resumo do Dia</p>
-          <p className="text-xs text-muted-foreground">Visitas, gravidade e lesões de hoje</p>
-        </div>
-        <ChevronRight className="ml-auto h-5 w-5 shrink-0 text-muted-foreground" />
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={onSummary}
+          className="tap-lg flex min-h-20 items-center gap-3 rounded-xl border-2 border-border bg-card px-3 text-left active:scale-[0.99]"
+          aria-label="Ver resumo do dia"
+        >
+          <BarChart3 className="h-6 w-6 shrink-0 text-primary" />
+          <span className="min-w-0">
+            <span className="block font-display text-sm font-black uppercase">Resumo</span>
+            <span className="block text-[11px] text-muted-foreground">Produção de hoje</span>
+          </span>
+        </button>
+        <button
+          onClick={onOpenAllHistory}
+          className="tap-lg flex min-h-20 items-center gap-3 rounded-xl border-2 border-border bg-card px-3 text-left active:scale-[0.99]"
+          aria-label="Abrir histórico das vacas"
+        >
+          <History className="h-6 w-6 shrink-0 text-primary" />
+          <span className="min-w-0">
+            <span className="block font-display text-sm font-black uppercase">Histórico</span>
+            <span className="block text-[11px] text-muted-foreground">Todas as vacas</span>
+          </span>
+        </button>
+      </div>
 
       <div className="grid grid-cols-3 gap-2">
         <CompactStat label="Problemas" value={totalWithProblem} tone="warn" />
@@ -1650,8 +1674,9 @@ function TodayScreen({
 
                 {/* Conteúdo principal */}
                 <button
-                  onClick={() => onEdit(a.tag)}
+                  onClick={() => onOpenHistory(a.tag)}
                   className="flex w-full items-center gap-4 bg-card px-4 py-4 text-left active:bg-surface transition-colors"
+                  aria-label={`Abrir histórico do animal ${a.tag}`}
                 >
                   {/* Brinco + sexo + lote */}
                   <div className="shrink-0 text-center w-16">
@@ -1768,13 +1793,144 @@ function TodayScreen({
                   </div>
                 </button>
 
-                {/* Botão histórico */}
+                {/* Ação explícita para novo atendimento */}
                 <button
-                  onClick={() => onOpenHistory(a.tag)}
-                  className="flex w-full items-center justify-center gap-2 border-t border-border/40 bg-surface/60 py-2.5 text-sm font-bold uppercase text-muted-foreground active:bg-surface"
+                  onClick={() => onEdit(a.tag)}
+                  className="flex w-full items-center justify-center gap-2 border-t border-border/40 bg-surface/60 py-2.5 text-sm font-bold uppercase text-primary active:bg-surface"
                 >
-                  <History className="h-4 w-4" />
-                  Ver Histórico · {a.totalVisits} visita(s)
+                  <Plus className="h-4 w-4" />
+                  Nova visita para este animal
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<"all" | "normal" | "problem" | "preventive">("all");
+  const visits = useMemo(() => loadVisits().sort((a, b) => b.createdAt - a.createdAt), []);
+  const latestByTag = useMemo(() => {
+    const map = new Map<string, Visit>();
+    for (const visit of visits) {
+      const key = visit.tag.toLocaleLowerCase("pt-BR");
+      if (!map.has(key)) map.set(key, visit);
+    }
+    return map;
+  }, [visits]);
+  const animals = useMemo(
+    () =>
+      allAnimals()
+        .filter((animal) => animal.totalVisits > 0)
+        .filter(
+          (animal) => !search.trim() || animal.tag.toLowerCase().includes(search.toLowerCase()),
+        )
+        .filter((animal) => {
+          const latest = latestByTag.get(animal.tag.toLocaleLowerCase("pt-BR"));
+          if (status === "normal") return animal.worstSeverity === 0;
+          if (status === "problem") return animal.worstSeverity > 0;
+          if (status === "preventive") return latest?.preventivo === true;
+          return true;
+        }),
+    [latestByTag, search, status],
+  );
+
+  return (
+    <div className="space-y-4 pb-6">
+      <section className="border-b border-border pb-4">
+        <p className="text-xs font-bold uppercase text-muted-foreground">Prontuários</p>
+        <h1 className="font-display text-2xl font-black uppercase">Histórico das vacas</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Toque em um animal para ver todas as visitas, diagnósticos e revisões.
+        </p>
+      </section>
+
+      <label className="relative block">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          inputMode="numeric"
+          aria-label="Buscar animal no histórico"
+          placeholder="Buscar brinco"
+          className="min-h-14 w-full rounded-xl border-2 border-border bg-card pl-12 pr-4 font-bold outline-none focus:border-primary"
+        />
+      </label>
+
+      <div
+        className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        role="group"
+        aria-label="Filtrar histórico"
+      >
+        {[
+          ["all", "Todos"],
+          ["normal", "Normais"],
+          ["problem", "Problemas"],
+          ["preventive", "Preventivos"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setStatus(value as typeof status)}
+            aria-pressed={status === value}
+            className={cn(
+              "min-h-11 rounded-xl border px-2 text-xs font-black uppercase",
+              status === value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-surface text-muted-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">{animals.length} animal(is) encontrado(s)</p>
+
+      {animals.length === 0 ? (
+        <div className="rounded-xl border-2 border-dashed border-border p-8 text-center text-muted-foreground">
+          <SearchX className="mx-auto h-8 w-8" />
+          <p className="mt-2 font-display text-sm uppercase">Nenhum histórico encontrado</p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border border-y border-border">
+          {animals.map((animal) => {
+            const latest = latestByTag.get(animal.tag.toLocaleLowerCase("pt-BR"));
+            const normal = animal.worstSeverity === 0;
+            return (
+              <li key={animal.tag}>
+                <button
+                  type="button"
+                  onClick={() => onOpenHistory(animal.tag)}
+                  className="flex min-h-20 w-full items-center gap-3 py-3 text-left"
+                  aria-label={`Ver histórico completo do animal ${animal.tag}`}
+                >
+                  <span
+                    className={cn(
+                      "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl font-display text-lg font-black",
+                      normal ? "bg-good/10 text-good" : "bg-warn/15 text-warn-foreground",
+                    )}
+                  >
+                    {animal.tag}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-display text-sm font-black uppercase">
+                      {normal ? "Casco normal" : "Acompanhamento clínico"}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                      {animal.totalVisits} visita(s)
+                      {animal.lote ? ` · ${animal.lote}` : ""}
+                      {latest?.preventivo ? " · preventivo" : ""}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Última em {new Date(animal.lastVisit).toLocaleDateString("pt-BR")}
+                    </span>
+                  </span>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
                 </button>
               </li>
             );
@@ -2803,6 +2959,25 @@ function RegisterScreen({
     }
   }
 
+  function confirmNormalPreventive() {
+    setBadFeet([]);
+    setVisit((current) => ({
+      ...current,
+      preventivo: true,
+      feet: current.feet.map((foot) => ({
+        ...foot,
+        ok: true,
+        diseases: [],
+        treatments: [],
+        recheck: false,
+        recheckDate: undefined,
+        intervalo_revisao_dias: undefined,
+        revisoes_necessarias: undefined,
+      })),
+    }));
+    setStep("review");
+  }
+
   function advanceFromNotes() {
     setShowFootAdvanced(false);
     if (footIdx + 1 < badFeet.length) {
@@ -2819,6 +2994,7 @@ function RegisterScreen({
         recheck: true,
         recheckDate: dateAfterDays(currentRecommendation.days, visit.date),
         intervalo_revisao_dias: currentRecommendation.days,
+        revisoes_necessarias: currentFootEntry.revisoes_necessarias ?? 1,
       });
     }
     setStep("notes");
@@ -3067,7 +3243,13 @@ function RegisterScreen({
       )}
 
       {/* ── ETAPA 2: Seleção dos pés ── */}
-      {step === "feet" && <FeetStep visit={visit} onConfirm={confirmFeet} />}
+      {step === "feet" && (
+        <FeetStep
+          visit={visit}
+          onConfirm={confirmFeet}
+          onNormalPreventive={confirmNormalPreventive}
+        />
+      )}
 
       {/* ── ETAPA 3: Doença ── */}
       {step === "disease" && currentFoot && currentFootEntry && (
@@ -3195,6 +3377,7 @@ function RegisterScreen({
                 recheck: !currentFootEntry.recheck,
                 recheckDate: undefined,
                 intervalo_revisao_dias: undefined,
+                revisoes_necessarias: currentFootEntry.recheck ? undefined : 1,
               })
             }
             className={cn(
@@ -3219,7 +3402,7 @@ function RegisterScreen({
                       onClick={() =>
                         updateCurrentFoot({
                           recheck: true,
-                          recheckDate: dateAfterDays(option.days),
+                          recheckDate: dateAfterDays(option.days, visit.date),
                           intervalo_revisao_dias: option.days,
                         })
                       }
@@ -3235,6 +3418,86 @@ function RegisterScreen({
                   );
                 })}
               </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="rounded-xl border-2 border-warn/35 bg-card p-3">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                    Outro intervalo
+                  </span>
+                  <span className="mt-1 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      inputMode="numeric"
+                      aria-label="Intervalo personalizado em dias"
+                      value={currentFootEntry.intervalo_revisao_dias ?? ""}
+                      onChange={(event) => {
+                        const days = Number(event.target.value);
+                        updateCurrentFoot({
+                          intervalo_revisao_dias: days > 0 ? Math.min(365, days) : undefined,
+                          recheckDate:
+                            days > 0 ? dateAfterDays(Math.min(365, days), visit.date) : undefined,
+                        });
+                      }}
+                      className="min-h-12 min-w-0 w-full rounded-lg border border-border bg-surface px-3 text-center font-display text-xl outline-none focus:border-warn"
+                      placeholder="Dias"
+                    />
+                    <span className="text-xs font-bold text-muted-foreground">dias</span>
+                  </span>
+                </label>
+
+                <div className="rounded-xl border-2 border-warn/35 bg-card p-3">
+                  <p className="text-[10px] font-bold uppercase text-muted-foreground">
+                    Quantas revisões
+                  </p>
+                  <div className="mt-1 grid grid-cols-[3rem_1fr_3rem] gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateCurrentFoot({
+                          revisoes_necessarias: Math.max(
+                            1,
+                            normalizeReviewCount(currentFootEntry.revisoes_necessarias) - 1,
+                          ),
+                        })
+                      }
+                      className="flex min-h-12 items-center justify-center rounded-lg bg-surface text-warn-foreground"
+                      aria-label="Diminuir quantidade de revisões"
+                    >
+                      <Minus className="h-5 w-5" />
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={24}
+                      inputMode="numeric"
+                      aria-label="Quantidade de revisões necessárias"
+                      value={currentFootEntry.revisoes_necessarias ?? 1}
+                      onChange={(event) =>
+                        updateCurrentFoot({
+                          revisoes_necessarias: normalizeReviewCount(event.target.value),
+                        })
+                      }
+                      className="min-h-12 min-w-0 rounded-lg border border-border bg-surface px-2 text-center font-display text-xl outline-none focus:border-warn"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateCurrentFoot({
+                          revisoes_necessarias: Math.min(
+                            24,
+                            normalizeReviewCount(currentFootEntry.revisoes_necessarias) + 1,
+                          ),
+                        })
+                      }
+                      className="flex min-h-12 items-center justify-center rounded-lg bg-surface text-warn-foreground"
+                      aria-label="Aumentar quantidade de revisões"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
               <input
                 name="data-revisao"
                 aria-label="Escolher data da revisão"
@@ -3249,6 +3512,18 @@ function RegisterScreen({
                 }
                 className="w-full rounded-xl border-2 border-warn/40 bg-warn/5 px-3 py-3 font-display text-sm outline-none"
               />
+              {currentFootEntry.recheckDate && (
+                <div className="rounded-xl bg-warn/10 px-3 py-3 text-sm text-warn-foreground">
+                  <p className="font-display font-black uppercase">Plano desta visita</p>
+                  <p className="mt-1">
+                    {normalizeReviewCount(currentFootEntry.revisoes_necessarias)} revisão(ões)
+                    {currentFootEntry.intervalo_revisao_dias
+                      ? ` a cada ${currentFootEntry.intervalo_revisao_dias} dia(s)`
+                      : ` com primeira data em ${new Date(`${currentFootEntry.recheckDate}T12:00:00`).toLocaleDateString("pt-BR")}`}
+                    .
+                  </p>
+                </div>
+              )}
             </div>
           )}
           <input
@@ -3454,9 +3729,15 @@ function RegisterScreen({
                       )}
                       {f.nota && <p className="text-sm text-muted-foreground italic">{f.nota}</p>}
                       {f.recheck && (
-                        <p className="text-sm font-bold text-warn-foreground">
-                          Revisão: {f.recheckDate ?? "a definir"}
-                        </p>
+                        <div className="rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn-foreground">
+                          <p className="font-bold">
+                            {f.revisoes_necessarias ?? 1} revisão(ões)
+                            {f.intervalo_revisao_dias
+                              ? ` a cada ${f.intervalo_revisao_dias} dia(s)`
+                              : " com data definida"}
+                          </p>
+                          <p className="text-xs">Primeira: {f.recheckDate ?? "a definir"}</p>
+                        </div>
                       )}
                     </div>
                   );
@@ -3464,7 +3745,13 @@ function RegisterScreen({
             </div>
           ) : (
             <div className="rounded-2xl border-2 border-good/40 bg-good/5 p-4 text-center">
-              <p className="font-display text-lg font-black uppercase text-good">Todos os pés OK</p>
+              <CheckCircle2 className="mx-auto h-8 w-8 text-good" />
+              <p className="mt-2 font-display text-lg font-black uppercase text-good">
+                Casco normal
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Casqueamento preventivo, sem lesão identificada
+              </p>
             </div>
           )}
           <button
@@ -3480,7 +3767,15 @@ function RegisterScreen({
   );
 }
 
-function FeetStep({ visit, onConfirm }: { visit: Visit; onConfirm: (feet: FootKey[]) => void }) {
+function FeetStep({
+  visit,
+  onConfirm,
+  onNormalPreventive,
+}: {
+  visit: Visit;
+  onConfirm: (feet: FootKey[]) => void;
+  onNormalPreventive: () => void;
+}) {
   const [selected, setSelected] = useState<FootKey[]>(
     visit.feet.filter((f) => !f.ok).map((f) => f.foot) as FootKey[],
   );
@@ -3490,8 +3785,32 @@ function FeetStep({ visit, onConfirm }: { visit: Visit; onConfirm: (feet: FootKe
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-display text-2xl font-black uppercase">Qual(is) pé(s) têm problema?</h2>
-        <p className="text-sm text-muted-foreground">Toque para marcar os pés com lesão</p>
+        <h2 className="font-display text-2xl font-black uppercase">Diagnóstico</h2>
+        <p className="text-sm text-muted-foreground">
+          Informe se o casco está normal ou marque as lesões
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onNormalPreventive}
+        className="flex min-h-20 w-full items-center gap-4 rounded-2xl border-2 border-good/50 bg-good/10 px-4 text-left text-good"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-good text-good-foreground">
+          <CheckCircle2 className="h-7 w-7" />
+        </span>
+        <span className="min-w-0">
+          <span className="block font-display text-lg font-black uppercase">Casco normal</span>
+          <span className="block text-xs text-muted-foreground">
+            Salvar como casqueamento preventivo, sem lesão
+          </span>
+        </span>
+      </button>
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-border" />
+        <span className="text-[10px] font-bold uppercase text-muted-foreground">
+          Ou marque os pés com problema
+        </span>
+        <span className="h-px flex-1 bg-border" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
@@ -3534,9 +3853,17 @@ function FeetStep({ visit, onConfirm }: { visit: Visit; onConfirm: (feet: FootKe
       <button
         type="button"
         onClick={() => onConfirm(selected)}
-        className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+        disabled={selected.length === 0}
+        className={cn(
+          "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl py-5 font-display text-xl uppercase",
+          selected.length > 0
+            ? "bg-primary text-primary-foreground stamp"
+            : "bg-muted text-muted-foreground",
+        )}
       >
-        {selected.length === 0 ? "Todos os pés OK" : `${selected.length} pé(s) com problema`}
+        {selected.length === 0
+          ? "Marque um pé com problema"
+          : `${selected.length} pé(s) com problema`}
         <ChevronRight className="h-6 w-6" />
       </button>
     </div>
@@ -3872,6 +4199,15 @@ function HistoryScreen({
                               })}
                               {treats && <span className="text-muted-foreground">{treats}</span>}
                             </div>
+                            {f.recheck && f.recheckDate && (
+                              <p className="mt-1 font-semibold text-warn-foreground">
+                                Plano: {f.revisoes_necessarias ?? 1} revisão(ões)
+                                {f.intervalo_revisao_dias
+                                  ? ` a cada ${f.intervalo_revisao_dias} dia(s)`
+                                  : " em data definida"}
+                                {` · primeira em ${new Date(`${f.recheckDate}T12:00:00`).toLocaleDateString("pt-BR")}`}
+                              </p>
+                            )}
                             {(f.comments ?? []).length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {(f.comments ?? []).map((c) => {
@@ -3922,6 +4258,10 @@ function HistoryScreen({
 function EmployeeWorkScreen() {
   const context = farmContextService.getContext();
   const today = todayISO();
+  const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
+  const [reportTo, setReportTo] = useState(today);
+  const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -3946,6 +4286,17 @@ function EmployeeWorkScreen() {
         today,
       ),
     [agendaItems, context?.employee_id, context?.employee_name, today],
+  );
+  const reportVisits = useMemo(
+    () =>
+      filterVisitsForReport(loadVisits(), {
+        dateFrom: reportFrom,
+        dateTo: reportTo,
+        status: reportStatus,
+        employeeId: context?.employee_id,
+        employeeName: context?.employee_name,
+      }),
+    [context?.employee_id, context?.employee_name, reportFrom, reportStatus, reportTo],
   );
   const monthLabel = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", {
     month: "long",
@@ -3980,6 +4331,28 @@ function EmployeeWorkScreen() {
       });
     } finally {
       setSavingPin(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    if (!context) return;
+    setExportingPdf(true);
+    try {
+      await exportVisitsPdf({
+        visits: loadVisits(),
+        agenda: agendaItems,
+        farmName: context.farm_name,
+        reportTitle: `Relatório de casqueamento · ${context.employee_name}`,
+        filters: {
+          dateFrom: reportFrom,
+          dateTo: reportTo,
+          status: reportStatus,
+          employeeId: context.employee_id,
+          employeeName: context.employee_name,
+        },
+      });
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -4057,6 +4430,72 @@ function EmployeeWorkScreen() {
           <p className="text-xs text-muted-foreground">
             {metrics.pendingAnimals} animal(is) aguardando revisão ou curativo
           </p>
+        </div>
+      </section>
+
+      <section className="border-t border-border pt-5" aria-labelledby="meu-relatorio">
+        <div className="mb-4 flex items-center gap-3">
+          <FileText className="h-6 w-6 text-primary" aria-hidden="true" />
+          <div>
+            <h2 id="meu-relatorio" className="font-display text-lg font-black uppercase">
+              Meu relatório
+            </h2>
+            <p className="text-xs text-muted-foreground">Somente os seus atendimentos</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label>
+            <span className="text-xs font-bold uppercase text-muted-foreground">De</span>
+            <input
+              type="date"
+              value={reportFrom}
+              max={reportTo || undefined}
+              onChange={(event) => setReportFrom(event.target.value)}
+              className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+            />
+          </label>
+          <label>
+            <span className="text-xs font-bold uppercase text-muted-foreground">Até</span>
+            <input
+              type="date"
+              value={reportTo}
+              min={reportFrom || undefined}
+              onChange={(event) => setReportTo(event.target.value)}
+              className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+            />
+          </label>
+          <label className="sm:col-span-2">
+            <span className="text-xs font-bold uppercase text-muted-foreground">Tipo</span>
+            <select
+              value={reportStatus}
+              onChange={(event) => setReportStatus(event.target.value as VisitReportStatus)}
+              className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+            >
+              <option value="all">Todos os atendimentos</option>
+              <option value="preventive">Preventivos</option>
+              <option value="normal">Cascos normais</option>
+              <option value="problem">Com problema</option>
+              <option value="recheck">Com revisão marcada</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface px-3 py-3">
+          <p className="text-sm">
+            <strong>{reportVisits.length}</strong> visita(s) no período
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleExportPdf()}
+            disabled={exportingPdf}
+            className="flex min-h-12 items-center gap-2 rounded-xl bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
+          >
+            {exportingPdf ? (
+              <RefreshCw className="h-5 w-5 animate-spin" />
+            ) : (
+              <Download className="h-5 w-5" />
+            )}
+            Exportar PDF
+          </button>
         </div>
       </section>
 
