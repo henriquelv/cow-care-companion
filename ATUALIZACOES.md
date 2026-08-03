@@ -8,6 +8,48 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-03 - Gestão completa de visitas, animais e cadastros
+
+### O que foi feito
+
+- Criada a aba **Administração > Dados**, separada entre visitas e animais da fazenda atual.
+- Adicionada busca de visitas por brinco ou funcionário e busca de animais por brinco.
+- O administrador pode abrir qualquer visita em **Editar/corrigir**, usando o fluxo auditável de correção sem alterar data, horário e responsável originais.
+- A correção agora abre preenchida com animal, sexo, lote, prevenção, pés, doenças e tratamentos da visita escolhida; fotos antigas não são duplicadas.
+- Adicionada exclusão de visita com confirmação e motivo obrigatório.
+- Adicionada exclusão de animal com confirmação; o cadastro e todos os atendimentos ativos daquele brinco saem da operação.
+- A edição de animais leva diretamente para **Gestão da fazenda > Cadastros > Animais**.
+- Lotes, animais e doenças continuam com adicionar, editar, remover e restaurar nas telas de gestão já existentes.
+- Exclusões de visitas e animais passaram a usar a RPC protegida **hoof_admin_manage_data**, limitada ao gerente, à empresa e à fazenda autorizadas.
+- Visitas excluídas recebem status **cancelled**, motivo, data, administrador responsável e escopo da exclusão.
+- Cada exclusão gera registros em **hoof_corrections** e **hoof_admin_audit**; nenhum histórico clínico é apagado silenciosamente.
+- Visitas canceladas deixam de aparecer em histórico operacional, agenda, métricas e PDFs.
+- Adicionado teste para garantir que visitas canceladas sejam ocultadas e continuem identificadas no payload remoto.
+- Atualizado o cache offline para **v14**.
+
+### Por que foi feito
+
+- Permitir que o administrador resolva registros duplicados ou incorretos sem depender de intervenção técnica.
+- Oferecer os comandos esperados de editar e excluir para os principais dados do sistema.
+- Manter a data, o horário, o funcionário e a trilha de auditoria confiáveis mesmo quando um registro sai da operação.
+- Evitar que exclusões de uma fazenda afetem outra fazenda ou empresa.
+
+### Como validar
+
+- Abrir **Administração > Dados > Visitas**, buscar um brinco e usar **Editar/corrigir**.
+- Excluir uma visita informando o motivo e confirmar que ela desaparece do histórico, agenda, métricas e PDF.
+- Abrir **Administração > Dados > Animais**, tocar no lápis e confirmar a abertura direta do cadastro de animais.
+- Excluir um animal com visitas e confirmar que o animal e seus atendimentos deixam a operação.
+- Conferir em **Administração > Auditoria** as ações de exclusão.
+- Confirmar que um funcionário comum não recebe acesso à aba administrativa.
+- Rodar **npm run test**, **npm run typecheck**, **npm run lint**, **npm run build:vercel** e **npm run test:e2e**.
+
+### Próximos passos
+
+1. Validar exclusões com dados de teste antes do piloto real.
+2. Adicionar uma visualização de arquivo morto para restaurar cancelamentos somente se o cliente solicitar.
+3. Definir uma política comercial de retenção; exclusão física de prontuários deve continuar indisponível no uso comum.
+
 ## 2026-08-03 - Edição e exclusão segura de funcionários
 
 ### O que foi feito

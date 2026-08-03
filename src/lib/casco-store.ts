@@ -67,6 +67,7 @@ export interface FootEntry {
 export interface Visit {
   id: string;
   farm_id?: string;
+  status?: "active" | "corrected" | "cancelled";
   date: string; // ISO yyyy-mm-dd
   createdAt: number;
   tag: string;
@@ -79,6 +80,10 @@ export interface Visit {
   device_id?: string;
   correction_of_id?: string;
   correction_reason?: string;
+  cancellation_reason?: string;
+  cancelled_at?: string;
+  cancelled_by?: string;
+  cancellation_scope?: "visit" | "animal";
   feet: FootEntry[];
 }
 
@@ -138,9 +143,13 @@ export function toHoofVisitPayload(v: Visit) {
     employee_id: v.employee_id,
     employee_name: v.employee_name,
     device_id: v.device_id,
-    status: "active",
+    status: v.status ?? "active",
     payload: v,
   };
+}
+
+export function visitIsVisible(visit: Pick<Visit, "status">) {
+  return visit.status === undefined || visit.status === "active";
 }
 
 export function toHoofFeetPayloads(v: Visit) {
@@ -752,10 +761,15 @@ export function loadVisits(): Visit[] {
   try {
     const v3Raw = localStorage.getItem(scopedKey(VISITS_KEY));
     if (v3Raw) {
-      return (JSON.parse(v3Raw) as LegacyVisit[]).map((v) => ({
-        ...v,
-        feet: (v.feet || []).map(migrateFootEntry),
-      })) as Visit[];
+      return (JSON.parse(v3Raw) as LegacyVisit[])
+        .map(
+          (v) =>
+            ({
+              ...v,
+              feet: (v.feet || []).map(migrateFootEntry),
+            }) as Visit,
+        )
+        .filter(visitIsVisible);
     }
 
     const legacyKeys = ["casco.visits.v2", "casco.visits.v1"];
@@ -763,10 +777,15 @@ export function loadVisits(): Visit[] {
       const raw = localStorage.getItem(scopedKey(key));
       if (raw) {
         const legacy = JSON.parse(raw) as LegacyVisit[];
-        const migrated: Visit[] = legacy.map((v) => ({
-          ...v,
-          feet: (v.feet || []).map(migrateFootEntry),
-        })) as Visit[];
+        const migrated: Visit[] = legacy
+          .map(
+            (v) =>
+              ({
+                ...v,
+                feet: (v.feet || []).map(migrateFootEntry),
+              }) as Visit,
+          )
+          .filter(visitIsVisible);
         saveVisits(migrated);
         return migrated;
       }
@@ -862,45 +881,57 @@ export async function hydrateVisitsFromIndexedDb() {
     feetByVisit.set(media.visit_id, feet);
   }
 
-  const visits = visitRows.map((row) => {
-    const data = row.data as {
-      payload?: Visit;
-      id?: string;
-      date?: string;
-      created_at?: string;
-      tag?: string;
-      sex?: Sex;
-      lote?: string;
-      preventivo?: boolean;
-      visitante_nome?: string;
-      employee_id?: string;
-      employee_name?: string;
-      device_id?: string;
-    };
-    const payload = data.payload;
-    const feet = feetByVisit.get(row.id) ?? payload?.feet ?? [];
-    return {
-      id: payload?.id ?? data.id ?? row.id,
-      farm_id: ctx.farm_id,
-      date: payload?.date ?? data.date ?? todayISO(),
-      createdAt:
-        payload?.createdAt ??
-        (data.created_at
-          ? new Date(data.created_at).getTime()
-          : new Date(row.updated_at).getTime()),
-      tag: payload?.tag ?? data.tag ?? "",
-      sex: payload?.sex ?? data.sex ?? "vaca",
-      lote: payload?.lote ?? data.lote,
-      preventivo: payload?.preventivo ?? data.preventivo,
-      visitante_nome: payload?.visitante_nome ?? data.visitante_nome,
-      employee_id: payload?.employee_id ?? data.employee_id,
-      employee_name: payload?.employee_name ?? data.employee_name,
-      device_id: payload?.device_id ?? data.device_id,
-      correction_of_id: payload?.correction_of_id,
-      correction_reason: payload?.correction_reason,
-      feet,
-    } satisfies Visit;
-  });
+  const visits = visitRows
+    .map((row) => {
+      const data = row.data as {
+        payload?: Visit;
+        id?: string;
+        date?: string;
+        created_at?: string;
+        tag?: string;
+        sex?: Sex;
+        lote?: string;
+        preventivo?: boolean;
+        visitante_nome?: string;
+        employee_id?: string;
+        employee_name?: string;
+        device_id?: string;
+        status?: Visit["status"];
+        cancellation_reason?: string;
+        cancelled_at?: string;
+        cancelled_by?: string;
+        cancellation_scope?: Visit["cancellation_scope"];
+      };
+      const payload = data.payload;
+      const feet = feetByVisit.get(row.id) ?? payload?.feet ?? [];
+      return {
+        id: payload?.id ?? data.id ?? row.id,
+        farm_id: ctx.farm_id,
+        date: payload?.date ?? data.date ?? todayISO(),
+        createdAt:
+          payload?.createdAt ??
+          (data.created_at
+            ? new Date(data.created_at).getTime()
+            : new Date(row.updated_at).getTime()),
+        tag: payload?.tag ?? data.tag ?? "",
+        sex: payload?.sex ?? data.sex ?? "vaca",
+        lote: payload?.lote ?? data.lote,
+        preventivo: payload?.preventivo ?? data.preventivo,
+        visitante_nome: payload?.visitante_nome ?? data.visitante_nome,
+        employee_id: payload?.employee_id ?? data.employee_id,
+        employee_name: payload?.employee_name ?? data.employee_name,
+        device_id: payload?.device_id ?? data.device_id,
+        status: data.status ?? payload?.status ?? "active",
+        correction_of_id: payload?.correction_of_id,
+        correction_reason: payload?.correction_reason,
+        cancellation_reason: data.cancellation_reason ?? payload?.cancellation_reason,
+        cancelled_at: data.cancelled_at ?? payload?.cancelled_at,
+        cancelled_by: data.cancelled_by ?? payload?.cancelled_by,
+        cancellation_scope: data.cancellation_scope ?? payload?.cancellation_scope,
+        feet,
+      } satisfies Visit;
+    })
+    .filter(visitIsVisible);
 
   visits.sort((a, b) => b.createdAt - a.createdAt);
   saveVisits(visits);
@@ -912,6 +943,7 @@ export function addVisit(v: Visit) {
   v = {
     ...v,
     ...currentVisitMetadata(),
+    status: "active",
     feet: v.feet.map((foot) =>
       foot.recheck
         ? {

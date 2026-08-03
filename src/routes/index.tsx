@@ -162,7 +162,11 @@ type Screen =
   | { name: "history"; tag: string }
   | { name: "history-list" }
   | { name: "summary" }
-  | { name: "config" }
+  | {
+      name: "config";
+      section?: "dados" | "cadastros" | "avancado";
+      registry?: "lotes" | "animais";
+    }
   | { name: "admin" }
   | { name: "filters" }
   | { name: "calendar" }
@@ -434,6 +438,8 @@ export function Index() {
         {screen.name === "config" && (
           <ConfigScreen
             farm={farm}
+            initialSection={screen.section}
+            initialRegistry={screen.registry}
             onSave={(f) => {
               saveFarm(f);
               setFarm(f);
@@ -456,7 +462,19 @@ export function Index() {
               </div>
             }
           >
-            <AdminScreen />
+            <AdminScreen
+              onCorrectVisit={(visit) =>
+                setScreen({ name: "register", tag: visit.tag, correctionOf: visit.id })
+              }
+              onManageAnimals={() =>
+                setScreen({ name: "config", section: "cadastros", registry: "animais" })
+              }
+              onDataChanged={async () => {
+                await runSync();
+                setFarm(loadFarm());
+                refresh();
+              }}
+            />
           </Suspense>
         )}
         {screen.name === "preventivo" && (
@@ -2912,12 +2930,38 @@ function RegisterScreen({
   onOpenHistory: (tag: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [visit, setVisit] = useState<Visit>(() => ({
-    ...newDraft(initialTag),
-    correction_of_id: correctionOfId,
-  }));
+  const correctionSource = correctionOfId
+    ? loadVisits().find((item) => item.id === correctionOfId)
+    : undefined;
+  const [visit, setVisit] = useState<Visit>(() => {
+    const draft = newDraft(initialTag);
+    if (!correctionSource) return { ...draft, correction_of_id: correctionOfId };
+    return {
+      ...draft,
+      tag: correctionSource.tag,
+      sex: correctionSource.sex,
+      lote: correctionSource.lote,
+      preventivo: correctionSource.preventivo,
+      correction_of_id: correctionSource.id,
+      feet: correctionSource.feet.map((foot) => ({
+        ...foot,
+        zones: [...(foot.zones ?? [])],
+        diseases: (foot.diseases ?? []).map((disease) => ({
+          ...disease,
+          zones: disease.zones ? [...disease.zones] : undefined,
+        })),
+        treatments: [...(foot.treatments ?? [])],
+        comments: [...(foot.comments ?? [])],
+        photo: undefined,
+        photoStoragePath: undefined,
+        photoPendingUpload: undefined,
+      })),
+    };
+  });
   const [step, setStep] = useState<RegStep>("worker");
-  const [badFeet, setBadFeet] = useState<FootKey[]>([]);
+  const [badFeet, setBadFeet] = useState<FootKey[]>(
+    () => correctionSource?.feet.filter((foot) => !foot.ok).map((foot) => foot.foot) ?? [],
+  );
   const [footIdx, setFootIdx] = useState(0);
   const [showVisitOptions, setShowVisitOptions] = useState(false);
   const [showFootAdvanced, setShowFootAdvanced] = useState(false);
@@ -4816,10 +4860,14 @@ function ClinicalDeadline({ label, days }: { label: string; days: number }) {
 /* ───────────── Config ───────────── */
 function ConfigScreen({
   farm,
+  initialSection,
+  initialRegistry,
   onSave,
   onImport,
 }: {
   farm: FarmConfig;
+  initialSection?: "dados" | "cadastros" | "avancado";
+  initialRegistry?: "lotes" | "animais";
   onSave: (f: FarmConfig) => void;
   onImport: () => void;
 }) {
@@ -4831,8 +4879,10 @@ function ConfigScreen({
   const [managerPin, setManagerPin] = useState("");
   const [managerError, setManagerError] = useState("");
   const [managerLoading, setManagerLoading] = useState(false);
-  const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">("dados");
-  const [cadastrosTab, setCadastrosTab] = useState<"lotes" | "animais">("lotes");
+  const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">(
+    initialSection ?? "dados",
+  );
+  const [cadastrosTab, setCadastrosTab] = useState<"lotes" | "animais">(initialRegistry ?? "lotes");
 
   // Dados tab state
   const [name, setName] = useState(farm.farmName);

@@ -3,6 +3,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  Database,
   Download,
   AlertTriangle,
   FileText,
@@ -13,6 +14,7 @@ import {
   Plus,
   Pencil,
   RefreshCw,
+  Search,
   ShieldCheck,
   ShieldOff,
   Trash2,
@@ -24,7 +26,14 @@ import { cn } from "@/lib/utils";
 import { farmContextService } from "@/services/farm-context.service";
 import { adminService, type AdminEmployee, type AdminOverview } from "@/services/admin.service";
 import { isSupabaseConfigured } from "@/services/supabase";
-import { agendaByDate, loadFarm, loadVisits, todayISO } from "@/lib/casco-store";
+import {
+  agendaByDate,
+  allAnimals,
+  loadFarm,
+  loadVisits,
+  todayISO,
+  type Visit,
+} from "@/lib/casco-store";
 import {
   exportVisitsPdf,
   filterVisitsForReport,
@@ -32,7 +41,7 @@ import {
   type VisitReportStatus,
 } from "@/lib/visit-report";
 
-type AdminTab = "reports" | "farms" | "employees" | "devices" | "licenses" | "audit";
+type AdminTab = "reports" | "data" | "farms" | "employees" | "devices" | "licenses" | "audit";
 
 const EMPTY_OVERVIEW: AdminOverview = {
   farms: [],
@@ -49,6 +58,8 @@ const ACTION_LABELS: Record<string, string> = {
   update_employee: "Funcionário atualizado",
   edit_employee: "Cadastro do funcionário atualizado",
   remove_employee: "Funcionário excluído da operação",
+  cancel_visit: "Visita excluída com auditoria",
+  remove_animal: "Animal excluído com auditoria",
   reset_employee_pin: "PIN redefinido",
   assign_employee_farm: "Acesso à fazenda alterado",
   update_device_status: "Aparelho atualizado",
@@ -77,7 +88,15 @@ function StatusBadge({ status, blockedLabel }: { status: string; blockedLabel?: 
   );
 }
 
-export function AdminScreen() {
+export function AdminScreen({
+  onCorrectVisit,
+  onManageAnimals,
+  onDataChanged,
+}: {
+  onCorrectVisit?: (visit: Visit) => void;
+  onManageAnimals?: () => void;
+  onDataChanged?: () => void | Promise<void>;
+}) {
   const context = farmContextService.getContext();
   const [unlocked, setUnlocked] = useState(() => adminService.isUnlocked());
   const [pin, setPin] = useState("");
@@ -114,6 +133,12 @@ export function AdminScreen() {
   const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
   const [reportLote, setReportLote] = useState("all");
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [dataMode, setDataMode] = useState<"visits" | "animals">("visits");
+  const [dataSearch, setDataSearch] = useState("");
+  const [removingData, setRemovingData] = useState<
+    { kind: "visit"; visit: Visit } | { kind: "animal"; tag: string; totalVisits: number } | null
+  >(null);
+  const [dataRemovalReason, setDataRemovalReason] = useState("");
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -168,6 +193,19 @@ export function AdminScreen() {
     });
     return { employee, metrics: visitReportMetrics(visits) };
   });
+  const normalizedDataSearch = dataSearch.trim().toLocaleLowerCase("pt-BR");
+  const operationalVisits = loadVisits()
+    .filter(
+      (visit) =>
+        !normalizedDataSearch ||
+        visit.tag.toLocaleLowerCase("pt-BR").includes(normalizedDataSearch) ||
+        visit.employee_name?.toLocaleLowerCase("pt-BR").includes(normalizedDataSearch),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const operationalAnimals = allAnimals().filter(
+    (animal) =>
+      !normalizedDataSearch || animal.tag.toLocaleLowerCase("pt-BR").includes(normalizedDataSearch),
+  );
 
   async function unlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -272,6 +310,33 @@ export function AdminScreen() {
     if (removed) setRemovingEmployee(null);
   }
 
+  async function removeOperationalData() {
+    if (!removingData || !context) return;
+    const reason = dataRemovalReason.trim();
+    if (reason.length < 3) {
+      setError("Informe o motivo da exclusão com pelo menos 3 caracteres.");
+      return;
+    }
+
+    const removed =
+      removingData.kind === "visit"
+        ? await runAction(
+            "cancel_visit",
+            { visit_id: removingData.visit.id, reason },
+            `Visita do animal ${removingData.visit.tag} excluída.`,
+          )
+        : await runAction(
+            "remove_animal",
+            { farm_id: context.farm_id, tag: removingData.tag, reason },
+            `Animal ${removingData.tag} e seus atendimentos ativos foram excluídos.`,
+          );
+
+    if (!removed) return;
+    setRemovingData(null);
+    setDataRemovalReason("");
+    await onDataChanged?.();
+  }
+
   async function exportAdminPdf() {
     setExportingPdf(true);
     setError("");
@@ -372,6 +437,7 @@ export function AdminScreen() {
 
   const tabs: Array<{ id: AdminTab; label: string; icon: typeof Building2 }> = [
     { id: "reports", label: "Relatórios", icon: FileText },
+    { id: "data", label: "Dados", icon: Database },
     { id: "farms", label: "Fazendas", icon: Building2 },
     { id: "employees", label: "Equipe", icon: Users },
     { id: "devices", label: "Aparelhos", icon: Laptop },
@@ -583,6 +649,178 @@ export function AdminScreen() {
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {tab === "data" && (
+        <section className="space-y-4" aria-labelledby="data-title">
+          <div>
+            <h2 id="data-title" className="font-display text-lg font-black uppercase">
+              Dados da fazenda
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Corrija ou exclua registros somente da fazenda atual
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de dado">
+            <button
+              type="button"
+              onClick={() => setDataMode("visits")}
+              aria-pressed={dataMode === "visits"}
+              className={cn(
+                "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                dataMode === "visits"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-surface text-muted-foreground",
+              )}
+            >
+              Visitas ({loadVisits().length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setDataMode("animals")}
+              aria-pressed={dataMode === "animals"}
+              className={cn(
+                "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                dataMode === "animals"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-surface text-muted-foreground",
+              )}
+            >
+              Animais ({allAnimals().length})
+            </button>
+          </div>
+
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={dataSearch}
+              onChange={(event) => setDataSearch(event.target.value)}
+              inputMode={dataMode === "animals" ? "numeric" : "search"}
+              aria-label={dataMode === "animals" ? "Buscar animal" : "Buscar visita"}
+              placeholder={
+                dataMode === "animals" ? "Buscar brinco" : "Buscar brinco ou funcionário"
+              }
+              className="min-h-12 w-full rounded-lg border border-border bg-surface pl-11 pr-3 outline-none focus:border-primary"
+            />
+          </label>
+
+          {dataMode === "visits" ? (
+            <div className="divide-y divide-border border-y border-border">
+              {operationalVisits.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Nenhuma visita encontrada.
+                </p>
+              ) : (
+                operationalVisits.slice(0, 100).map((visit) => (
+                  <article key={visit.id} className="py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-display text-lg font-black uppercase">
+                          Brinco {visit.tag}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(visit.createdAt).toLocaleString("pt-BR", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })}
+                          {visit.employee_name ? " · " + visit.employee_name : ""}
+                          {visit.lote ? " · lote " + visit.lote : ""}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase",
+                          visit.preventivo
+                            ? "bg-good/10 text-good"
+                            : "bg-warn/15 text-warn-foreground",
+                        )}
+                      >
+                        {visit.preventivo ? "Preventivo" : "Clínico"}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onCorrectVisit?.(visit)}
+                        className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-surface px-3 text-xs font-bold"
+                      >
+                        <Pencil className="h-4 w-4 text-primary" /> Editar/corrigir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRemovingData({ kind: "visit", visit });
+                          setDataRemovalReason("");
+                        }}
+                        className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-danger/10 px-3 text-xs font-bold text-danger"
+                      >
+                        <Trash2 className="h-4 w-4" /> Excluir
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+              {operationalVisits.length > 100 ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">
+                  Mostrando as 100 visitas mais recentes. Use a busca para localizar outra.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="divide-y divide-border border-y border-border">
+              {operationalAnimals.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Nenhum animal encontrado.
+                </p>
+              ) : (
+                operationalAnimals.map((animal) => (
+                  <article key={animal.tag} className="flex items-center gap-3 py-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display text-lg font-black uppercase">
+                        Brinco {animal.tag}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {animal.totalVisits} visita(s)
+                        {animal.lote ? " · lote " + animal.lote : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onManageAnimals}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface text-primary"
+                      aria-label={"Editar animal " + animal.tag}
+                      title="Editar cadastro"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRemovingData({
+                          kind: "animal",
+                          tag: animal.tag,
+                          totalVisits: animal.totalVisits,
+                        });
+                        setDataRemovalReason("");
+                      }}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger"
+                      aria-label={"Excluir animal " + animal.tag}
+                      title="Excluir animal"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+          )}
+
+          <p className="rounded-lg bg-warn/10 p-3 text-xs text-warn-foreground">
+            Exclusões retiram o registro da operação e dos relatórios, mas mantêm a auditoria de
+            quem excluiu, quando e por quê.
+          </p>
         </section>
       )}
 
@@ -1106,6 +1344,71 @@ export function AdminScreen() {
                 className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-danger px-3 font-bold text-danger-foreground disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" /> Excluir acesso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {removingData && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-data-title"
+        >
+          <div className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-danger/10 text-danger">
+              <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+            </div>
+            <h2 id="remove-data-title" className="mt-4 font-display text-lg font-black uppercase">
+              {removingData.kind === "visit" ? "Excluir visita?" : "Excluir animal?"}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {removingData.kind === "visit"
+                ? "A visita do brinco " +
+                  removingData.visit.tag +
+                  " sairá do histórico operacional e dos relatórios."
+                : "O brinco " +
+                  removingData.tag +
+                  " e " +
+                  removingData.totalVisits +
+                  " visita(s) sairão da operação."}{" "}
+              A auditoria será preservada.
+            </p>
+            <label className="mt-4 block">
+              <span className="text-xs font-bold uppercase text-muted-foreground">
+                Motivo obrigatório
+              </span>
+              <textarea
+                autoFocus
+                required
+                maxLength={300}
+                value={dataRemovalReason}
+                onChange={(event) => setDataRemovalReason(event.target.value)}
+                placeholder="Ex.: registro duplicado"
+                aria-label="Motivo da exclusão"
+                className="mt-1 min-h-24 w-full resize-y rounded-lg border-2 border-border bg-surface p-3 outline-none focus:border-primary"
+              />
+            </label>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRemovingData(null);
+                  setDataRemovalReason("");
+                }}
+                className="min-h-12 rounded-lg bg-surface font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={loading || dataRemovalReason.trim().length < 3}
+                onClick={() => void removeOperationalData()}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-danger px-3 font-bold text-danger-foreground disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" /> Confirmar
               </button>
             </div>
           </div>

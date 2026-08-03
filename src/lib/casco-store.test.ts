@@ -20,6 +20,7 @@ import {
   importBackupJson,
   loadFarm,
   loadLastBackupAt,
+  loadVisits,
   normalizeSeverity,
   preventiveList,
   recommendedRecheckForDiseases,
@@ -27,6 +28,8 @@ import {
   saveFarm,
   saveVisits,
   todayISO,
+  toHoofVisitPayload,
+  visitIsVisible,
   type FarmConfig,
   type FootEntry,
   type AgendaItem,
@@ -97,6 +100,15 @@ beforeEach(() => {
 });
 
 describe("casco-store domain rules", () => {
+  it("retira visitas canceladas das telas e mantém o status no payload remoto", () => {
+    const cancelled = visit({ id: "visit-cancelled", status: "cancelled" });
+    saveVisits([cancelled, visit({ id: "visit-active", status: "active" })]);
+
+    expect(visitIsVisible(cancelled)).toBe(false);
+    expect(loadVisits().map((item) => item.id)).toEqual(["visit-active"]);
+    expect(toHoofVisitPayload(cancelled).status).toBe("cancelled");
+  });
+
   it("ignora pés curados ao calcular gravidade ativa", () => {
     const active = foot({
       ok: false,
