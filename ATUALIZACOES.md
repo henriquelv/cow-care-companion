@@ -8,6 +8,40 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-03 - Edição e exclusão segura de funcionários
+
+### O que foi feito
+
+- Confirmada e mantida a edição de nome, login e código do funcionário na área `Administração > Equipe`.
+- Substituída a ação ambígua de remover acesso por um botão explícito `Excluir` com ícone, destaque de perigo e confirmação antes de concluir.
+- Criada a RPC protegida `hoof_admin_remove_employee`, acessível somente por gerente autenticado da mesma empresa.
+- Ao excluir, o funcionário é bloqueado, perde a permissão gerencial e tem todas as sessões abertas revogadas imediatamente.
+- Visitas, métricas, PDFs e auditoria do funcionário excluído continuam preservados.
+- O próprio administrador não pode excluir o próprio acesso.
+- Funcionários excluídos podem ser restaurados pela mesma tela.
+- Atualizado o cache offline para `v13`.
+
+### Por que foi feito
+
+- Dar ao administrador comandos claros para editar e excluir membros da equipe.
+- Evitar que um funcionário removido continue usando uma sessão já aberta.
+- Preservar o histórico clínico e a rastreabilidade dos atendimentos mesmo após a saída de um funcionário.
+
+### Como validar
+
+- Entrar em `Administração > Equipe`, tocar em `Editar`, alterar um dado e salvar.
+- Tocar em `Excluir`, cancelar uma vez e confirmar na segunda tentativa.
+- Confirmar que o funcionário fica bloqueado, não consegue entrar e continua aparecendo nos relatórios históricos.
+- Tocar em `Restaurar acesso` e confirmar que o login volta a ser permitido.
+- Confirmar que não é possível excluir o administrador atualmente conectado.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint` e `npm run build`.
+
+### Próximos passos
+
+1. Validar exclusão e restauração em um celular real durante o piloto.
+2. Avaliar uma política de retenção para exclusão definitiva apenas após o prazo legal definido pelo cliente.
+3. Manter visitas clínicas imutáveis e usar correções auditáveis para qualquer ajuste histórico.
+
 ## 2026-07-31 - Revisões recorrentes, PDF, histórico e gestão da equipe
 
 ### O que foi feito

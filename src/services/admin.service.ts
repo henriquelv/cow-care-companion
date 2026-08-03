@@ -151,11 +151,16 @@ export const adminService = {
             p_manager_token: managerToken,
             p_payload: payload,
           })
-        : await requireSupabase().rpc("hoof_admin_action", {
-            p_manager_token: managerToken,
-            p_action: action,
-            p_payload: payload,
-          });
+        : action === "remove_employee"
+          ? await requireSupabase().rpc("hoof_admin_remove_employee", {
+              p_manager_token: managerToken,
+              p_payload: payload,
+            })
+          : await requireSupabase().rpc("hoof_admin_action", {
+              p_manager_token: managerToken,
+              p_action: action,
+              p_payload: payload,
+            });
     if (error) throw new Error("Não foi possível concluir esta ação.");
     const result = data as { ok?: boolean; message?: string; id?: string } | null;
     if (!result?.ok) {

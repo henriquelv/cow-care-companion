@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Download,
+  AlertTriangle,
   FileText,
   KeyRound,
   Laptop,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   ShieldCheck,
   ShieldOff,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -46,6 +48,7 @@ const ACTION_LABELS: Record<string, string> = {
   create_employee: "Funcionário criado",
   update_employee: "Funcionário atualizado",
   edit_employee: "Cadastro do funcionário atualizado",
+  remove_employee: "Funcionário excluído da operação",
   reset_employee_pin: "PIN redefinido",
   assign_employee_farm: "Acesso à fazenda alterado",
   update_device_status: "Aparelho atualizado",
@@ -60,7 +63,7 @@ function formatDate(value?: string | null) {
   return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, blockedLabel }: { status: string; blockedLabel?: string }) {
   const active = status === "active";
   return (
     <span
@@ -69,7 +72,7 @@ function StatusBadge({ status }: { status: string }) {
         active ? "bg-good/10 text-good" : "bg-danger/10 text-danger",
       )}
     >
-      {active ? "Ativo" : status === "expired" ? "Expirado" : "Bloqueado"}
+      {active ? "Ativo" : status === "expired" ? "Expirado" : (blockedLabel ?? "Bloqueado")}
     </span>
   );
 }
@@ -98,6 +101,7 @@ export function AdminScreen() {
   const [resetEmployee, setResetEmployee] = useState<AdminEmployee | null>(null);
   const [resetPin, setResetPin] = useState("");
   const [editingEmployee, setEditingEmployee] = useState<AdminEmployee | null>(null);
+  const [removingEmployee, setRemovingEmployee] = useState<AdminEmployee | null>(null);
   const [employeeEditForm, setEmployeeEditForm] = useState({
     name: "",
     login_name: "",
@@ -256,6 +260,16 @@ export function AdminScreen() {
       `Cadastro de ${employeeEditForm.name} atualizado.`,
     );
     if (updated) setEditingEmployee(null);
+  }
+
+  async function removeEmployee() {
+    if (!removingEmployee) return;
+    const removed = await runAction(
+      "remove_employee",
+      { employee_id: removingEmployee.id },
+      `${removingEmployee.name} foi excluído da equipe ativa. O histórico foi preservado.`,
+    );
+    if (removed) setRemovingEmployee(null);
   }
 
   async function exportAdminPdf() {
@@ -766,7 +780,7 @@ export function AdminScreen() {
                   {employee.is_admin ? (
                     <span className="text-[10px] font-black uppercase text-primary">Gerente</span>
                   ) : null}
-                  <StatusBadge status={employee.status} />
+                  <StatusBadge status={employee.status} blockedLabel="Excluído" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -786,20 +800,35 @@ export function AdminScreen() {
                   <button
                     type="button"
                     disabled={loading || employee.id === context.employee_id}
-                    onClick={() =>
+                    onClick={() => {
+                      if (employee.status === "active") {
+                        setRemovingEmployee(employee);
+                        return;
+                      }
                       void runAction(
                         "update_employee",
                         {
                           employee_id: employee.id,
-                          status: employee.status === "active" ? "blocked" : "active",
+                          status: "active",
                           is_admin: employee.is_admin,
                         },
-                        `Funcionário ${employee.status === "active" ? "bloqueado" : "reativado"}.`,
-                      )
-                    }
-                    className="min-h-10 rounded-lg bg-surface px-3 text-xs font-bold disabled:opacity-40"
+                        "Funcionário restaurado e liberado para acessar o app.",
+                      );
+                    }}
+                    className={cn(
+                      "flex min-h-10 items-center gap-2 rounded-lg px-3 text-xs font-bold disabled:opacity-40",
+                      employee.status === "active"
+                        ? "bg-danger/10 text-danger"
+                        : "bg-surface text-primary",
+                    )}
                   >
-                    {employee.status === "active" ? "Remover acesso" : "Restaurar acesso"}
+                    {employee.status === "active" ? (
+                      <>
+                        <Trash2 className="h-4 w-4" /> Excluir
+                      </>
+                    ) : (
+                      "Restaurar acesso"
+                    )}
                   </button>
                   <button
                     type="button"
@@ -1038,6 +1067,48 @@ export function AdminScreen() {
               Salvar alterações
             </button>
           </form>
+        </div>
+      )}
+
+      {removingEmployee && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-employee-title"
+        >
+          <div className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-danger/10 text-danger">
+              <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+            </div>
+            <h2
+              id="remove-employee-title"
+              className="mt-4 font-display text-lg font-black uppercase"
+            >
+              Excluir funcionário?
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {removingEmployee.name} perderá o acesso imediatamente. As visitas, métricas e
+              registros de auditoria serão mantidos e o acesso poderá ser restaurado depois.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRemovingEmployee(null)}
+                className="min-h-12 rounded-lg bg-surface font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void removeEmployee()}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-danger px-3 font-bold text-danger-foreground disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" /> Excluir acesso
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
