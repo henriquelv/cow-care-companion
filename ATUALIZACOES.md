@@ -1360,6 +1360,8 @@ Critério de sucesso:
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel`, `npm run test:e2e`, `npm audit --audit-level=high` e `npm run verify:production`.
 - Resultado desta rodada: 37 testes unitários, 10 fluxos Playwright, lint, typecheck, build e auditoria de dependências aprovados.
 - Verificação do banco real aprovada com acesso público bloqueado e zero registros cruzados entre StarMilk e Hullsjob.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`, com cache `v15` e os novos cabeçalhos de segurança ativos.
+- Domínio público conferido em `320x568` e `768x1024`, com resposta `200`, sem overflow horizontal e sem erros de página.
 
 ## Próximos passos
 
