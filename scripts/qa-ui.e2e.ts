@@ -83,9 +83,19 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   await expect(page.getByText("Romano", { exact: true })).toBeVisible();
   await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
-  await expect(page.getByText(/Casqueamento preventivo registrado/i)).toBeVisible();
+  await expect(page.getByText(/Animal 9876 cadastrado automaticamente/i)).toBeVisible();
   await page.getByRole("button", { name: /^OK/ }).click();
   await expect(page.getByText("9876", { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Preventivo" }).click();
+  await expect(
+    page.getByRole("button", { name: "Registrar casqueamento preventivo do brinco 9876" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Avaliar os cascos do brinco 9876" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Calendário" }).click();
+  await page.getByRole("button", { name: /Abrir primeiro compromisso da agenda/i }).click();
+  await expect(page.getByText("Casqueamento preventivo", { exact: true })).toBeVisible();
 });
 
 test("Dermatite Digital sugere revisão automática em 7 dias", async ({ page }) => {

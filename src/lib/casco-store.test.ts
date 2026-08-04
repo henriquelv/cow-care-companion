@@ -23,6 +23,7 @@ import {
   loadLastBackupAt,
   loadVisits,
   normalizeSeverity,
+  preventiveAgendaItems,
   preventiveList,
   recommendedRecheckForDiseases,
   rechecksByDate,
@@ -105,6 +106,7 @@ describe("casco-store domain rules", () => {
     vi.useRealTimers();
     await localdb.open();
     await localdb.animals.clear();
+    await localdb.outbox.clear();
 
     const first = addVisit(
       visit({
@@ -128,6 +130,15 @@ describe("casco-store domain rules", () => {
       synced: false,
       data: expect.objectContaining({ tag: "Ab-123", lote: "A1", status: "active" }),
     });
+    expect(await pendingOutbox("farm-1")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "animals",
+          op: "upsert",
+          payload: expect.objectContaining({ tag: "Ab-123", lote: "A1", status: "active" }),
+        }),
+      ]),
+    );
   });
 
   it("retira visitas canceladas das telas e mantém o status no payload remoto", () => {
@@ -579,6 +590,48 @@ describe("casco-store domain rules", () => {
     expect(preventive.feet).toHaveLength(4);
     expect(preventive.feet.every((f) => f.ok)).toBe(true);
     expect(preventive.feet.every((f) => f.diseases?.length === 0)).toBe(true);
+  });
+
+  it("agenda o preventivo e move a próxima data depois do casqueamento", () => {
+    saveFarm({
+      ...farm,
+      dias_para_preventivo: 10,
+      animais: [
+        { tag: "100", sex: "vaca", lote: "A1" },
+        { tag: "200", sex: "vaca", lote: "A1" },
+      ],
+    });
+    saveVisits([
+      visit({
+        id: "preventive-old",
+        tag: "100",
+        date: "2026-05-10",
+        createdAt: new Date("2026-05-10T10:00:00-03:00").getTime(),
+        preventivo: true,
+      }),
+    ]);
+
+    expect(preventiveAgendaItems("2026-05-22", 10)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tag: "100", date: "2026-05-20", overdue: true }),
+        expect.objectContaining({ tag: "200", date: "2026-05-22", overdue: false }),
+      ]),
+    );
+    expect(
+      agendaByDate("2026-05-22", undefined, { includePreventive: true }).get("2026-05-20")?.[0],
+    ).toMatchObject({ tag: "100", type: "preventive" });
+
+    saveVisits([
+      visit({
+        id: "preventive-done",
+        tag: "100",
+        date: "2026-05-22",
+        createdAt: new Date("2026-05-22T10:00:00-03:00").getTime(),
+        preventivo: true,
+      }),
+    ]);
+    const updated = preventiveAgendaItems("2026-05-22", 10).find((item) => item.tag === "100");
+    expect(updated).toMatchObject({ date: "2026-06-01", overdue: false });
   });
 
   it("gera payloads separados de visita e pés para sync", () => {

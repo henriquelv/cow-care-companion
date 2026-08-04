@@ -8,6 +8,45 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - Preventivos na agenda e ações mais claras
+
+### O que foi feito
+
+- O botão ambíguo `OK` da lista preventiva foi substituído por `Registrar preventivo`, deixando claro que a ação grava um casqueamento preventivo normal para os quatro pés.
+- A ação secundária passou a se chamar `Avaliar cascos`, para abrir o registro detalhado quando houver algo a diagnosticar.
+- Os botões preventivos receberam dimensões e texto responsivos para celular e tablet.
+- Os preventivos passaram a aparecer na agenda principal da fazenda junto das revisões e dos prazos de curativo.
+- A data preventiva é calculada pelo intervalo configurado da fazenda; depois de registrar o atendimento, o próximo preventivo é automaticamente movido para o novo vencimento.
+- Animais sem preventivo anterior entram na agenda do dia atual como primeiro atendimento pendente.
+- O resumo da agenda agora informa o primeiro compromisso e leva diretamente ao mês e ao dia correto ao ser tocado.
+- O cartão preventivo da agenda abre um novo atendimento para o animal e também pode gerar um evento para o calendário do celular.
+- Mantidas as opções de revisão a cada `2`, `3`, `5` ou `7` dias, intervalo personalizado e quantidade total de revisões.
+- Corrigido o cadastro automático da primeira visita para também enviar o novo animal à fila offline e ao Supabase; antes, a visita era enfileirada, mas o cadastro do animal podia permanecer apenas no aparelho.
+- Adicionado teste automatizado para o agendamento preventivo, incluindo o recálculo da próxima data após o atendimento.
+- Ampliado o teste de navegador para confirmar cadastro automático, rótulos preventivos e abertura do preventivo futuro na agenda.
+- Atualizado o cache offline para `v18`.
+
+### Por que foi feito
+
+- Evitar que o funcionário grave uma visita sem entender o significado de `OK`.
+- Unificar em uma agenda operacional os compromissos clínicos e preventivos da fazenda.
+- Tornar compromissos futuros fáceis de encontrar, mesmo quando estiverem em outro mês.
+
+### Como validar
+
+- Abrir `Preventivo` e confirmar os botões `Registrar preventivo` e `Avaliar cascos` em celular, tablet e notebook.
+- Registrar um preventivo e confirmar que a próxima data muda conforme `dias para preventivo` nas configurações.
+- Abrir `Agenda`, tocar no resumo superior e confirmar que o calendário navega até o primeiro compromisso.
+- Criar uma lesão, marcar revisão, selecionar intervalo e quantidade e conferir todas as datas na agenda.
+- Registrar um brinco novo, sincronizar e confirmar que ele continua cadastrado depois de recarregar os dados do servidor.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Validar o fluxo com o funcionário em um celular Android real durante o piloto.
+2. Permitir atribuir preventivos a um funcionário específico caso a operação passe a dividir a lista da fazenda por equipe.
+3. Avaliar notificações push para compromissos vencendo no dia, depois que a rotina da agenda estiver validada no campo.
+
 ## 2026-08-03 - Gestão completa de visitas, animais e cadastros
 
 ### O que foi feito

@@ -535,7 +535,7 @@ export interface AgendaItem {
   farm_id?: string;
   farm_name?: string;
   date: string;
-  type: "recheck" | "curative";
+  type: "recheck" | "curative" | "preventive";
   tag: string;
   sex: Sex;
   lote?: string;
@@ -941,16 +941,16 @@ export async function hydrateVisitsFromIndexedDb() {
 }
 
 function registerAnimalFromVisit(v: Visit) {
-  if (!canUseStorage()) return false;
+  if (!canUseStorage()) return { created: false };
   const tag = v.tag.trim();
-  if (!tag) return false;
+  if (!tag) return { created: false };
 
   const farm = loadFarm();
   const normalizedTag = tag.toLocaleLowerCase("pt-BR");
   if (
     farm.animais.some((animal) => animal.tag.trim().toLocaleLowerCase("pt-BR") === normalizedTag)
   ) {
-    return false;
+    return { created: false };
   }
 
   const animal: RegisteredAnimal = {
@@ -961,15 +961,17 @@ function registerAnimalFromVisit(v: Visit) {
   const next = normalizeFarm({ ...farm, animais: [...farm.animais, animal] });
   localStorage.setItem(scopedKey(FARM_KEY), JSON.stringify(next));
 
-  if (v.farm_id) {
-    const payload = {
-      id: `${v.farm_id}_${tag}`,
-      farm_id: v.farm_id,
-      tag,
-      sex: animal.sex ?? "vaca",
-      lote: animal.lote,
-      status: "active",
-    };
+  const payload = v.farm_id
+    ? {
+        id: `${v.farm_id}_${tag}`,
+        farm_id: v.farm_id,
+        tag,
+        sex: animal.sex ?? "vaca",
+        lote: animal.lote,
+        status: "active",
+      }
+    : undefined;
+  if (payload && v.farm_id) {
     void putLocalRecord("animals", {
       id: payload.id,
       farm_id: v.farm_id,
@@ -980,7 +982,7 @@ function registerAnimalFromVisit(v: Visit) {
   }
 
   writeAutoBackup();
-  return true;
+  return { created: true, payload };
 }
 
 export function addVisit(v: Visit) {
@@ -1033,7 +1035,9 @@ export function addVisit(v: Visit) {
 
   all.unshift(v);
   saveVisits(all);
-  const animalCreated = registerAnimalFromVisit(v);
+  const animalRegistration = registerAnimalFromVisit(v);
+  const animalCreated = animalRegistration.created;
+  const registeredAnimal = animalRegistration.payload;
   const syncPayloads = createVisitSyncPayloads(v);
   const updatedAt = new Date().toISOString();
   if (v.farm_id) {
@@ -1077,6 +1081,16 @@ export function addVisit(v: Visit) {
     ]);
   }
   void enqueueOutboxMany([
+    ...(registeredAnimal
+      ? [
+          {
+            farm_id: v.farm_id!,
+            tableName: "animals",
+            op: "upsert" as const,
+            payload: registeredAnimal,
+          },
+        ]
+      : []),
     {
       farm_id: v.farm_id!,
       tableName: "hoof_visits",
@@ -1787,6 +1801,47 @@ export function agendaByDateFromVisits(
   return map;
 }
 
-export function agendaByDate(referenceDate = todayISO(), employeeId?: string) {
-  return agendaByDateFromVisits(loadVisits(), referenceDate, employeeId);
+export function preventiveAgendaItems(
+  referenceDate = todayISO(),
+  diasThreshold = loadFarm().dias_para_preventivo,
+): AgendaItem[] {
+  const threshold = Math.max(1, Math.min(3650, Math.trunc(diasThreshold) || 1));
+  const farmId = farmContextService.getFarmId() ?? undefined;
+  return preventiveList(0).map((animal) => {
+    const date = animal.lastPreventivoDate
+      ? dateAfterDays(threshold, animal.lastPreventivoDate)
+      : referenceDate;
+    return {
+      id: `preventive_${farmId ?? "local"}_${animal.tag}_${date}`,
+      farm_id: farmId,
+      date,
+      type: "preventive",
+      tag: animal.tag,
+      sex: animal.sex,
+      lote: animal.lote,
+      feet: [],
+      title: "Casqueamento preventivo",
+      detail: animal.lastPreventivoDate
+        ? `Programado ${threshold} dias após o último preventivo`
+        : "Primeiro preventivo ainda não registrado",
+      overdue: date < referenceDate,
+    };
+  });
+}
+
+export function agendaByDate(
+  referenceDate = todayISO(),
+  employeeId?: string,
+  options: { includePreventive?: boolean } = {},
+) {
+  const map = agendaByDateFromVisits(loadVisits(), referenceDate, employeeId);
+  if (!options.includePreventive) return map;
+
+  for (const item of preventiveAgendaItems(referenceDate)) {
+    map.set(item.date, [...(map.get(item.date) ?? []), item]);
+  }
+  for (const items of map.values()) {
+    items.sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.tag.localeCompare(b.tag));
+  }
+  return map;
 }

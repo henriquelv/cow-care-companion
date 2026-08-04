@@ -429,7 +429,10 @@ export function Index() {
         {screen.name === "summary" && <SummaryScreen farm={farm} />}
         {screen.name === "profile" && <EmployeeWorkScreen />}
         {screen.name === "calendar" && (
-          <CalendarScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
+          <CalendarScreen
+            onOpenHistory={(tag) => setScreen({ name: "history", tag })}
+            onNew={(tag) => setScreen({ name: "register", tag })}
+          />
         )}
         {screen.name === "filters" && (
           <FiltersScreen
@@ -2591,7 +2594,13 @@ function downloadAgendaEvent(item: AgendaItem, selectedFarmName?: string) {
   URL.revokeObjectURL(url);
 }
 
-function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
+function CalendarScreen({
+  onOpenHistory,
+  onNew,
+}: {
+  onOpenHistory: (tag: string) => void;
+  onNew: (tag: string) => void;
+}) {
   const today = todayISO();
   const employeeContext = farmContextService.getContext();
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -2601,7 +2610,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
   const [selectedDate, setSelectedDate] = useState(today);
 
   const agendaMap = useMemo(
-    () => agendaByDate(today, employeeContext?.employee_id),
+    () => agendaByDate(today, employeeContext?.employee_id, { includePreventive: true }),
     [today, employeeContext?.employee_id],
   );
   const attendedByDate = useMemo(() => {
@@ -2645,6 +2654,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
 
   const selectedItems = agendaMap.get(selectedDate) ?? [];
   const allPending = Array.from(agendaMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const firstPending = allPending[0];
   const pendingTotal = allPending.reduce((acc, [, items]) => acc + items.length, 0);
   const agendaItems = useMemo(() => Array.from(agendaMap.values()).flat(), [agendaMap]);
   const monthMetrics = useMemo(
@@ -2660,38 +2670,54 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
     [agendaItems, employeeContext?.employee_id, employeeContext?.employee_name, month, year],
   );
 
+  function openFirstPending() {
+    if (!firstPending) return;
+    const date = firstPending[0];
+    const pendingDate = new Date(`${date}T12:00:00`);
+    setCurrentMonth({ year: pendingDate.getFullYear(), month: pendingDate.getMonth() });
+    setSelectedDate(date);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
         <User className="h-5 w-5 text-primary" />
         <div>
-          <p className="text-[10px] font-bold uppercase text-muted-foreground">Agenda de</p>
+          <p className="text-[10px] font-bold uppercase text-muted-foreground">Agenda da fazenda</p>
           <p className="font-display text-sm font-black uppercase">
-            {employeeContext?.employee_name ?? "Funcionário"}
+            Revisões de {employeeContext?.employee_name ?? "funcionário"} e preventivos
           </p>
         </div>
       </div>
 
       {/* Resumo pendências */}
       {pendingTotal > 0 && (
-        <div
+        <button
+          type="button"
+          onClick={openFirstPending}
           className={cn(
-            "flex items-center gap-3 rounded-2xl border-2 px-4 py-3",
+            "tap flex w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left",
             allPending.some(([d]) => d < today)
               ? "border-danger/50 bg-danger/5"
               : "border-warn/50 bg-warn/5",
           )}
+          aria-label={`Abrir primeiro compromisso da agenda, em ${new Date(`${firstPending[0]}T12:00:00`).toLocaleDateString("pt-BR")}`}
         >
           <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="font-display text-sm font-black uppercase text-warn-foreground">
-              {pendingTotal} compromisso(s) na agenda clínica
+              {pendingTotal} compromisso(s) na agenda da fazenda
             </p>
             {allPending.some(([d]) => d < today) && (
               <p className="text-xs font-bold text-danger">Há atividades clínicas atrasadas</p>
             )}
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              Primeiro: {new Date(`${firstPending[0]}T12:00:00`).toLocaleDateString("pt-BR")} ·{" "}
+              {firstPending[1][0]?.title}
+            </p>
           </div>
-        </div>
+          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
       )}
 
       {/* Navegação de mês */}
@@ -2845,7 +2871,9 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
             <p className="mt-3 font-display text-base font-black uppercase text-muted-foreground">
               Agenda livre neste dia
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">Sem revisão ou prazo de curativo</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sem revisão, curativo ou preventivo
+            </p>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -2856,14 +2884,18 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
                     "tap-lg flex w-full items-center gap-4 rounded-2xl border-2 p-4 text-left",
                     item.overdue
                       ? "border-danger/40 bg-danger/5"
-                      : item.type === "curative"
-                        ? "border-primary/35 bg-primary/5"
-                        : "border-warn/40 bg-warn/5",
+                      : item.type === "preventive"
+                        ? "border-good/35 bg-good/5"
+                        : item.type === "curative"
+                          ? "border-primary/35 bg-primary/5"
+                          : "border-warn/40 bg-warn/5",
                   )}
                 >
                   <button
                     type="button"
-                    onClick={() => onOpenHistory(item.tag)}
+                    onClick={() =>
+                      item.type === "preventive" ? onNew(item.tag) : onOpenHistory(item.tag)
+                    }
                     className="flex min-w-0 flex-1 items-center gap-4 text-left"
                   >
                     <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
@@ -2875,7 +2907,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
                     </div>
                     <div className="flex-1">
                       <p className="font-display text-sm font-black uppercase text-foreground">
-                        {item.type === "curative" ? "Prazo de curativo" : "Revisão clínica"}
+                        {item.title}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>
                       {item.overdue && (
@@ -2910,7 +2942,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
             Agenda em dia
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Nenhuma revisão ou prazo de curativo pendente.
+            Nenhuma revisão, prazo de curativo ou preventivo pendente.
           </p>
         </div>
       )}
@@ -5841,28 +5873,28 @@ function PreventiveScreen({
                     )}
                   </div>
 
-                  <div className="grid shrink-0 grid-cols-2 gap-2 sm:w-40 sm:grid-cols-1">
+                  <div className="grid shrink-0 grid-cols-2 gap-2 sm:w-48 sm:grid-cols-1">
                     <button
                       type="button"
                       onClick={() => handleQuickPreventive(a)}
                       disabled={registrando !== null}
-                      aria-label={`Registrar preventivo OK para brinco ${a.tag}`}
+                      aria-label={`Registrar casqueamento preventivo do brinco ${a.tag}`}
                       className={cn(
-                        "tap min-h-14 rounded-xl border-2 px-3 py-2 font-display text-sm font-black uppercase transition-transform active:scale-[0.98]",
+                        "tap min-h-16 rounded-xl border-2 px-3 py-2 font-display text-xs font-black uppercase leading-tight transition-transform active:scale-[0.98]",
                         isSaving
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-primary bg-primary text-primary-foreground",
                       )}
                     >
                       {isSaving ? (
-                        <span className="flex items-center justify-center gap-2">
+                        <span className="flex min-w-0 items-center justify-center gap-2">
                           <span className="h-5 w-5 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
                           Salvando
                         </span>
                       ) : (
                         <span className="flex items-center justify-center gap-2">
                           <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-                          OK
+                          Registrar preventivo
                         </span>
                       )}
                     </button>
@@ -5870,12 +5902,12 @@ function PreventiveScreen({
                       type="button"
                       onClick={() => onNew(a.tag)}
                       disabled={registrando !== null}
-                      aria-label={`Abrir registro detalhado para brinco ${a.tag}`}
-                      className="tap min-h-14 rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-sm font-black uppercase text-foreground transition-transform active:scale-[0.98]"
+                      aria-label={`Avaliar os cascos do brinco ${a.tag}`}
+                      className="tap min-h-16 rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-xs font-black uppercase leading-tight text-foreground transition-transform active:scale-[0.98]"
                     >
-                      <span className="flex items-center justify-center gap-2">
+                      <span className="flex min-w-0 items-center justify-center gap-2">
                         <Scissors className="h-5 w-5 text-primary" aria-hidden="true" />
-                        Detalhar
+                        Avaliar cascos
                       </span>
                     </button>
                   </div>
