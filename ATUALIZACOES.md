@@ -1395,6 +1395,8 @@ Critério de sucesso:
 - Confirmar que o valor corresponde aos brincos únicos das visitas ativas daquele funcionário.
 - Cancelar uma visita em ambiente de teste, sincronizar e confirmar que ela deixa de contar no perfil, calendário e PDF.
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck` e `npm run build:vercel`.
+- Resultado: 37 testes, lint, typecheck, build e verificação de segurança do banco aprovados.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`, com “Animais com visita” e cache `v16` confirmados no domínio público.
 
 ## Próximos passos
 
