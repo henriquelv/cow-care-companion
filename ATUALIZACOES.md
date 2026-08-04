@@ -28,6 +28,8 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Adicionadas colunas estruturadas de taco no Supabase e validações de ação/lado no banco.
 - Migração `202608040003` aplicada e conferida no Supabase de produção: duas colunas de taco disponíveis, nenhuma configuração ainda oferecendo `HHE` e as duas fazendas com `Flegmão` normalizado.
 - Atualizado o cache offline para `v19`.
+- Versão publicada em `https://gestao-de-cascos.vercel.app` pelo commit `87b25ee` e conferida no arquivo final servido pela Vercel.
+- Validação concluída com `43` testes de domínio e `11` fluxos de navegador aprovados, além de lint, TypeScript e build de produção.
 
 ### Por que foi feito
 
