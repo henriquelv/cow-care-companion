@@ -3,14 +3,24 @@ import {
   TREATMENTS,
   diseaseDefinition,
   tacoLabel,
+  footsWorstSeverity,
   visitBelongsToEmployee,
   visitHasTaco,
-  visitIsVisible,
+  visitIsFinalized,
   type AgendaItem,
   type Visit,
 } from "@/lib/casco-store";
 
-export type VisitReportStatus = "all" | "normal" | "preventive" | "problem" | "recheck" | "taco";
+export type VisitReportStatus =
+  | "all"
+  | "normal"
+  | "preventive"
+  | "problem"
+  | "light"
+  | "moderate"
+  | "severe"
+  | "recheck"
+  | "taco";
 
 export interface VisitReportFilters {
   dateFrom?: string;
@@ -26,7 +36,12 @@ export interface VisitReportMetrics {
   animals: number;
   preventive: number;
   normal: number;
+  withoutProblem: number;
   withProblem: number;
+  light: number;
+  moderate: number;
+  severe: number;
+  reviewsPerformed: number;
   scheduledReviews: number;
   withTaco: number;
   tacosApplied: number;
@@ -42,7 +57,7 @@ function hasRecheck(visit: Visit) {
 
 export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilters) {
   return visits
-    .filter(visitIsVisible)
+    .filter(visitIsFinalized)
     .filter(
       (visit) =>
         !filters.employeeId ||
@@ -54,11 +69,17 @@ export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilte
     .filter((visit) => {
       switch (filters.status ?? "all") {
         case "normal":
-          return !hasProblem(visit);
+          return !hasProblem(visit) && !visit.preventivo;
         case "preventive":
-          return visit.preventivo === true;
+          return visit.preventivo === true && !hasProblem(visit);
         case "problem":
           return hasProblem(visit);
+        case "light":
+          return footsWorstSeverity(visit.feet) === 1;
+        case "moderate":
+          return footsWorstSeverity(visit.feet) === 2;
+        case "severe":
+          return footsWorstSeverity(visit.feet) === 3;
         case "recheck":
           return hasRecheck(visit);
         case "taco":
@@ -71,14 +92,21 @@ export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilte
 }
 
 export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): VisitReportMetrics {
-  const visibleVisits = visits.filter(visitIsVisible);
+  const visibleVisits = visits.filter(visitIsFinalized);
   return {
     visits: visibleVisits.length,
     animals: new Set(visibleVisits.map((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR")))
       .size,
-    preventive: visibleVisits.filter((visit) => visit.preventivo).length,
-    normal: visibleVisits.filter((visit) => !hasProblem(visit)).length,
+    preventive: visibleVisits.filter((visit) => visit.preventivo && !hasProblem(visit)).length,
+    normal: visibleVisits.filter((visit) => !hasProblem(visit) && !visit.preventivo).length,
+    withoutProblem: visibleVisits.filter((visit) => !hasProblem(visit)).length,
     withProblem: visibleVisits.filter(hasProblem).length,
+    light: visibleVisits.filter((visit) => footsWorstSeverity(visit.feet) === 1).length,
+    moderate: visibleVisits.filter((visit) => footsWorstSeverity(visit.feet) === 2).length,
+    severe: visibleVisits.filter((visit) => footsWorstSeverity(visit.feet) === 3).length,
+    reviewsPerformed: visibleVisits.filter((visit) =>
+      visit.feet.some((foot) => (foot.numero_revisoes ?? 0) > 1),
+    ).length,
     scheduledReviews: agenda.filter((item) =>
       visibleVisits.some((visit) => visit.id === item.visit_id),
     ).length,
@@ -92,7 +120,7 @@ export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): 
 
 function diagnosisSummary(visit: Visit) {
   if (!hasProblem(visit)) return visit.preventivo ? "Casco normal / preventivo" : "Casco normal";
-  return visit.feet
+  const diagnoses = visit.feet
     .filter((foot) => !foot.ok)
     .flatMap((foot) =>
       (foot.diseases ?? [])
@@ -103,6 +131,12 @@ function diagnosisSummary(visit: Visit) {
         ),
     )
     .join("; ");
+  return (
+    diagnoses ||
+    (visitHasTaco(visit)
+      ? "Acompanhamento de taco, sem lesão ativa"
+      : "Problema sem lesão informada")
+  );
 }
 
 function treatmentSummary(visit: Visit) {
@@ -171,7 +205,7 @@ export async function exportVisitsPdf(input: {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.text(
-    `${metrics.visits} visitas   ${metrics.animals} animais   ${metrics.preventive} preventivos   ${metrics.withProblem} com problema   ${metrics.tacosApplied} tacos aplicados   ${metrics.scheduledReviews} revisões agendadas`,
+    `${metrics.visits} atendimentos   ${metrics.animals} animais únicos   ${metrics.withoutProblem} sem lesão   ${metrics.withProblem} com problema   G1 ${metrics.light}   G2 ${metrics.moderate}   G3 ${metrics.severe}`,
     12,
     34,
   );

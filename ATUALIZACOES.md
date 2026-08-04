@@ -8,6 +8,57 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - Métricas confiáveis, fluxo clínico e administração clara
+
+### O que foi feito
+
+- Criado um estado explícito de `rascunho`: uma visita só entra no histórico, na agenda e nas métricas depois de tocar em `Salvar visita`.
+- Separados `atendimentos` e `animais únicos` nos relatórios. Três visitas do mesmo brinco agora contam como três atendimentos e um animal.
+- Refeito o painel administrativo com explicação em cada indicador, métricas do período, situação atual do rebanho e resultados por funcionário.
+- Adicionadas métricas por gravidade: problema leve (G1), moderado (G2) e grave (G3), além de preventivos, animais sem lesão, revisões e tacos.
+- A situação atual do rebanho deixou de depender do filtro de datas; os filtros continuam valendo apenas para a produção do período e para o PDF.
+- Reorganizada a administração em atalhos visíveis para desempenho, registros, fazendas, equipe, aparelhos, licença e auditoria.
+- Refeita a gestão de fazendas com identificação clara da empresa, isolamento dos dados, quantidade de funcionários, aparelhos, licença, edição e bloqueio.
+- Removido `Mais opções` do início da visita. O lote opcional e o funcionário responsável ficam visíveis, abaixo do brinco.
+- Após informar o brinco, o app mostra um resumo do animal: visitas anteriores, último atendimento, funcionário, doenças ativas, duração real da doença e tacos ativos.
+- A duração clínica agora acompanha a continuidade da mesma doença entre visitas; ela não é reiniciada apenas porque houve um novo atendimento.
+- O fluxo principal passou a oferecer somente `Casqueamento preventivo` ou `Registrar problema`; taco é um tratamento adicional e não um tipo de atendimento.
+- Taco existente é reconhecido por pé e lado, aparece no resumo e já entra pré-selecionado como `Deixar taco colocado`; `Retirar taco` encerra o acompanhamento daquele taco.
+- A revisão passou a ser claramente opcional. A sugestão da doença só preenche a agenda quando o funcionário escolhe `Sim, agendar`.
+- Criada a ação `O problema não existe mais`, com confirmação de cura e escolha entre liberar para preventivo ou continuar em acompanhamento.
+- Impedido o salvamento de preventivo com lesão ou taco ativo, evitando animais saudáveis e doentes na mesma classificação.
+- Adicionadas as categorias `Sola Dupla` e `Problema de Locomoção`, ambas editáveis pelo gerente como as demais doenças.
+- Reorganizados os filtros por situação, gravidade, lote, período, revisão e taco; os filtros clínicos detalhados ficam em uma seção identificada.
+- Telas secundárias usam seta de voltar e os novos controles se adaptam a celular, tablet e notebook sem abas horizontais escondidas.
+- Aplicada a migração Supabase `202608040004`; as duas fazendas receberam as novas categorias sem perder regras personalizadas e sem misturar `farm_id`.
+- Atualizado o cache offline para `v20`.
+- Validação concluída com `51` testes unitários e `12` fluxos completos de navegador em celular e tablet.
+
+### Por que foi feito
+
+- Evitar o erro grave de contabilizar um atendimento que ainda não foi finalizado.
+- Tornar evidente a diferença entre volume de trabalho, animais atendidos e situação clínica atual.
+- Reduzir decisões ambíguas durante a visita, principalmente em revisão, cura e manutenção de taco.
+- Dar ao gerente controles úteis sem alterar bruscamente a rotina principal já usada pela equipe.
+
+### Como validar
+
+- Iniciar uma visita e sair antes de salvar; confirmar que os números do perfil e da administração não mudam.
+- Registrar três visitas para o mesmo brinco; confirmar `3 atendimentos` e `1 animal`.
+- Repetir a mesma doença em duas visitas e conferir que a duração começa na primeira ocorrência contínua.
+- Abrir um animal com taco em uma nova visita e confirmar pé, lado e opção `Deixar taco colocado` pré-selecionada.
+- Marcar uma doença como curada, liberar para preventivo e confirmar que nenhuma revisão é criada sem selecionar `Sim, agendar`.
+- Conferir `Sola Dupla` e `Problema de Locomoção` no registro e nas regras clínicas da fazenda.
+- Abrir administração, gestão de fazenda e filtros em celular e tablet, conferindo setas, rolagem e textos legíveis.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Fazer um piloto curto em celular Android real e comparar os números do painel com os atendimentos do dia.
+2. Receber a planilha real de animais para implementar importação Excel/CSV com pré-visualização e validação por linha.
+3. Validar com a equipe se `lado esquerdo/direito` deve ser mantido ou trocado por `unha interna/externa`.
+4. Avaliar notificações da agenda somente depois que a rotina de revisões estiver validada no campo.
+
 ## 2026-08-04 - Taco por casco, uma lesão e travas de preenchimento
 
 ### O que foi feito

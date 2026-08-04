@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import {
   addVisit,
   allAnimals,
+  animalClinicalSnapshotFromVisits,
   agendaByDate,
   agendaByDateFromVisits,
   calendarMonthMetricsFromVisits,
@@ -36,6 +37,7 @@ import {
   toHoofVisitPayload,
   validateVisitClinicalData,
   visitIsVisible,
+  visitIsFinalized,
   type FarmConfig,
   type FootEntry,
   type AgendaItem,
@@ -106,6 +108,133 @@ beforeEach(() => {
 });
 
 describe("casco-store domain rules", () => {
+  it("não considera rascunho ou registro incompleto como visita finalizada", () => {
+    expect(visitIsFinalized(visit({ id: "finalizada", tag: "101" }))).toBe(true);
+    expect(visitIsFinalized(visit({ id: "rascunho", tag: "" }))).toBe(false);
+    expect(visitIsFinalized(visit({ id: "rascunho-preenchido", status: "draft" }))).toBe(false);
+    expect(visitIsFinalized(visit({ id: "cancelada", status: "cancelled" }))).toBe(false);
+  });
+
+  it("separa quantidade de visitas da quantidade de animais únicos", () => {
+    saveVisits([
+      visit({ id: "a-1", tag: "100", createdAt: 1 }),
+      visit({ id: "a-2", tag: "100", createdAt: 2 }),
+      visit({ id: "a-3", tag: "100", createdAt: 3 }),
+      visit({ id: "b-1", tag: "200", createdAt: 4 }),
+    ]);
+
+    const animals = allAnimals();
+    expect(animals).toHaveLength(2);
+    expect(animals.find((animal) => animal.tag === "100")?.totalVisits).toBe(3);
+    expect(animals.find((animal) => animal.tag === "200")?.totalVisits).toBe(1);
+  });
+
+  it("oferece Sola Dupla e Problema de Locomoção no catálogo padrão", () => {
+    const codes = defaultDiseaseCatalog().map((disease) => disease.code);
+    expect(codes).toContain("DOUBLE_SOLE");
+    expect(codes).toContain("LOCOMOTION");
+  });
+
+  it("impede classificar como preventivo quando existe problema ativo", () => {
+    const lesionIssues = validateVisitClinicalData(
+      visit({
+        preventivo: true,
+        feet: [foot({ foot: "FE", ok: false, diseases: [{ code: "SU", severity: 2 }] })],
+      }),
+    );
+    const tacoIssues = validateVisitClinicalData(
+      visit({
+        preventivo: true,
+        feet: [foot({ foot: "FD", taco: { action: "maintain", side: "right" } })],
+      }),
+    );
+    expect(lesionIssues.some((issue) => issue.message.includes("Preventivo"))).toBe(true);
+    expect(tacoIssues.some((issue) => issue.message.includes("Preventivo"))).toBe(true);
+  });
+
+  it("preserva o início da doença enquanto o diagnóstico continua", () => {
+    const first = visit({
+      id: "doenca-1",
+      tag: "501",
+      date: "2026-05-01",
+      createdAt: new Date("2026-05-01T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "FD", ok: false, diseases: [{ code: "DD", severity: 1 }] })],
+    });
+    const second = visit({
+      id: "doenca-2",
+      tag: "501",
+      date: "2026-05-15",
+      createdAt: new Date("2026-05-15T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "FD", ok: false, diseases: [{ code: "DD", severity: 2 }] })],
+    });
+
+    expect(
+      animalClinicalSnapshotFromVisits([second, first], "501").activeDiseases[0],
+    ).toMatchObject({
+      code: "DD",
+      foot: "FD",
+      severity: 2,
+      sinceDate: "2026-05-01",
+      visits: 2,
+    });
+  });
+
+  it("encerra o episódio clínico quando o casco é marcado como curado", () => {
+    const active = visit({
+      id: "ativa",
+      tag: "502",
+      date: "2026-05-01",
+      createdAt: new Date("2026-05-01T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "TE", ok: false, diseases: [{ code: "SU", severity: 3 }] })],
+    });
+    const cured = visit({
+      id: "curada",
+      tag: "502",
+      date: "2026-05-20",
+      createdAt: new Date("2026-05-20T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "TE", ok: false, resolved: true, data_liberacao: "2026-05-20" })],
+    });
+
+    const snapshot = animalClinicalSnapshotFromVisits([active, cured], "502");
+    expect(snapshot.activeDiseases).toEqual([]);
+    expect(snapshot.hasActiveProblem).toBe(false);
+  });
+
+  it("mantém a data original do taco até a retirada", () => {
+    const applied = visit({
+      id: "taco-aplicado",
+      tag: "503",
+      date: "2026-05-01",
+      createdAt: new Date("2026-05-01T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "TD", ok: false, taco: { action: "apply", side: "right" } })],
+    });
+    const maintained = visit({
+      id: "taco-mantido",
+      tag: "503",
+      date: "2026-05-10",
+      createdAt: new Date("2026-05-10T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "TD", ok: false, taco: { action: "maintain", side: "right" } })],
+    });
+    const removed = visit({
+      id: "taco-retirado",
+      tag: "503",
+      date: "2026-05-20",
+      createdAt: new Date("2026-05-20T10:00:00-03:00").getTime(),
+      feet: [foot({ foot: "TD", ok: false, taco: { action: "remove", side: "right" } })],
+    });
+
+    expect(
+      animalClinicalSnapshotFromVisits([maintained, applied], "503").activeTacos[0],
+    ).toMatchObject({
+      foot: "TD",
+      side: "right",
+      sinceDate: "2026-05-01",
+    });
+    expect(
+      animalClinicalSnapshotFromVisits([applied, maintained, removed], "503").activeTacos,
+    ).toEqual([]);
+  });
+
   it("cadastra automaticamente o animal na primeira visita sem duplicar o brinco", async () => {
     vi.useRealTimers();
     await localdb.open();

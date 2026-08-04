@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  Activity,
+  BarChart3,
   Building2,
   CalendarClock,
   CheckCircle2,
   Database,
   Download,
   AlertTriangle,
-  FileText,
+  HeartPulse,
+  Info,
   KeyRound,
   Laptop,
   LoaderCircle,
@@ -24,7 +27,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { farmContextService } from "@/services/farm-context.service";
-import { adminService, type AdminEmployee, type AdminOverview } from "@/services/admin.service";
+import {
+  adminService,
+  type AdminEmployee,
+  type AdminFarm,
+  type AdminOverview,
+} from "@/services/admin.service";
 import { isSupabaseConfigured } from "@/services/supabase";
 import {
   agendaByDate,
@@ -32,6 +40,7 @@ import {
   loadFarm,
   loadVisits,
   todayISO,
+  visitIsFinalized,
   type Visit,
 } from "@/lib/casco-store";
 import {
@@ -88,6 +97,39 @@ function StatusBadge({ status, blockedLabel }: { status: string; blockedLabel?: 
   );
 }
 
+function MetricTile({
+  value,
+  label,
+  help,
+  tone = "primary",
+}: {
+  value: number;
+  label: string;
+  help: string;
+  tone?: "primary" | "good" | "warn" | "danger";
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p
+          className={cn(
+            "font-display text-3xl font-black leading-none",
+            tone === "primary" && "text-primary",
+            tone === "good" && "text-good",
+            tone === "warn" && "text-warn-foreground",
+            tone === "danger" && "text-danger",
+          )}
+        >
+          {value}
+        </p>
+        <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </div>
+      <p className="mt-2 text-xs font-black uppercase text-foreground">{label}</p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{help}</p>
+    </div>
+  );
+}
+
 export function AdminScreen({
   onCorrectVisit,
   onManageAnimals,
@@ -108,6 +150,8 @@ export function AdminScreen({
   const [showFarmForm, setShowFarmForm] = useState(false);
   const [farmName, setFarmName] = useState("");
   const [farmMaxDevices, setFarmMaxDevices] = useState("10");
+  const [editingFarm, setEditingFarm] = useState<AdminFarm | null>(null);
+  const [farmEditForm, setFarmEditForm] = useState({ name: "", max_devices: "10" });
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [employeeForm, setEmployeeForm] = useState({
     name: "",
@@ -160,12 +204,15 @@ export function AdminScreen({
   }, [loadOverview, unlocked]);
 
   useEffect(() => {
-    const modalOpen = Boolean(editingEmployee || removingEmployee || removingData || resetEmployee);
+    const modalOpen = Boolean(
+      editingFarm || editingEmployee || removingEmployee || removingData || resetEmployee,
+    );
     if (!modalOpen) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setEditingEmployee(null);
+      setEditingFarm(null);
       setRemovingEmployee(null);
       setRemovingData(null);
       setResetEmployee(null);
@@ -178,7 +225,7 @@ export function AdminScreen({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [editingEmployee, removingData, removingEmployee, resetEmployee]);
+  }, [editingEmployee, editingFarm, removingData, removingEmployee, resetEmployee]);
 
   const farmNames = useMemo(
     () => new Map(overview.farms.map((farm) => [farm.id, farm.name])),
@@ -200,6 +247,19 @@ export function AdminScreen({
   const reportVisits = filterVisitsForReport(loadVisits(), reportFilters);
   const reportAgenda = Array.from(agendaByDate(today, reportEmployee?.id).values()).flat();
   const reportMetrics = visitReportMetrics(reportVisits, reportAgenda);
+  const currentAnimals = allAnimals();
+  const currentHerdMetrics = {
+    registered: currentAnimals.length,
+    visited: currentAnimals.filter((animal) => animal.totalVisits > 0).length,
+    withProblem: currentAnimals.filter((animal) => animal.hasProblem).length,
+    withoutProblem: currentAnimals.filter((animal) => animal.totalVisits > 0 && !animal.hasProblem)
+      .length,
+    light: currentAnimals.filter((animal) => animal.worstSeverity === 1).length,
+    moderate: currentAnimals.filter((animal) => animal.worstSeverity === 2).length,
+    severe: currentAnimals.filter((animal) => animal.worstSeverity === 3).length,
+    withTaco: currentAnimals.filter((animal) => animal.hasTaco).length,
+    withRecheck: currentAnimals.filter((animal) => animal.hasRecheck).length,
+  };
   const farmEmployees = overview.employees.filter(
     (employee) => !context?.farm_id || employee.farm_ids.includes(context.farm_id),
   );
@@ -216,6 +276,7 @@ export function AdminScreen({
   });
   const normalizedDataSearch = dataSearch.trim().toLocaleLowerCase("pt-BR");
   const operationalVisits = loadVisits()
+    .filter(visitIsFinalized)
     .filter(
       (visit) =>
         !normalizedDataSearch ||
@@ -273,6 +334,27 @@ export function AdminScreen({
     setFarmName("");
     setFarmMaxDevices("10");
     setShowFarmForm(false);
+  }
+
+  function openFarmEdit(farm: AdminFarm) {
+    setEditingFarm(farm);
+    setFarmEditForm({ name: farm.name, max_devices: String(farm.max_devices) });
+  }
+
+  async function submitFarmEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingFarm) return;
+    const updated = await runAction(
+      "update_farm",
+      {
+        farm_id: editingFarm.id,
+        name: farmEditForm.name,
+        max_devices: Number(farmEditForm.max_devices) || editingFarm.max_devices,
+        status: editingFarm.status,
+      },
+      `Fazenda ${farmEditForm.name} atualizada.`,
+    );
+    if (updated) setEditingFarm(null);
   }
 
   async function createEmployee(event: FormEvent<HTMLFormElement>) {
@@ -456,15 +538,16 @@ export function AdminScreen({
     );
   }
 
-  const tabs: Array<{ id: AdminTab; label: string; icon: typeof Building2 }> = [
-    { id: "reports", label: "Relatórios", icon: FileText },
-    { id: "data", label: "Dados", icon: Database },
-    { id: "farms", label: "Fazendas", icon: Building2 },
-    { id: "employees", label: "Equipe", icon: Users },
-    { id: "devices", label: "Aparelhos", icon: Laptop },
-    { id: "licenses", label: "Licenças", icon: CalendarClock },
-    { id: "audit", label: "Auditoria", icon: ShieldCheck },
-  ];
+  const tabs: Array<{ id: AdminTab; label: string; description: string; icon: typeof Building2 }> =
+    [
+      { id: "reports", label: "Desempenho", description: "Métricas e PDF", icon: BarChart3 },
+      { id: "data", label: "Registros", description: "Visitas e animais", icon: Database },
+      { id: "farms", label: "Fazendas", description: "Unidades separadas", icon: Building2 },
+      { id: "employees", label: "Equipe", description: "Pessoas e acessos", icon: Users },
+      { id: "devices", label: "Aparelhos", description: "Celulares e tablets", icon: Laptop },
+      { id: "licenses", label: "Licença", description: "Validade do uso", icon: CalendarClock },
+      { id: "audit", label: "Auditoria", description: "Ações realizadas", icon: ShieldCheck },
+    ];
 
   return (
     <div className="space-y-5 pb-8">
@@ -489,31 +572,41 @@ export function AdminScreen({
       </section>
 
       <div
-        className="-mx-4 overflow-x-auto border-b border-border px-4"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-4"
         role="tablist"
         aria-label="Administração"
       >
-        <div className="flex min-w-max gap-1 pb-2">
-          {tabs.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                onClick={() => setTab(item.id)}
-                className={cn(
-                  "flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs font-black uppercase",
-                  tab === item.id ? "bg-primary text-primary-foreground" : "text-muted-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
+        {tabs.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              onClick={() => setTab(item.id)}
+              className={cn(
+                "flex min-h-16 items-center gap-2 rounded-lg border px-3 text-left",
+                tab === item.id
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground",
+              )}
+            >
+              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase">{item.label}</span>
+                <span
+                  className={cn(
+                    "mt-0.5 block text-[10px]",
+                    tab === item.id ? "opacity-85" : "text-muted-foreground",
+                  )}
+                >
+                  {item.description}
+                </span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {error ? (
@@ -531,102 +624,271 @@ export function AdminScreen({
         <section className="space-y-5" aria-labelledby="reports-title">
           <div>
             <h2 id="reports-title" className="font-display text-lg font-black uppercase">
-              Produção da equipe
+              Desempenho da fazenda
             </h2>
-            <p className="text-xs text-muted-foreground">
-              Filtros e PDF da fazenda atual, sem misturar outras fazendas
+            <p className="mt-1 text-sm text-muted-foreground">
+              Atendimentos finalizados e situação atual dos animais desta fazenda.
             </p>
           </div>
 
-          <div className="grid gap-3 border-y border-border py-4 sm:grid-cols-2">
-            <label>
-              <span className="text-[10px] font-black uppercase text-muted-foreground">
-                Funcionário
-              </span>
-              <select
-                value={reportEmployeeId}
-                onChange={(event) => setReportEmployeeId(event.target.value)}
-                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-              >
-                <option value="all">Toda a equipe</option>
-                {farmEmployees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="text-[10px] font-black uppercase text-muted-foreground">Tipo</span>
-              <select
-                value={reportStatus}
-                onChange={(event) => setReportStatus(event.target.value as VisitReportStatus)}
-                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-              >
-                <option value="all">Todos</option>
-                <option value="preventive">Preventivos</option>
-                <option value="normal">Cascos normais</option>
-                <option value="problem">Com problema</option>
-                <option value="recheck">Com revisão</option>
-                <option value="taco">Com taco</option>
-              </select>
-            </label>
-            <label>
-              <span className="text-[10px] font-black uppercase text-muted-foreground">De</span>
-              <input
-                type="date"
-                value={reportFrom}
-                max={reportTo || undefined}
-                onChange={(event) => setReportFrom(event.target.value)}
-                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-              />
-            </label>
-            <label>
-              <span className="text-[10px] font-black uppercase text-muted-foreground">Até</span>
-              <input
-                type="date"
-                value={reportTo}
-                min={reportFrom || undefined}
-                onChange={(event) => setReportTo(event.target.value)}
-                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-              />
-            </label>
-            <label className="sm:col-span-2">
-              <span className="text-[10px] font-black uppercase text-muted-foreground">Lote</span>
-              <select
-                value={reportLote}
-                onChange={(event) => setReportLote(event.target.value)}
-                className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-              >
-                <option value="all">Todos os lotes</option>
-                {loadFarm().lotes.map((lote) => (
-                  <option key={lote} value={lote}>
-                    {lote}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card sm:grid-cols-3">
-            {[
-              ["Visitas", reportMetrics.visits],
-              ["Animais", reportMetrics.animals],
-              ["Preventivos", reportMetrics.preventive],
-              ["Normais", reportMetrics.normal],
-              ["Problemas", reportMetrics.withProblem],
-              ["Com taco", reportMetrics.withTaco],
-              ["Revisões", reportMetrics.scheduledReviews],
-            ].map(([label, value]) => (
-              <div
-                key={String(label)}
-                className="border-b border-r border-border px-2 py-3 text-center"
-              >
-                <p className="font-display text-2xl font-black text-primary">{value}</p>
-                <p className="text-[9px] font-bold uppercase text-muted-foreground">{label}</p>
+          <section className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-sm font-black uppercase">Filtros do período</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Os números de produção seguem estas escolhas.
+                </p>
               </div>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportFrom(`${today.slice(0, 7)}-01`);
+                  setReportTo(today);
+                  setReportEmployeeId("all");
+                  setReportStatus("all");
+                  setReportLote("all");
+                }}
+                className="min-h-10 shrink-0 rounded-lg bg-surface px-3 text-xs font-black uppercase text-primary"
+              >
+                Limpar
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label>
+                <span className="text-[10px] font-black uppercase text-muted-foreground">
+                  Funcionário
+                </span>
+                <select
+                  value={reportEmployeeId}
+                  onChange={(event) => setReportEmployeeId(event.target.value)}
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                >
+                  <option value="all">Toda a equipe</option>
+                  {farmEmployees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="text-[10px] font-black uppercase text-muted-foreground">
+                  Tipo de atendimento
+                </span>
+                <select
+                  value={reportStatus}
+                  onChange={(event) => setReportStatus(event.target.value as VisitReportStatus)}
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                >
+                  <option value="all">Todos os tipos</option>
+                  <option value="preventive">Preventivo sem lesão</option>
+                  <option value="normal">Sem lesão, não preventivo</option>
+                  <option value="problem">Com problema</option>
+                  <option value="light">Problema leve</option>
+                  <option value="moderate">Problema moderado</option>
+                  <option value="severe">Problema grave</option>
+                  <option value="recheck">Com revisão</option>
+                  <option value="taco">Com taco</option>
+                </select>
+              </label>
+              <label>
+                <span className="text-[10px] font-black uppercase text-muted-foreground">
+                  Data inicial
+                </span>
+                <input
+                  type="date"
+                  value={reportFrom}
+                  max={reportTo || undefined}
+                  onChange={(event) => setReportFrom(event.target.value)}
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+              <label>
+                <span className="text-[10px] font-black uppercase text-muted-foreground">
+                  Data final
+                </span>
+                <input
+                  type="date"
+                  value={reportTo}
+                  min={reportFrom || undefined}
+                  onChange={(event) => setReportTo(event.target.value)}
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+              <label className="sm:col-span-2">
+                <span className="text-[10px] font-black uppercase text-muted-foreground">Lote</span>
+                <select
+                  value={reportLote}
+                  onChange={(event) => setReportLote(event.target.value)}
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                >
+                  <option value="all">Todos os lotes</option>
+                  {loadFarm().lotes.map((lote) => (
+                    <option key={lote} value={lote}>
+                      {lote}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section aria-labelledby="production-title">
+            <div className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-primary" aria-hidden="true" />
+              <h3 id="production-title" className="font-display text-base font-black uppercase">
+                Produção no período
+              </h3>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Atendimentos conta visitas finalizadas. Animais únicos conta brincos diferentes, então
+              pode ser menor.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MetricTile
+                value={reportMetrics.visits}
+                label="Atendimentos"
+                help="Visitas finalizadas no período"
+              />
+              <MetricTile
+                value={reportMetrics.animals}
+                label="Animais únicos"
+                help="Brincos diferentes atendidos"
+              />
+              <MetricTile
+                value={reportMetrics.withoutProblem}
+                label="Sem lesão"
+                help="Atendimentos sem problema ativo"
+                tone="good"
+              />
+              <MetricTile
+                value={reportMetrics.withProblem}
+                label="Com problema"
+                help="Atendimentos com problema ativo"
+                tone="warn"
+              />
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MetricTile
+                value={reportMetrics.preventive}
+                label="Preventivos"
+                help="Sem lesão e marcados como preventivo"
+                tone="good"
+              />
+              <MetricTile
+                value={reportMetrics.scheduledReviews}
+                label="Revisões futuras"
+                help="Datas geradas para estas visitas"
+                tone="warn"
+              />
+              <MetricTile
+                value={reportMetrics.withTaco}
+                label="Ação de taco"
+                help="Visitas com colocar, deixar ou retirar"
+              />
+              <MetricTile
+                value={reportMetrics.tacosApplied}
+                label="Tacos colocados"
+                help="Quantidade colocada no período"
+              />
+            </div>
+          </section>
+
+          <section
+            className="rounded-lg border border-border bg-card p-4"
+            aria-labelledby="severity-title"
+          >
+            <div className="flex items-center gap-2">
+              <HeartPulse className="h-5 w-5 text-danger" aria-hidden="true" />
+              <h3 id="severity-title" className="font-display text-sm font-black uppercase">
+                Gravidade das lesões
+              </h3>
+            </div>
+            <div className="mt-3 grid grid-cols-3 divide-x divide-border text-center">
+              <div className="px-2">
+                <p className="font-display text-2xl font-black text-warn-foreground">
+                  {reportMetrics.light}
+                </p>
+                <p className="text-[10px] font-black uppercase">Leves · G1</p>
+              </div>
+              <div className="px-2">
+                <p className="font-display text-2xl font-black text-warn-foreground">
+                  {reportMetrics.moderate}
+                </p>
+                <p className="text-[10px] font-black uppercase">Moderados · G2</p>
+              </div>
+              <div className="px-2">
+                <p className="font-display text-2xl font-black text-danger">
+                  {reportMetrics.severe}
+                </p>
+                <p className="text-[10px] font-black uppercase">Graves · G3</p>
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="herd-title">
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" aria-hidden="true" />
+              <h3 id="herd-title" className="font-display text-base font-black uppercase">
+                Situação atual dos animais
+              </h3>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cada brinco aparece uma vez. Este bloco usa toda a evolução clínica e não muda com o
+              período acima.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <MetricTile
+                value={currentHerdMetrics.registered}
+                label="Cadastrados"
+                help="Total de brincos da fazenda"
+              />
+              <MetricTile
+                value={currentHerdMetrics.visited}
+                label="Já atendidos"
+                help="Com pelo menos uma visita"
+              />
+              <MetricTile
+                value={currentHerdMetrics.withoutProblem}
+                label="Sem problema ativo"
+                help="Situação clínica atual"
+                tone="good"
+              />
+              <MetricTile
+                value={currentHerdMetrics.withProblem}
+                label="Em acompanhamento"
+                help="Doença ou taco ainda ativo"
+                tone="warn"
+              />
+              <MetricTile
+                value={currentHerdMetrics.withRecheck}
+                label="Revisão aberta"
+                help="Animais com próxima revisão"
+                tone="warn"
+              />
+              <MetricTile
+                value={currentHerdMetrics.withTaco}
+                label="Taco ativo"
+                help="Ainda não foi retirado"
+              />
+            </div>
+            <div className="mt-2 grid grid-cols-3 rounded-lg border border-border bg-card py-3 text-center">
+              <div>
+                <p className="font-display text-xl font-black">{currentHerdMetrics.light}</p>
+                <p className="text-[9px] font-black uppercase">Leve</p>
+              </div>
+              <div className="border-x border-border">
+                <p className="font-display text-xl font-black">{currentHerdMetrics.moderate}</p>
+                <p className="text-[9px] font-black uppercase">Moderado</p>
+              </div>
+              <div>
+                <p className="font-display text-xl font-black text-danger">
+                  {currentHerdMetrics.severe}
+                </p>
+                <p className="text-[9px] font-black uppercase">Grave</p>
+              </div>
+            </div>
+          </section>
 
           <button
             type="button"
@@ -639,38 +901,64 @@ export function AdminScreen({
             ) : (
               <Download className="h-5 w-5" />
             )}
-            Exportar PDF filtrado
+            Exportar este resultado em PDF
           </button>
 
           {reportEmployeeId === "all" && (
-            <div>
-              <h3 className="font-display text-sm font-black uppercase">Por funcionário</h3>
-              <div className="mt-2 divide-y divide-border border-y border-border">
+            <section>
+              <h3 className="font-display text-base font-black uppercase">
+                Produção por funcionário
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mesma fazenda, período, lote e tipo escolhidos acima.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {employeeMetricRows.map(({ employee, metrics }) => (
-                  <div
+                  <article
                     key={employee.id}
-                    className="grid grid-cols-[1fr_auto_auto] items-center gap-3 py-3"
+                    className="rounded-lg border border-border bg-card p-3"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold">{employee.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {metrics.animals} animal(is) · {metrics.preventive} preventivo(s)
-                      </p>
+                    <p className="truncate font-display text-sm font-black uppercase">
+                      {employee.name}
+                    </p>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="font-display text-xl font-black">{metrics.visits}</p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Atend.</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-black">{metrics.animals}</p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Animais</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-black text-good">
+                          {metrics.preventive}
+                        </p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Prevent.</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-black text-warn-foreground">
+                          {metrics.light}
+                        </p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Leves</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-black text-warn-foreground">
+                          {metrics.moderate}
+                        </p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Moder.</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-black text-danger">
+                          {metrics.severe}
+                        </p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Graves</p>
+                      </div>
                     </div>
-                    <div className="text-center">
-                      <p className="font-display text-xl font-black">{metrics.visits}</p>
-                      <p className="text-[9px] uppercase text-muted-foreground">Visitas</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="font-display text-xl font-black text-warn-foreground">
-                        {metrics.withProblem}
-                      </p>
-                      <p className="text-[9px] uppercase text-muted-foreground">Problemas</p>
-                    </div>
-                  </div>
+                  </article>
                 ))}
               </div>
-            </div>
+            </section>
           )}
         </section>
       )}
@@ -848,86 +1136,167 @@ export function AdminScreen({
       )}
 
       {tab === "farms" && (
-        <section aria-labelledby="farms-title">
-          <div className="mb-3 flex items-center justify-between gap-3">
+        <section className="space-y-4" aria-labelledby="farms-title">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <h2 id="farms-title" className="font-display text-lg font-black uppercase">
-                Fazendas
+                Gestão de fazendas
               </h2>
-              <p className="text-xs text-muted-foreground">Dados sempre separados por fazenda</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Cada fazenda possui animais, visitas, agenda e regras próprias.
+              </p>
             </div>
             <button
               type="button"
               onClick={() => setShowFarmForm((value) => !value)}
               className="flex min-h-11 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
             >
-              <Plus className="h-4 w-4" /> Nova
+              <Plus className="h-4 w-4" /> Adicionar
             </button>
           </div>
+          <p className="flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs text-muted-foreground">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            Funcionários só enxergam as fazendas permitidas. Dados de uma fazenda nunca entram nos
+            relatórios de outra.
+          </p>
           {showFarmForm && (
             <form
               onSubmit={createFarm}
-              className="mb-4 grid gap-3 border-y border-border bg-surface/50 py-4 sm:grid-cols-[1fr_8rem_auto]"
+              className="rounded-lg border-2 border-primary/30 bg-card p-4"
             >
-              <input
-                required
-                value={farmName}
-                onChange={(event) => setFarmName(event.target.value)}
-                placeholder="Nome da fazenda"
-                aria-label="Nome da nova fazenda"
-                className="min-h-12 rounded-lg border border-border bg-background px-3 outline-none focus:border-primary"
-              />
-              <input
-                required
-                type="number"
-                min={1}
-                max={100}
-                value={farmMaxDevices}
-                onChange={(event) => setFarmMaxDevices(event.target.value)}
-                aria-label="Limite de aparelhos"
-                className="min-h-12 rounded-lg border border-border bg-background px-3 outline-none focus:border-primary"
-              />
-              <button
-                disabled={loading}
-                className="min-h-12 rounded-lg bg-primary px-4 font-bold text-primary-foreground"
-              >
-                Criar
-              </button>
-            </form>
-          )}
-          <div className="divide-y divide-border border-y border-border">
-            {overview.farms.map((farm) => (
-              <article key={farm.id} className="flex items-center gap-3 py-4">
-                <Building2 className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-display font-black uppercase">{farm.name}</p>
-                  <p className="text-xs text-muted-foreground">Até {farm.max_devices} aparelhos</p>
-                </div>
-                <StatusBadge status={farm.status} />
+              <h3 className="font-display text-sm font-black uppercase">Adicionar fazenda</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="text-[10px] font-black uppercase text-muted-foreground">
+                    Nome da fazenda
+                  </span>
+                  <input
+                    required
+                    value={farmName}
+                    onChange={(event) => setFarmName(event.target.value)}
+                    placeholder="Ex.: Fazenda Vitória"
+                    className="mt-1 min-h-12 w-full rounded-lg border border-border bg-background px-3 outline-none focus:border-primary"
+                  />
+                </label>
+                <label>
+                  <span className="text-[10px] font-black uppercase text-muted-foreground">
+                    Limite de celulares e tablets
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={farmMaxDevices}
+                    onChange={(event) => setFarmMaxDevices(event.target.value)}
+                    className="mt-1 min-h-12 w-full rounded-lg border border-border bg-background px-3 outline-none focus:border-primary"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  disabled={loading}
-                  onClick={() =>
-                    void runAction(
-                      "update_farm",
-                      { farm_id: farm.id, status: farm.status === "active" ? "blocked" : "active" },
-                      `Fazenda ${farm.status === "active" ? "bloqueada" : "reativada"}.`,
-                    )
-                  }
-                  className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface text-primary"
-                  aria-label={
-                    farm.status === "active" ? `Bloquear ${farm.name}` : `Reativar ${farm.name}`
-                  }
-                  title={farm.status === "active" ? "Bloquear" : "Reativar"}
+                  onClick={() => setShowFarmForm(false)}
+                  className="min-h-12 rounded-lg border border-border bg-surface px-4 font-bold"
                 >
-                  {farm.status === "active" ? (
-                    <ShieldOff className="h-4 w-4" />
-                  ) : (
-                    <ShieldCheck className="h-4 w-4" />
-                  )}
+                  Cancelar
                 </button>
-              </article>
-            ))}
+                <button
+                  disabled={loading}
+                  className="min-h-12 rounded-lg bg-primary px-4 font-bold text-primary-foreground"
+                >
+                  Criar fazenda
+                </button>
+              </div>
+            </form>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {overview.farms.map((farm) => {
+              const employeeCount = overview.employees.filter(
+                (employee) => employee.status === "active" && employee.farm_ids.includes(farm.id),
+              ).length;
+              const deviceCount = overview.devices.filter(
+                (device) => device.status === "active" && device.farm_id === farm.id,
+              ).length;
+              const license = overview.licenses.find((item) => item.farm_id === farm.id);
+              return (
+                <article key={farm.id} className="rounded-lg border border-border bg-card p-4">
+                  <div className="flex items-start gap-3">
+                    <Building2
+                      className="mt-0.5 h-6 w-6 shrink-0 text-primary"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-display font-black uppercase">{farm.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Base de dados independente
+                      </p>
+                    </div>
+                    <StatusBadge status={farm.status} />
+                  </div>
+                  <dl className="mt-4 grid grid-cols-3 divide-x divide-border text-center">
+                    <div>
+                      <dt className="text-[9px] font-black uppercase text-muted-foreground">
+                        Equipe
+                      </dt>
+                      <dd className="font-display text-xl font-black">{employeeCount}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[9px] font-black uppercase text-muted-foreground">
+                        Aparelhos
+                      </dt>
+                      <dd className="font-display text-xl font-black">
+                        {deviceCount}/{farm.max_devices}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[9px] font-black uppercase text-muted-foreground">
+                        Licença
+                      </dt>
+                      <dd className="mt-1 text-[10px] font-black uppercase">
+                        {license?.status === "active" ? "Ativa" : "Bloqueada"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openFarmEdit(farm)}
+                      className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-surface px-3 text-xs font-black uppercase"
+                    >
+                      <Pencil className="h-4 w-4 text-primary" /> Editar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() =>
+                        void runAction(
+                          "update_farm",
+                          {
+                            farm_id: farm.id,
+                            status: farm.status === "active" ? "blocked" : "active",
+                          },
+                          `Fazenda ${farm.status === "active" ? "bloqueada" : "reativada"}.`,
+                        )
+                      }
+                      className={cn(
+                        "flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black uppercase",
+                        farm.status === "active"
+                          ? "bg-danger/10 text-danger"
+                          : "bg-good/10 text-good",
+                      )}
+                    >
+                      {farm.status === "active" ? (
+                        <ShieldOff className="h-4 w-4" />
+                      ) : (
+                        <ShieldCheck className="h-4 w-4" />
+                      )}
+                      {farm.status === "active" ? "Bloquear" : "Reativar"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
@@ -1257,6 +1626,74 @@ export function AdminScreen({
             )}
           </ol>
         </section>
+      )}
+
+      {editingFarm && (
+        <div
+          className="modal-viewport fixed inset-0 z-50 flex items-end bg-foreground/45 px-3 sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-farm-title"
+        >
+          <form
+            onSubmit={submitFarmEdit}
+            className="modal-panel w-full max-w-md rounded-lg bg-background p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="edit-farm-title" className="font-display text-lg font-black uppercase">
+                  Editar fazenda
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Altere o nome e o limite de aparelhos desta unidade.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingFarm(null)}
+                className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface"
+                aria-label="Fechar edição da fazenda"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label>
+                <span className="text-xs font-bold uppercase text-muted-foreground">Nome</span>
+                <input
+                  required
+                  value={farmEditForm.name}
+                  onChange={(event) =>
+                    setFarmEditForm((form) => ({ ...form, name: event.target.value }))
+                  }
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+              <label>
+                <span className="text-xs font-bold uppercase text-muted-foreground">
+                  Limite de celulares e tablets
+                </span>
+                <input
+                  required
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={farmEditForm.max_devices}
+                  onChange={(event) =>
+                    setFarmEditForm((form) => ({ ...form, max_devices: event.target.value }))
+                  }
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                />
+              </label>
+            </div>
+            <button
+              disabled={loading}
+              className="mt-4 min-h-12 w-full rounded-lg bg-primary font-bold text-primary-foreground disabled:opacity-50"
+            >
+              Salvar fazenda
+            </button>
+          </form>
+        </div>
       )}
 
       {editingEmployee && (

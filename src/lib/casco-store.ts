@@ -76,9 +76,10 @@ export interface FootEntry {
 export interface Visit {
   id: string;
   farm_id?: string;
-  status?: "active" | "corrected" | "cancelled";
+  status?: "draft" | "active" | "corrected" | "cancelled";
   date: string; // ISO yyyy-mm-dd
   createdAt: number;
+  completedAt?: number; // definido somente quando o usuário confirma o salvamento
   tag: string;
   sex: Sex;
   lote?: string;
@@ -159,6 +160,21 @@ export function toHoofVisitPayload(v: Visit) {
 
 export function visitIsVisible(visit: Pick<Visit, "status">) {
   return visit.status === undefined || visit.status === "active";
+}
+
+export function visitIsFinalized(
+  visit: Pick<Visit, "id" | "tag" | "date" | "createdAt" | "feet" | "status">,
+) {
+  return (
+    visitIsVisible(visit) &&
+    Boolean(visit.id?.trim()) &&
+    Boolean(visit.tag?.trim()) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(visit.date) &&
+    Number.isFinite(visit.createdAt) &&
+    visit.createdAt > 0 &&
+    Array.isArray(visit.feet) &&
+    visit.feet.length > 0
+  );
 }
 
 export function toHoofFeetPayloads(v: Visit) {
@@ -345,6 +361,22 @@ export const LESIONS: DiseaseDefinition[] = [
     active: true,
   },
   {
+    code: "DOUBLE_SOLE",
+    name: "Sola Dupla",
+    full: "Sola Dupla",
+    emoji: "🟣",
+    recheckDays: 30,
+    active: true,
+  },
+  {
+    code: "LOCOMOTION",
+    name: "Locomoção",
+    full: "Problema de Locomoção",
+    emoji: "🚶",
+    recheckDays: 30,
+    active: true,
+  },
+  {
     code: "P",
     name: "Perfuração",
     full: "Perfuração",
@@ -500,6 +532,16 @@ export function validateVisitClinicalData(visit: Visit): VisitValidationIssue[] 
   const issues: VisitValidationIssue[] = [];
   if (!visit.tag.trim()) issues.push({ message: "Informe o número do brinco." });
 
+  const hasActiveProblem = visit.feet.some(
+    (foot) =>
+      (!foot.ok && !foot.resolved && !foot.data_liberacao) ||
+      foot.taco?.action === "apply" ||
+      foot.taco?.action === "maintain",
+  );
+  if (visit.preventivo && hasActiveProblem) {
+    issues.push({ message: "Preventivo não pode ser salvo com problema ativo." });
+  }
+
   for (const foot of visit.feet) {
     if (foot.ok || foot.resolved || foot.data_liberacao) continue;
     const diseases = (foot.diseases ?? []).filter((disease) => disease.severity > 0);
@@ -535,9 +577,9 @@ export function validateVisitClinicalData(visit: Visit): VisitValidationIssue[] 
 }
 
 export const TACO_ACTIONS: { action: TacoAction; label: string }[] = [
-  { action: "apply", label: "Aplicar taco" },
-  { action: "remove", label: "Remover taco" },
-  { action: "maintain", label: "Taco mantido" },
+  { action: "apply", label: "Colocar taco" },
+  { action: "remove", label: "Retirar taco" },
+  { action: "maintain", label: "Deixar taco colocado" },
 ];
 
 export const TACO_SIDE_LABEL: Record<TacoSide, string> = {
@@ -577,7 +619,7 @@ export interface TacoMetrics {
 
 function activeTacoPlacementsFromVisits(visits: Visit[]) {
   const active = new Map<string, string>();
-  for (const visit of visits.filter(visitIsVisible).sort((a, b) => a.createdAt - b.createdAt)) {
+  for (const visit of visits.filter(visitIsFinalized).sort((a, b) => a.createdAt - b.createdAt)) {
     for (const foot of visit.feet) {
       if (!foot.taco?.side) continue;
       const tag = visit.tag.trim().toLocaleLowerCase("pt-BR");
@@ -589,8 +631,107 @@ function activeTacoPlacementsFromVisits(visits: Visit[]) {
   return active;
 }
 
-export function activeTacoAnimalTagsFromVisits(visits: Visit[]) {
-  return new Set(activeTacoPlacementsFromVisits(visits).values());
+export interface ActiveDiseaseEpisode {
+  foot: FootKey;
+  code: LesionCode;
+  severity: Severity;
+  sinceDate: string;
+  sinceCreatedAt: number;
+  visits: number;
+}
+
+export interface ActiveTacoPlacement {
+  foot: FootKey;
+  side: TacoSide;
+  sinceDate: string;
+  sinceCreatedAt: number;
+}
+
+export interface AnimalClinicalSnapshot {
+  tag: string;
+  totalVisits: number;
+  lastVisit?: Visit;
+  lastPreventiveDate?: string;
+  activeDiseases: ActiveDiseaseEpisode[];
+  activeTacos: ActiveTacoPlacement[];
+  hasActiveProblem: boolean;
+  hasOpenRecheck: boolean;
+  worstSeverity: Severity;
+}
+
+export function animalClinicalSnapshotFromVisits(
+  sourceVisits: Visit[],
+  tag: string,
+): AnimalClinicalSnapshot {
+  const normalizedTag = tag.trim().toLocaleLowerCase("pt-BR");
+  const visits = sourceVisits
+    .filter(visitIsFinalized)
+    .filter((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR") === normalizedTag)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  const diseases = new Map<FootKey, ActiveDiseaseEpisode>();
+  const tacos = new Map<string, ActiveTacoPlacement>();
+  let lastPreventiveDate: string | undefined;
+  let hasOpenRecheck = false;
+
+  for (const visit of visits) {
+    if (visit.preventivo) lastPreventiveDate = visit.date;
+    hasOpenRecheck = visit.feet.some((foot) =>
+      Boolean(foot.recheck && !foot.resolved && !foot.data_liberacao),
+    );
+
+    for (const foot of visit.feet) {
+      const disease = (foot.diseases ?? [])
+        .filter((entry) => normalizeSeverity(entry.severity) > 0)
+        .sort((a, b) => normalizeSeverity(b.severity) - normalizeSeverity(a.severity))[0];
+      if (foot.ok || foot.resolved || foot.data_liberacao || !disease) {
+        diseases.delete(foot.foot);
+      } else {
+        const previous = diseases.get(foot.foot);
+        diseases.set(foot.foot, {
+          foot: foot.foot,
+          code: disease.code,
+          severity: normalizeSeverity(disease.severity),
+          sinceDate: previous?.code === disease.code ? previous.sinceDate : visit.date,
+          sinceCreatedAt:
+            previous?.code === disease.code ? previous.sinceCreatedAt : visit.createdAt,
+          visits: previous?.code === disease.code ? previous.visits + 1 : 1,
+        });
+      }
+
+      if (!foot.taco?.side) continue;
+      const tacoKey = `${foot.foot}:${foot.taco.side}`;
+      if (foot.taco.action === "remove") {
+        tacos.delete(tacoKey);
+      } else if (!tacos.has(tacoKey)) {
+        tacos.set(tacoKey, {
+          foot: foot.foot,
+          side: foot.taco.side,
+          sinceDate: visit.date,
+          sinceCreatedAt: visit.createdAt,
+        });
+      }
+    }
+  }
+
+  const activeDiseases = Array.from(diseases.values());
+  const activeTacos = Array.from(tacos.values());
+  return {
+    tag,
+    totalVisits: visits.length,
+    lastVisit: visits.at(-1),
+    lastPreventiveDate,
+    activeDiseases,
+    activeTacos,
+    hasActiveProblem: activeDiseases.length > 0 || activeTacos.length > 0,
+    hasOpenRecheck,
+    worstSeverity: normalizeSeverity(
+      activeDiseases.reduce((worst, disease) => Math.max(worst, disease.severity), 0),
+    ),
+  };
+}
+
+export function animalClinicalSnapshot(tag: string) {
+  return animalClinicalSnapshotFromVisits(loadVisits(), tag);
 }
 
 export function tacoMetricsFromVisits(visits: Visit[], referenceDate = todayISO()): TacoMetrics {
@@ -602,7 +743,7 @@ export function tacoMetricsFromVisits(visits: Visit[], referenceDate = todayISO(
     appliedToday: 0,
   };
 
-  for (const visit of visits.filter(visitIsVisible).sort((a, b) => a.createdAt - b.createdAt)) {
+  for (const visit of visits.filter(visitIsFinalized).sort((a, b) => a.createdAt - b.createdAt)) {
     for (const foot of visit.feet) {
       if (!foot.taco?.side) continue;
       if (foot.taco.action === "apply") {
@@ -826,7 +967,7 @@ export function employeeWorkMetricsFromVisits(
   referenceDate = todayISO(),
 ): EmployeeWorkMetrics {
   const ownedVisits = visits
-    .filter(visitIsVisible)
+    .filter(visitIsFinalized)
     .filter((visit) => visitBelongsToEmployee(visit, employeeId, employeeName));
   const monthPrefix = referenceDate.slice(0, 7);
   const endOfReferenceDay = new Date(`${referenceDate}T23:59:59`).getTime();
@@ -866,7 +1007,7 @@ export function calendarMonthMetricsFromVisits(
   const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
   const monthVisits = visits.filter(
     (visit) =>
-      visitIsVisible(visit) &&
+      visitIsFinalized(visit) &&
       visit.date.startsWith(prefix) &&
       visitBelongsToEmployee(visit, employeeId, employeeName),
   );
@@ -1094,6 +1235,7 @@ export async function hydrateVisitsFromIndexedDb() {
           (data.created_at
             ? new Date(data.created_at).getTime()
             : new Date(row.updated_at).getTime()),
+        completedAt: payload?.completedAt,
         tag: payload?.tag ?? data.tag ?? "",
         sex: payload?.sex ?? data.sex ?? "vaca",
         lote: payload?.lote ?? data.lote,
@@ -1169,6 +1311,7 @@ export function addVisit(v: Visit) {
   v = {
     ...v,
     ...currentVisitMetadata(),
+    completedAt: Date.now(),
     tag: v.tag.trim(),
     lote: v.lote?.trim().toUpperCase() || undefined,
     status: "active",
@@ -1419,12 +1562,12 @@ export function loadLastBackupAt(): string | null {
 }
 
 export function visitsForDay(date: string): Visit[] {
-  return loadVisits().filter((v) => v.date === date);
+  return loadVisits().filter((visit) => visitIsFinalized(visit) && visit.date === date);
 }
 
 export function visitsByTag(tag: string): Visit[] {
   return loadVisits()
-    .filter((v) => v.tag.toLowerCase() === tag.toLowerCase())
+    .filter((visit) => visitIsFinalized(visit) && visit.tag.toLowerCase() === tag.toLowerCase())
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -1440,9 +1583,8 @@ export function allAnimals(): {
   hasTaco: boolean;
   worstSeverity: Severity;
 }[] {
-  const visits = loadVisits();
+  const visits = loadVisits().filter(visitIsFinalized);
   const farm = loadFarm();
-  const activeTacoTags = activeTacoAnimalTagsFromVisits(visits);
   const map = new Map<string, ReturnType<typeof allAnimals>[number]>();
 
   // Animals from registered list (no visit yet appear with lastVisit=0)
@@ -1464,41 +1606,31 @@ export function allAnimals(): {
     }
   }
 
-  for (const v of visits) {
-    const key = v.tag.toLowerCase();
-    const hasRecheck = v.feet.some((f) => f.recheck && !f.resolved && !f.data_liberacao);
-    const hasResolved = v.feet.some((f) => f.resolved || !!f.data_liberacao);
-    const hasProblem = v.feet.some((f) => !f.ok && !f.resolved && !f.data_liberacao);
-    const hasTaco = v.feet.some((f) => f.taco?.action === "apply" || f.taco?.action === "maintain");
-    const ws = footsWorstSeverity(v.feet);
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, {
-        tag: v.tag,
-        sex: v.sex,
-        lote: v.lote,
-        lastVisit: v.createdAt,
-        totalVisits: 1,
-        hasRecheck,
-        hasResolved,
-        hasProblem,
-        hasTaco,
-        worstSeverity: ws,
-      });
-    } else {
-      existing.totalVisits++;
-      if (v.createdAt > existing.lastVisit) {
-        existing.lastVisit = v.createdAt;
-        existing.worstSeverity = ws;
-        existing.hasProblem = hasProblem;
-        existing.hasTaco = hasTaco;
-        if (v.lote) existing.lote = v.lote;
-      }
-      if (hasRecheck) existing.hasRecheck = true;
-      if (hasResolved) existing.hasResolved = true;
-    }
+  const tags = new Map<string, string>();
+  for (const visit of visits) tags.set(visit.tag.toLocaleLowerCase("pt-BR"), visit.tag);
+  for (const animal of farm.animais) {
+    tags.set(animal.tag.toLocaleLowerCase("pt-BR"), animal.tag);
   }
-  for (const [tag, animal] of map) animal.hasTaco = activeTacoTags.has(tag);
+
+  for (const [key, tag] of tags) {
+    const snapshot = animalClinicalSnapshotFromVisits(visits, tag);
+    const latest = snapshot.lastVisit;
+    const existing = map.get(key);
+    const hasResolved =
+      latest?.feet.some((foot) => foot.resolved || Boolean(foot.data_liberacao)) ?? false;
+    map.set(key, {
+      tag: latest?.tag ?? existing?.tag ?? tag,
+      sex: latest?.sex ?? existing?.sex ?? "vaca",
+      lote: latest?.lote ?? existing?.lote,
+      lastVisit: latest?.createdAt ?? 0,
+      totalVisits: snapshot.totalVisits,
+      hasRecheck: snapshot.hasOpenRecheck,
+      hasResolved,
+      hasProblem: snapshot.hasActiveProblem,
+      hasTaco: snapshot.activeTacos.length > 0,
+      worstSeverity: snapshot.worstSeverity,
+    });
+  }
   return Array.from(map.values()).sort((a, b) => b.lastVisit - a.lastVisit);
 }
 
@@ -1795,6 +1927,7 @@ export function rechecksByDateFromVisits(
   employeeId?: string,
 ): Map<string, ScheduledRecheck[]> {
   const visits = [...sourceVisits]
+    .filter(visitIsFinalized)
     .filter((visit) => !employeeId || visit.employee_id === employeeId)
     .sort((a, b) => b.createdAt - a.createdAt);
   const map = new Map<string, ScheduledRecheck[]>();
@@ -1855,6 +1988,7 @@ export function curativeFollowupsFromVisits(
   employeeId?: string,
 ): CurativeFollowup[] {
   const visits = [...sourceVisits]
+    .filter(visitIsFinalized)
     .filter((visit) => !employeeId || visit.employee_id === employeeId)
     .sort((a, b) => b.createdAt - a.createdAt);
   const seen = new Set<string>();
@@ -1920,7 +2054,7 @@ export function curativeMetrics(referenceDate = todayISO()): CurativeMetrics {
   const openFollowups = curativeFollowups(referenceDate);
   const releasedDurations: number[] = [];
 
-  for (const visit of loadVisits()) {
+  for (const visit of loadVisits().filter(visitIsFinalized)) {
     for (const foot of visit.feet) {
       if (!foot.data_liberacao) continue;
       releasedDurations.push(daysBetweenISO(visit.date, foot.data_liberacao));

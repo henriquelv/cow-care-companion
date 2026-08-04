@@ -58,9 +58,16 @@ describe("visit reports", () => {
       visits: 2,
       animals: 2,
       preventive: 1,
-      normal: 1,
+      normal: 0,
+      withoutProblem: 1,
       withProblem: 1,
+      moderate: 1,
     });
+  });
+
+  it("não inclui registro incompleto nas métricas", () => {
+    const incomplete = visit({ id: "draft", tag: "", feet: [] });
+    expect(visitReportMetrics([...visits, incomplete]).visits).toBe(2);
   });
 
   it("filtra e contabiliza atendimentos com taco", () => {

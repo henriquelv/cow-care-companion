@@ -65,6 +65,7 @@ import {
   COMMENTS,
   QUICK_RECHECK_OPTIONS,
   addVisit,
+  animalClinicalSnapshotFromVisits,
   createPreventiveVisit,
   dateAfterDays,
   exportBackupJson,
@@ -87,11 +88,13 @@ import {
   validateVisitClinicalData,
   normalizeReviewCount,
   severityBucket,
+  severityLabel,
   todayISO,
   uid,
   visitsByTag,
   visitsForDay,
   visitBelongsToEmployee,
+  visitIsFinalized,
   allAnimals,
   footWorstSeverity,
   footsWorstSeverity,
@@ -142,7 +145,7 @@ type Filters = {
   treatments: TreatmentCode[];
   tacoActions: TacoAction[];
   tacoSides: TacoSide[];
-  status: "all" | "problem" | "ok" | "recheck" | "curado";
+  status: "all" | "problem" | "ok" | "recheck" | "taco";
 };
 
 const EMPTY_FILTERS: Filters = {
@@ -192,6 +195,7 @@ function newDraft(tag = ""): Visit {
   const employeeName = farmContextService.getEmployeeName();
   return {
     id: uid(),
+    status: "draft",
     date: todayISO(),
     createdAt: Date.now(),
     tag,
@@ -344,13 +348,6 @@ export function Index() {
     );
   }
 
-  const isHomeLevel =
-    screen.name === "today" ||
-    screen.name === "calendar" ||
-    screen.name === "summary" ||
-    screen.name === "preventivo" ||
-    screen.name === "profile";
-
   const helpScreen =
     screen.name === "register"
       ? "register"
@@ -376,7 +373,7 @@ export function Index() {
         isAdmin={appContext?.is_admin === true}
         onConfig={() => setScreen({ name: "config" })}
         onAdmin={() => setScreen({ name: "admin" })}
-        showBack={!isHomeLevel}
+        showBack={screen.name !== "today"}
         onBack={goToday}
         screen={screen.name}
         onHelp={() => setShowHelp(true)}
@@ -1327,7 +1324,13 @@ function TodayScreen({
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"revisao" | "com_problema" | "ok" | "cadastrados">("revisao");
 
-  const visits = useMemo(() => loadVisits().sort((a, b) => b.createdAt - a.createdAt), []);
+  const visits = useMemo(
+    () =>
+      loadVisits()
+        .filter(visitIsFinalized)
+        .sort((a, b) => b.createdAt - a.createdAt),
+    [],
+  );
   const animals = useMemo(() => allAnimals(), []);
 
   const latestVisit = useMemo(() => {
@@ -1373,7 +1376,7 @@ function TodayScreen({
     if (filters.status === "problem") list = list.filter((a) => a.hasProblem);
     if (filters.status === "ok") list = list.filter((a) => !a.hasProblem);
     if (filters.status === "recheck") list = list.filter((a) => a.hasRecheck);
-    if (filters.status === "curado") list = list.filter((a) => a.hasResolved);
+    if (filters.status === "taco") list = list.filter((a) => a.hasTaco);
     if (filters.minSeverity > 0) list = list.filter((a) => a.worstSeverity >= filters.minSeverity);
     if (filters.diseases.length > 0) {
       list = list.filter((a) => {
@@ -1877,7 +1880,13 @@ function TodayScreen({
 function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"all" | "normal" | "problem" | "preventive" | "taco">("all");
-  const visits = useMemo(() => loadVisits().sort((a, b) => b.createdAt - a.createdAt), []);
+  const visits = useMemo(
+    () =>
+      loadVisits()
+        .filter(visitIsFinalized)
+        .sort((a, b) => b.createdAt - a.createdAt),
+    [],
+  );
   const latestByTag = useMemo(() => {
     const map = new Map<string, Visit>();
     for (const visit of visits) {
@@ -2387,6 +2396,14 @@ function FiltersScreen({
   onBack: () => void;
 }) {
   const [f, setF] = useState<Filters>(current);
+  const [showClinicalFilters, setShowClinicalFilters] = useState(
+    () =>
+      current.feet.length > 0 ||
+      current.diseases.length > 0 ||
+      current.treatments.length > 0 ||
+      current.tacoActions.length > 0 ||
+      current.tacoSides.length > 0,
+  );
   const availableDiseases = useMemo(() => diseaseCatalog(farm, false), [farm]);
 
   function toggleDisease(code: LesionCode) {
@@ -2435,14 +2452,14 @@ function FiltersScreen({
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
           Status
         </p>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {(
             [
               ["all", "Todos", ""],
               ["problem", "Com Problema", "⚠️"],
               ["ok", "Sem Problema", "✅"],
               ["recheck", "Revisão", "⏰"],
-              ["curado", "Curado", "🟢"],
+              ["taco", "Taco ativo", ""],
             ] as [Filters["status"], string, string][]
           ).map(([val, label, emoji]) => (
             <button
@@ -2467,7 +2484,7 @@ function FiltersScreen({
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
           Gravidade mínima
         </p>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {([0, 1, 2, 3] as Severity[]).map((s) => (
             <button
               key={s}
@@ -2486,121 +2503,135 @@ function FiltersScreen({
         </div>
       </section>
 
-      {/* Pé */}
-      <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Pé afetado
+      <details
+        className="rounded-lg border border-border bg-card p-3"
+        open={showClinicalFilters}
+        onToggle={(event) => setShowClinicalFilters(event.currentTarget.open)}
+      >
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-display text-sm font-black uppercase text-primary">
+          <SlidersHorizontal className="h-4 w-4" /> Filtros clínicos detalhados
+        </summary>
+        <p className="mb-4 text-xs text-muted-foreground">
+          Use somente quando precisar buscar uma lesão, pé, tratamento ou ação específica.
         </p>
-        <div className="grid grid-cols-4 gap-2">
-          {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => toggleFoot(k)}
-              className={cn(
-                "tap rounded-xl border-2 px-3 py-4 font-display text-base uppercase",
-                f.feet.includes(k)
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-surface",
-              )}
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-      </section>
+        <div className="space-y-5 border-t border-border pt-4">
+          {/* Pé */}
+          <section>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Pé afetado
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => toggleFoot(k)}
+                  className={cn(
+                    "tap rounded-xl border-2 px-3 py-4 font-display text-base uppercase",
+                    f.feet.includes(k)
+                      ? "border-primary bg-primary text-primary-foreground stamp"
+                      : "border-border bg-surface",
+                  )}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* Doenças */}
-      <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Doença
-        </p>
-        <div className="grid grid-cols-2 gap-1.5">
-          {availableDiseases.map((l) => (
-            <button
-              key={l.code}
-              type="button"
-              onClick={() => toggleDisease(l.code)}
-              className={cn(
-                "tap flex items-center gap-2 rounded-xl border-2 px-2 py-2 text-left",
-                f.diseases.includes(l.code)
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-surface",
-              )}
-            >
-              <span className="text-lg leading-none shrink-0">{l.emoji}</span>
-              <span className="font-display text-xs uppercase leading-tight">{l.name}</span>
-            </button>
-          ))}
-        </div>
-      </section>
+          {/* Doenças */}
+          <section>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Doença
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {availableDiseases.map((l) => (
+                <button
+                  key={l.code}
+                  type="button"
+                  onClick={() => toggleDisease(l.code)}
+                  className={cn(
+                    "tap flex items-center gap-2 rounded-xl border-2 px-2 py-2 text-left",
+                    f.diseases.includes(l.code)
+                      ? "border-primary bg-primary text-primary-foreground stamp"
+                      : "border-border bg-surface",
+                  )}
+                >
+                  <span className="text-lg leading-none shrink-0">{l.emoji}</span>
+                  <span className="font-display text-xs uppercase leading-tight">{l.name}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* Taco */}
-      <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Taco
-        </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {TACO_ACTIONS.map((item) => (
-            <button
-              key={item.action}
-              type="button"
-              onClick={() => toggleTacoAction(item.action)}
-              className={cn(
-                "tap flex min-h-12 items-center gap-2 rounded-xl border-2 px-3 text-left font-display text-sm uppercase",
-                f.tacoActions.includes(item.action)
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-surface",
-              )}
-            >
-              <Box className="h-5 w-5 shrink-0" aria-hidden="true" />
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          {(Object.entries(TACO_SIDE_LABEL) as [TacoSide, string][]).map(([side, label]) => (
-            <button
-              key={side}
-              type="button"
-              onClick={() => toggleTacoSide(side)}
-              className={cn(
-                "tap min-h-12 rounded-xl border-2 px-3 font-display text-sm uppercase",
-                f.tacoSides.includes(side)
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-surface",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
+          {/* Taco */}
+          <section>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Ação do taco na última visita
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {TACO_ACTIONS.map((item) => (
+                <button
+                  key={item.action}
+                  type="button"
+                  onClick={() => toggleTacoAction(item.action)}
+                  className={cn(
+                    "tap flex min-h-12 items-center gap-2 rounded-xl border-2 px-3 text-left font-display text-sm uppercase",
+                    f.tacoActions.includes(item.action)
+                      ? "border-primary bg-primary text-primary-foreground stamp"
+                      : "border-border bg-surface",
+                  )}
+                >
+                  <Box className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {(Object.entries(TACO_SIDE_LABEL) as [TacoSide, string][]).map(([side, label]) => (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => toggleTacoSide(side)}
+                  className={cn(
+                    "tap min-h-12 rounded-xl border-2 px-3 font-display text-sm uppercase",
+                    f.tacoSides.includes(side)
+                      ? "border-primary bg-primary text-primary-foreground stamp"
+                      : "border-border bg-surface",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* Tratamento */}
-      <section>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Tratamento
-        </p>
-        <div className="flex flex-col gap-1.5">
-          {TREATMENTS.map((t) => (
-            <button
-              key={t.code}
-              type="button"
-              onClick={() => toggleTreatment(t.code)}
-              className={cn(
-                "tap flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-left font-display text-sm uppercase",
-                f.treatments.includes(t.code)
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-surface",
-              )}
-            >
-              <span>{t.emoji}</span>
-              <span>{t.label}</span>
-            </button>
-          ))}
+          {/* Tratamento */}
+          <section>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Tratamento
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {TREATMENTS.map((t) => (
+                <button
+                  key={t.code}
+                  type="button"
+                  onClick={() => toggleTreatment(t.code)}
+                  className={cn(
+                    "tap flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-left font-display text-sm uppercase",
+                    f.treatments.includes(t.code)
+                      ? "border-primary bg-primary text-primary-foreground stamp"
+                      : "border-border bg-surface",
+                  )}
+                >
+                  <span>{t.emoji}</span>
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
-      </section>
+      </details>
 
       {/* Data */}
       <section>
@@ -2711,7 +2742,7 @@ function CalendarScreen({
   );
   const attendedByDate = useMemo(() => {
     const tagsByDate = new Map<string, Set<string>>();
-    for (const visit of loadVisits()) {
+    for (const visit of loadVisits().filter(visitIsFinalized)) {
       if (
         !employeeContext?.employee_id ||
         !visitBelongsToEmployee(visit, employeeContext.employee_id, employeeContext.employee_name)
@@ -3047,7 +3078,7 @@ function CalendarScreen({
 }
 
 /* ───────────── Register (multi-step) ───────────── */
-type RegStep = "worker" | "feet" | "taco" | "disease" | "treatment" | "notes" | "review";
+type RegStep = "worker" | "feet" | "disease" | "treatment" | "notes" | "review";
 
 function RegisterScreen({
   initialTag,
@@ -3099,17 +3130,13 @@ function RegisterScreen({
     () => correctionSource?.feet.filter((foot) => !foot.ok).map((foot) => foot.foot) ?? [],
   );
   const [footIdx, setFootIdx] = useState(0);
-  const [tacoDraft, setTacoDraft] = useState<{
-    action?: TacoAction;
-    foot?: FootKey;
-    side?: TacoSide;
-  }>({});
-  const [showVisitOptions, setShowVisitOptions] = useState(false);
+  const [curePromptFoot, setCurePromptFoot] = useState<FootKey | null>(null);
   const [showFootAdvanced, setShowFootAdvanced] = useState(false);
 
   const currentFoot = badFeet[footIdx] ?? null;
   const currentFootEntry = visit.feet.find((f) => f.foot === currentFoot);
   const previous = visit.tag.trim() ? visitsByTag(visit.tag.trim()) : [];
+  const animalSnapshot = animalClinicalSnapshotFromVisits(loadVisits(), visit.tag.trim());
   const fullDiseaseCatalog = useMemo(() => diseaseCatalog(farm), [farm]);
   const displayedDiseaseCatalog = fullDiseaseCatalog.filter(
     (disease) =>
@@ -3125,6 +3152,9 @@ function RegisterScreen({
   const hasCurrentProcedure =
     (currentFootEntry?.treatments ?? []).length > 0 || Boolean(currentFootEntry?.taco);
   const currentTacoNeedsSide = Boolean(currentFootEntry?.taco && !currentFootEntry.taco.side);
+  const currentExistingTaco = currentFoot
+    ? animalSnapshot.activeTacos.find((taco) => taco.foot === currentFoot)
+    : undefined;
 
   function updateVisit(partial: Partial<Visit>) {
     setVisit((v) => ({ ...v, ...partial }));
@@ -3140,18 +3170,36 @@ function RegisterScreen({
 
   function confirmFeet(selected: FootKey[]) {
     setBadFeet(selected);
-    const updated = visit.feet.map((foot) =>
-      selected.includes(foot.foot)
-        ? { ...foot, ok: false }
+    const updated = visit.feet.map((foot) => {
+      const activeDisease = animalSnapshot.activeDiseases.find(
+        (disease) => disease.foot === foot.foot,
+      );
+      const activeTaco = animalSnapshot.activeTacos.find((taco) => taco.foot === foot.foot);
+      return selected.includes(foot.foot)
+        ? {
+            ...foot,
+            ok: false,
+            resolved: false,
+            data_liberacao: undefined,
+            diseases:
+              (foot.diseases ?? []).length > 0
+                ? foot.diseases
+                : activeDisease
+                  ? [{ code: activeDisease.code, severity: activeDisease.severity }]
+                  : [],
+            taco:
+              foot.taco ??
+              (activeTaco ? { action: "maintain" as const, side: activeTaco.side } : undefined),
+          }
         : {
             foot: foot.foot,
             ok: true,
             zones: [],
             diseases: [],
             treatments: [],
-          },
-    );
-    setVisit((v) => ({ ...v, feet: updated }));
+          };
+    });
+    setVisit((v) => ({ ...v, preventivo: false, feet: updated }));
     if (selected.length === 0) {
       setStep("review");
     } else {
@@ -3161,6 +3209,7 @@ function RegisterScreen({
   }
 
   function confirmNormalPreventive() {
+    if (animalSnapshot.hasActiveProblem) return;
     setBadFeet([]);
     setVisit((current) => ({
       ...current,
@@ -3197,14 +3246,6 @@ function RegisterScreen({
     if ((!hasDisease && !hasProcedure) || (currentFootEntry.taco && !currentFootEntry.taco.side)) {
       return;
     }
-    if (currentRecommendation && currentFootEntry && !currentFootEntry.recheckDate) {
-      updateCurrentFoot({
-        recheck: true,
-        recheckDate: dateAfterDays(currentRecommendation.days, visit.date),
-        intervalo_revisao_dias: currentRecommendation.days,
-        revisoes_necessarias: currentFootEntry.revisoes_necessarias ?? 1,
-      });
-    }
     setStep("notes");
   }
 
@@ -3215,10 +3256,6 @@ function RegisterScreen({
     }
     if (step === "feet") {
       setStep("worker");
-      return;
-    }
-    if (step === "taco") {
-      setStep("feet");
       return;
     }
     if (step === "disease" && footIdx === 0) {
@@ -3286,27 +3323,6 @@ function RegisterScreen({
     r.readAsDataURL(file);
   }
 
-  function confirmTacoFlow() {
-    if (!tacoDraft.action || !tacoDraft.foot || !tacoDraft.side) return;
-    const nextBadFeet = badFeet.includes(tacoDraft.foot) ? badFeet : [...badFeet, tacoDraft.foot];
-    setBadFeet(nextBadFeet);
-    setVisit((current) => ({
-      ...current,
-      feet: current.feet.map((foot) =>
-        foot.foot === tacoDraft.foot
-          ? {
-              ...foot,
-              ok: false,
-              taco: { action: tacoDraft.action!, side: tacoDraft.side },
-              treatments: (foot.treatments ?? []).filter((treatment) => treatment !== "NADA"),
-            }
-          : foot,
-      ),
-    }));
-    setFootIdx(nextBadFeet.indexOf(tacoDraft.foot));
-    setStep("disease");
-  }
-
   const totalSteps = 2 + badFeet.length * 3 + 1;
   const stepIdx =
     step === "worker"
@@ -3315,9 +3331,7 @@ function RegisterScreen({
         ? 1
         : step === "review"
           ? Math.max(totalSteps - 1, 2)
-          : step === "taco"
-            ? 1
-            : 2 + footIdx * 3 + (step === "disease" ? 0 : step === "treatment" ? 1 : 2);
+          : 2 + footIdx * 3 + (step === "disease" ? 0 : step === "treatment" ? 1 : 2);
   const progress = Math.round((stepIdx / Math.max(totalSteps - 1, 2)) * 100);
   const footStepLabel = currentFoot
     ? FOOT_LABEL[currentFoot] + " · Pé " + (footIdx + 1) + " de " + badFeet.length
@@ -3383,7 +3397,7 @@ function RegisterScreen({
               />
             </section>
           )}
-          <section className="rounded-2xl bg-card p-4 space-y-3 stamp">
+          <section className="rounded-lg bg-card p-4 stamp">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Digite só o número
             </p>
@@ -3393,93 +3407,12 @@ function RegisterScreen({
               inputMode="numeric"
               pattern="[0-9]*"
               value={visit.tag}
-              onChange={(e) => updateVisit({ tag: e.target.value })}
+              onChange={(e) => updateVisit({ tag: e.target.value.replace(/\D/g, "") })}
               placeholder="Ex: 1284…"
               autoComplete="off"
               spellCheck={false}
-              className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-center font-display text-6xl uppercase tracking-wider outline-none focus:border-primary"
+              className="mt-2 w-full rounded-lg border-2 border-border bg-surface px-4 py-3 text-center font-display text-6xl uppercase outline-none focus:border-primary"
             />
-            <button
-              type="button"
-              onClick={() => setShowVisitOptions((v) => !v)}
-              className="tap flex w-full items-center justify-between rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-sm uppercase text-muted-foreground"
-            >
-              Mais opções
-              <ChevronRight
-                className={cn("h-4 w-4 transition-transform", showVisitOptions && "rotate-90")}
-              />
-            </button>
-            {showVisitOptions && (
-              <div className="space-y-3 rounded-xl border-2 border-border bg-surface p-3">
-                <div className="flex items-center gap-3 rounded-xl bg-card px-3 py-3">
-                  <User className="h-5 w-5 text-primary" />
-                  <div>
-                    <p className="text-[10px] font-bold uppercase text-muted-foreground">
-                      Funcionário responsável
-                    </p>
-                    <p className="font-display text-sm font-black uppercase">
-                      {farmContextService.getContext()?.employee_name ?? farm.worker}
-                    </p>
-                  </div>
-                </div>
-                {farm.lotes.length > 0 && (
-                  <div>
-                    <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Lote
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {farm.lotes.map((lt) => (
-                        <button
-                          key={lt}
-                          type="button"
-                          onClick={() => updateVisit({ lote: visit.lote === lt ? undefined : lt })}
-                          className={cn(
-                            "tap rounded-xl border-2 px-4 py-2 font-display text-sm uppercase",
-                            visit.lote === lt
-                              ? "border-primary bg-primary text-primary-foreground stamp"
-                              : "border-border bg-card",
-                          )}
-                        >
-                          {lt}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => updateVisit({ preventivo: !visit.preventivo })}
-                  className={cn(
-                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
-                    visit.preventivo
-                      ? "border-good bg-good text-good-foreground stamp"
-                      : "border-border bg-card text-muted-foreground",
-                  )}
-                >
-                  <Scissors className="h-5 w-5 shrink-0" />
-                  {visit.preventivo ? "Casqueamento preventivo" : "Marcar preventivo"}
-                </button>
-              </div>
-            )}
-            {previous.length > 0 && (
-              <div className="rounded-xl border-2 border-warn/60 bg-warn/10 p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 shrink-0 text-warn-foreground" />
-                  <p className="font-display text-sm uppercase text-warn-foreground">
-                    Animal já cadastrado — {previous.length} visita(s)
-                  </p>
-                </div>
-                <button
-                  onClick={() => onOpenHistory(visit.tag.trim())}
-                  className="tap flex w-full items-center justify-between rounded-lg border border-warn/40 bg-card px-3 py-2 text-left"
-                >
-                  <span className="flex items-center gap-2 font-display text-xs uppercase text-warn-foreground">
-                    <History className="h-4 w-4" /> Ver histórico
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </div>
-            )}
           </section>
           <button
             type="button"
@@ -3498,6 +3431,135 @@ function RegisterScreen({
           >
             Continuar <ChevronRight className="h-6 w-6" />
           </button>
+
+          {visit.tag.trim() && (
+            <section className="rounded-lg border-2 border-border bg-card p-4" aria-live="polite">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase text-muted-foreground">
+                    Resumo do animal {visit.tag}
+                  </p>
+                  <p className="mt-1 font-display text-lg font-black uppercase">
+                    {animalSnapshot.totalVisits > 0
+                      ? `${animalSnapshot.totalVisits} visita(s) finalizada(s)`
+                      : "Primeira visita"}
+                  </p>
+                </div>
+                {animalSnapshot.totalVisits > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenHistory(visit.tag.trim())}
+                    className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg bg-surface px-3 text-xs font-black uppercase text-primary"
+                  >
+                    <History className="h-4 w-4" /> Histórico
+                  </button>
+                ) : null}
+              </div>
+
+              {animalSnapshot.totalVisits === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Brinco novo. O animal será cadastrado automaticamente somente ao salvar a visita.
+                </p>
+              ) : (
+                <div className="mt-3 divide-y divide-border border-y border-border">
+                  {animalSnapshot.activeDiseases.map((disease) => {
+                    const definition = diseaseDefinition(disease.code, farm);
+                    const days = Math.max(
+                      0,
+                      Math.floor((visit.createdAt - disease.sinceCreatedAt) / 86400000),
+                    );
+                    return (
+                      <div key={`${disease.foot}-${disease.code}`} className="py-3">
+                        <p className="text-sm font-black text-danger">
+                          {definition?.full ?? disease.code} · {FOOT_LABEL[disease.foot]}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {severityLabel(disease.severity)} · há {days} dia(s) · presente em{" "}
+                          {disease.visits} visita(s)
+                        </p>
+                      </div>
+                    );
+                  })}
+                  {animalSnapshot.activeTacos.map((taco) => (
+                    <div key={`${taco.foot}-${taco.side}`} className="py-3">
+                      <p className="flex items-center gap-2 text-sm font-black text-primary">
+                        <Box className="h-4 w-4" /> Taco ativo · {FOOT_LABEL[taco.foot]}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {TACO_SIDE_LABEL[taco.side]} · desde{" "}
+                        {new Date(`${taco.sinceDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                      </p>
+                    </div>
+                  ))}
+                  {!animalSnapshot.hasActiveProblem && (
+                    <div className="py-3">
+                      <p className="flex items-center gap-2 text-sm font-black text-good">
+                        <CheckCircle2 className="h-4 w-4" /> Sem problema ativo
+                      </p>
+                      {animalSnapshot.lastPreventiveDate ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Último preventivo em{" "}
+                          {new Date(
+                            `${animalSnapshot.lastPreventiveDate}T12:00:00`,
+                          ).toLocaleDateString("pt-BR")}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+                  {animalSnapshot.lastVisit ? (
+                    <div className="py-3 text-xs text-muted-foreground">
+                      Última visita em{" "}
+                      {new Date(animalSnapshot.lastVisit.createdAt).toLocaleString("pt-BR", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                      {animalSnapshot.lastVisit.employee_name
+                        ? ` · ${animalSnapshot.lastVisit.employee_name}`
+                        : ""}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </section>
+          )}
+
+          <section className="rounded-lg border border-border bg-surface p-4">
+            <div className="flex items-center gap-3">
+              <User className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-[10px] font-bold uppercase text-muted-foreground">
+                  Funcionário responsável
+                </p>
+                <p className="font-display text-sm font-black uppercase">
+                  {farmContextService.getContext()?.employee_name ?? farm.worker}
+                </p>
+              </div>
+            </div>
+            {farm.lotes.length > 0 && (
+              <div className="mt-4 border-t border-border pt-3">
+                <p className="mb-2 text-xs font-bold uppercase text-muted-foreground">
+                  Lote (opcional)
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {farm.lotes.map((lt) => (
+                    <button
+                      key={lt}
+                      type="button"
+                      onClick={() => updateVisit({ lote: visit.lote === lt ? undefined : lt })}
+                      className={cn(
+                        "tap min-h-11 rounded-lg border-2 px-4 font-display text-sm uppercase",
+                        visit.lote === lt
+                          ? "border-primary bg-primary text-primary-foreground stamp"
+                          : "border-border bg-card",
+                      )}
+                    >
+                      {lt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -3507,15 +3569,14 @@ function RegisterScreen({
           visit={visit}
           onConfirm={confirmFeet}
           onNormalPreventive={confirmNormalPreventive}
-          onTaco={() => {
-            setTacoDraft({});
-            setStep("taco");
-          }}
+          hasActiveProblem={animalSnapshot.hasActiveProblem}
+          activeProblemFeet={Array.from(
+            new Set([
+              ...animalSnapshot.activeDiseases.map((disease) => disease.foot),
+              ...animalSnapshot.activeTacos.map((taco) => taco.foot),
+            ]),
+          )}
         />
-      )}
-
-      {step === "taco" && (
-        <TacoQuickStep value={tacoDraft} onChange={setTacoDraft} onConfirm={confirmTacoFlow} />
       )}
 
       {/* ── ETAPA 3: Doença ── */}
@@ -3525,35 +3586,89 @@ function RegisterScreen({
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               {footStepLabel}
             </p>
-            <h2 className="font-display text-2xl font-black uppercase">Doença e gravidade</h2>
+            <h2 className="font-display text-2xl font-black uppercase">Lesão e gravidade</h2>
           </div>
           <section className="rounded-2xl border-2 border-primary/25 bg-primary/10 p-4">
             <p className="font-display text-base font-black uppercase text-primary">
               {FOOT_LABEL[currentFoot]}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selecione a doença e o grau para continuar o registro.
+              Selecione a lesão e o grau. Só é permitida uma lesão por casco.
             </p>
           </section>
-          <button
-            type="button"
-            onClick={() => {
-              updateCurrentFoot({
-                resolved: true,
-                data_liberacao: todayISO(),
-                diseases: [],
-                ok: false,
-              });
-              advanceFromNotes();
-            }}
-            className="tap-lg flex w-full items-center gap-3 rounded-2xl border-2 border-good/60 bg-good/10 px-4 py-3 font-display text-base uppercase text-good"
-          >
-            <CheckCircle2 className="h-6 w-6 shrink-0" /> Este pé está CURADO
-          </button>
+          {animalSnapshot.activeDiseases.some((disease) => disease.foot === currentFoot) && (
+            <div className="rounded-lg border border-warn/50 bg-warn/10 p-3 text-sm">
+              <p className="font-black text-warn-foreground">
+                Diagnóstico anterior pré-selecionado
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Confirme a lesão abaixo, troque o diagnóstico ou informe que o problema acabou.
+              </p>
+            </div>
+          )}
+          {animalSnapshot.activeDiseases.some((disease) => disease.foot === currentFoot) && (
+            <button
+              type="button"
+              onClick={() => setCurePromptFoot(currentFoot)}
+              className="tap-lg flex w-full items-center gap-3 rounded-lg border-2 border-good/60 bg-good/10 px-4 py-3 font-display text-base uppercase text-good"
+            >
+              <CheckCircle2 className="h-6 w-6 shrink-0" /> O problema não existe mais
+            </button>
+          )}
+          {curePromptFoot === currentFoot && (
+            <section className="rounded-lg border-2 border-good/60 bg-good/5 p-4">
+              <p className="font-display text-base font-black uppercase">Confirmar cura?</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                O problema será encerrado. O animal poderá voltar ao casqueamento preventivo e a
+                revisão aberta deste casco será cancelada.
+              </p>
+              {currentExistingTaco ? (
+                <p className="mt-2 rounded-lg bg-warn/10 p-2 text-xs font-bold text-warn-foreground">
+                  Há um taco em {TACO_SIDE_LABEL[currentExistingTaco.side]}. Na próxima tela,
+                  confirme se ele será retirado ou continuará colocado.
+                </p>
+              ) : null}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurePromptFoot(null)}
+                  className="min-h-12 rounded-lg border-2 border-border bg-card px-3 font-display text-sm font-black uppercase"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateCurrentFoot({
+                      resolved: true,
+                      data_liberacao: visit.date,
+                      diseases: [],
+                      recheck: false,
+                      recheckDate: undefined,
+                      intervalo_revisao_dias: undefined,
+                      revisoes_necessarias: undefined,
+                      taco: currentExistingTaco
+                        ? { action: "remove", side: currentExistingTaco.side }
+                        : currentFootEntry.taco,
+                    });
+                    updateVisit({ preventivo: true });
+                    setCurePromptFoot(null);
+                    setStep(currentExistingTaco ? "treatment" : "notes");
+                  }}
+                  className="min-h-12 rounded-lg bg-good px-3 font-display text-sm font-black uppercase text-good-foreground"
+                >
+                  Sim, está curado
+                </button>
+              </div>
+            </section>
+          )}
           <DiseasePicker
             catalog={displayedDiseaseCatalog}
             diseases={currentFootEntry.diseases ?? []}
-            onChange={(d) => updateCurrentFoot({ diseases: d })}
+            onChange={(d) => {
+              updateCurrentFoot({ diseases: d, resolved: false, data_liberacao: undefined });
+              updateVisit({ preventivo: false });
+            }}
           />
           {hasCurrentDisease ? (
             <button
@@ -3584,48 +3699,81 @@ function RegisterScreen({
             </p>
             <h2 className="font-display text-2xl font-black uppercase">Tratamento</h2>
           </div>
-          <section className="space-y-3 rounded-2xl border-2 border-primary/25 bg-primary/5 p-4">
+          <section className="space-y-3 rounded-lg border-2 border-primary/25 bg-primary/5 p-4">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Box className="h-5 w-5" aria-hidden="true" />
               </span>
               <div>
-                <p className="font-display text-base font-black uppercase">Taco</p>
-                <p className="text-xs text-muted-foreground">Opcional e separado da lesão</p>
+                <p className="font-display text-base font-black uppercase">
+                  {currentExistingTaco ? "Taco já colocado" : "Taco (opcional)"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {currentExistingTaco
+                    ? `${TACO_SIDE_LABEL[currentExistingTaco.side]} deste casco · desde ${new Date(`${currentExistingTaco.sinceDate}T12:00:00`).toLocaleDateString("pt-BR")}`
+                    : "Use somente quando for colocar um novo taco"}
+                </p>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {TACO_ACTIONS.map((item) => {
+            <p className="text-xs font-black uppercase text-foreground">
+              {currentExistingTaco ? "O que será feito com o taco?" : "Foi colocado um taco?"}
+            </p>
+            <div className={cn("grid gap-2", currentExistingTaco ? "grid-cols-2" : "grid-cols-1")}>
+              {TACO_ACTIONS.filter((item) =>
+                currentExistingTaco
+                  ? item.action === "maintain" || item.action === "remove"
+                  : item.action === "apply",
+              ).map((item) => {
                 const active = currentFootEntry.taco?.action === item.action;
                 return (
                   <button
                     key={item.action}
                     type="button"
-                    onClick={() =>
-                      updateCurrentFoot({
-                        taco: active
+                    onClick={() => {
+                      const nextTaco =
+                        active && !currentExistingTaco
                           ? undefined
-                          : { action: item.action, side: currentFootEntry.taco?.side },
-                        treatments: active
-                          ? currentFootEntry.treatments
-                          : (currentFootEntry.treatments ?? []).filter(
-                              (treatment) => treatment !== "NADA",
-                            ),
-                      })
-                    }
+                          : {
+                              action: item.action,
+                              side: currentExistingTaco?.side ?? currentFootEntry.taco?.side,
+                            };
+                      updateCurrentFoot({
+                        taco: nextTaco,
+                        treatments: (currentFootEntry.treatments ?? []).filter(
+                          (treatment) => treatment !== "NADA",
+                        ),
+                      });
+                      if (nextTaco?.action === "apply" || nextTaco?.action === "maintain") {
+                        setVisit((current) => ({ ...current, preventivo: false }));
+                      }
+                    }}
                     className={cn(
-                      "tap min-h-12 rounded-xl border-2 px-3 font-display text-sm font-black uppercase",
+                      "tap min-h-16 rounded-lg border-2 px-3 text-left",
                       active
                         ? "border-primary bg-primary text-primary-foreground stamp"
                         : "border-border bg-card text-foreground",
                     )}
                   >
-                    {item.label}
+                    <span className="block font-display text-sm font-black uppercase">
+                      {item.label}
+                    </span>
+                    <span
+                      className={cn(
+                        "mt-1 block text-xs",
+                        active ? "opacity-90" : "text-muted-foreground",
+                      )}
+                    >
+                      {item.action === "apply"
+                        ? "Selecione o lado abaixo"
+                        : item.action === "remove"
+                          ? "O taco sai nesta visita"
+                          : "O taco permanece no animal"}
+                    </span>
                   </button>
                 );
               })}
             </div>
-            {currentFootEntry.taco && (
+            {currentFootEntry.taco?.action === "apply" && (
               <div>
                 <p className="mb-2 text-xs font-black uppercase text-foreground">
                   Em qual lado deste casco?
@@ -3641,7 +3789,7 @@ function RegisterScreen({
                         }
                         aria-label={`${label} do casco ${FOOT_LABEL[currentFoot]}`}
                         className={cn(
-                          "tap min-h-14 rounded-xl border-2 px-3 font-display text-sm font-black uppercase",
+                          "tap min-h-14 rounded-lg border-2 px-3 font-display text-sm font-black uppercase",
                           currentFootEntry.taco?.side === side
                             ? "border-good bg-good text-good-foreground stamp"
                             : "border-border bg-card",
@@ -3742,27 +3890,108 @@ function RegisterScreen({
               </div>
             </div>
           )}
-          <button
-            type="button"
-            onClick={() =>
-              updateCurrentFoot({
-                recheck: !currentFootEntry.recheck,
-                recheckDate: undefined,
-                intervalo_revisao_dias: undefined,
-                revisoes_necessarias: currentFootEntry.recheck ? undefined : 1,
-              })
-            }
-            className={cn(
-              "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
-              currentFootEntry.recheck
-                ? "border-warn bg-warn text-warn-foreground stamp"
-                : "border-border bg-surface text-muted-foreground",
-            )}
-          >
-            <Clock className="h-5 w-5 shrink-0" />
-            {currentFootEntry.recheck ? "Revisão marcada" : "Marcar revisão futura"}
-          </button>
-          {currentFootEntry.recheck && (
+          {currentFootEntry.resolved && (
+            <section className="rounded-lg border-2 border-good/40 bg-good/5 p-4">
+              <p className="font-display text-sm font-black uppercase">Situação após esta visita</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Escolha se o animal está liberado ou ainda precisa de acompanhamento.
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateVisit({ preventivo: true });
+                    updateCurrentFoot({
+                      recheck: false,
+                      recheckDate: undefined,
+                      intervalo_revisao_dias: undefined,
+                      revisoes_necessarias: undefined,
+                    });
+                  }}
+                  className={cn(
+                    "min-h-14 rounded-lg border-2 px-3 font-display text-xs font-black uppercase",
+                    visit.preventivo
+                      ? "border-good bg-good text-good-foreground"
+                      : "border-border bg-card text-muted-foreground",
+                  )}
+                >
+                  Liberado para preventivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateVisit({ preventivo: false })}
+                  className={cn(
+                    "min-h-14 rounded-lg border-2 px-3 font-display text-xs font-black uppercase",
+                    !visit.preventivo
+                      ? "border-warn bg-warn/15 text-warn-foreground"
+                      : "border-border bg-card text-muted-foreground",
+                  )}
+                >
+                  Continuar acompanhamento
+                </button>
+              </div>
+            </section>
+          )}
+
+          {!visit.preventivo && (
+            <section className="rounded-lg border border-border bg-card p-4">
+              <p className="font-display text-sm font-black uppercase">Precisa agendar revisão?</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Revisão é opcional. Escolha “Não” quando não precisar voltar.
+              </p>
+              <div
+                className="mt-3 grid grid-cols-2 gap-2"
+                role="group"
+                aria-label="Agendar revisão"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateCurrentFoot({
+                      recheck: false,
+                      recheckDate: undefined,
+                      intervalo_revisao_dias: undefined,
+                      revisoes_necessarias: undefined,
+                    })
+                  }
+                  className={cn(
+                    "min-h-14 rounded-lg border-2 px-3 font-display text-sm font-black uppercase",
+                    !currentFootEntry.recheck
+                      ? "border-good bg-good text-good-foreground"
+                      : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  Não precisa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const days = currentRecommendation?.days;
+                    updateCurrentFoot({
+                      recheck: true,
+                      recheckDate: days ? dateAfterDays(days, visit.date) : undefined,
+                      intervalo_revisao_dias: days,
+                      revisoes_necessarias: 1,
+                    });
+                  }}
+                  className={cn(
+                    "min-h-14 rounded-lg border-2 px-3 font-display text-sm font-black uppercase",
+                    currentFootEntry.recheck
+                      ? "border-warn bg-warn text-warn-foreground"
+                      : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  Sim, agendar
+                </button>
+              </div>
+              {!currentFootEntry.recheck ? (
+                <p className="mt-3 flex items-center gap-2 text-xs font-bold text-good">
+                  <CheckCircle2 className="h-4 w-4" /> Nenhuma revisão será criada para este casco.
+                </p>
+              ) : null}
+            </section>
+          )}
+          {currentFootEntry.recheck && !visit.preventivo && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 {QUICK_RECHECK_OPTIONS.map((option) => {
@@ -3991,9 +4220,19 @@ function RegisterScreen({
           <button
             type="button"
             onClick={advanceFromNotes}
-            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+            disabled={Boolean(currentFootEntry.recheck && !currentFootEntry.recheckDate)}
+            className={cn(
+              "tap-lg flex w-full items-center justify-center gap-3 rounded-lg py-5 font-display text-xl uppercase",
+              currentFootEntry.recheck && !currentFootEntry.recheckDate
+                ? "bg-muted text-muted-foreground"
+                : "bg-primary text-primary-foreground stamp",
+            )}
           >
-            {footIdx + 1 < badFeet.length ? "Próximo pé" : "Ver resumo"}{" "}
+            {currentFootEntry.recheck && !currentFootEntry.recheckDate
+              ? "Escolha a data da revisão"
+              : footIdx + 1 < badFeet.length
+                ? "Próximo pé"
+                : "Ver resumo"}{" "}
             <ChevronRight className="h-6 w-6" />
           </button>
         </div>
@@ -4182,15 +4421,22 @@ function FeetStep({
   visit,
   onConfirm,
   onNormalPreventive,
-  onTaco,
+  hasActiveProblem,
+  activeProblemFeet,
 }: {
   visit: Visit;
   onConfirm: (feet: FootKey[]) => void;
   onNormalPreventive: () => void;
-  onTaco: () => void;
+  hasActiveProblem: boolean;
+  activeProblemFeet: FootKey[];
 }) {
-  const [selected, setSelected] = useState<FootKey[]>(
-    visit.feet.filter((f) => !f.ok).map((f) => f.foot) as FootKey[],
+  const [selected, setSelected] = useState<FootKey[]>(() =>
+    Array.from(
+      new Set([
+        ...(visit.feet.filter((f) => !f.ok).map((f) => f.foot) as FootKey[]),
+        ...activeProblemFeet,
+      ]),
+    ),
   );
   function toggle(k: FootKey) {
     setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
@@ -4198,44 +4444,46 @@ function FeetStep({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-display text-2xl font-black uppercase">Diagnóstico</h2>
+        <h2 className="font-display text-2xl font-black uppercase">Tipo de atendimento</h2>
         <p className="text-sm text-muted-foreground">
-          Informe se o casco está normal ou marque as lesões
+          Escolha preventivo ou informe os pés que precisam de atendimento
         </p>
       </div>
       <button
         type="button"
         onClick={onNormalPreventive}
-        className="flex min-h-20 w-full items-center gap-4 rounded-2xl border-2 border-good/50 bg-good/10 px-4 text-left text-good"
+        disabled={hasActiveProblem}
+        className={cn(
+          "flex min-h-20 w-full items-center gap-4 rounded-lg border-2 px-4 text-left",
+          hasActiveProblem
+            ? "border-border bg-muted text-muted-foreground opacity-65"
+            : "border-good/50 bg-good/10 text-good",
+        )}
       >
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-good text-good-foreground">
           <CheckCircle2 className="h-7 w-7" />
         </span>
         <span className="min-w-0">
-          <span className="block font-display text-lg font-black uppercase">Casco normal</span>
+          <span className="block font-display text-lg font-black uppercase">
+            Casqueamento preventivo
+          </span>
           <span className="block text-xs text-muted-foreground">
-            Salvar como casqueamento preventivo, sem lesão
+            {hasActiveProblem
+              ? "Há problema ou taco ativo. Registre a evolução antes de liberar."
+              : "Todos os cascos estão normais, sem lesão"}
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        onClick={onTaco}
-        className="flex min-h-20 w-full items-center gap-4 rounded-2xl border-2 border-primary/40 bg-primary/5 px-4 text-left text-primary"
-      >
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <Box className="h-6 w-6" aria-hidden="true" />
-        </span>
-        <span className="min-w-0">
-          <span className="block font-display text-lg font-black uppercase">Registrar taco</span>
-          <span className="block text-xs text-muted-foreground">Escolher ação, pé e lado</span>
-        </span>
-        <ChevronRight className="ml-auto h-5 w-5 shrink-0" aria-hidden="true" />
-      </button>
+      {activeProblemFeet.length > 0 && (
+        <p className="rounded-lg border border-warn/50 bg-warn/10 p-3 text-xs font-bold text-warn-foreground">
+          Pé(s) em acompanhamento já marcados:{" "}
+          {activeProblemFeet.map((foot) => FOOT_LABEL[foot]).join(", ")}.
+        </p>
+      )}
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-border" />
         <span className="text-[10px] font-bold uppercase text-muted-foreground">
-          Ou marque os pés com problema
+          Registrar problema
         </span>
         <span className="h-px flex-1 bg-border" />
       </div>
@@ -4248,7 +4496,7 @@ function FeetStep({
               type="button"
               onClick={() => toggle(k)}
               className={cn(
-                "tap-lg flex flex-col items-center justify-center gap-2 rounded-2xl border-2 py-8 transition-[color,background-color,border-color,transform]",
+                "tap-lg flex flex-col items-center justify-center gap-2 rounded-lg border-2 py-8 transition-[color,background-color,border-color,transform]",
                 sel ? "border-danger bg-danger/10" : "border-border bg-card",
               )}
             >
@@ -4282,114 +4530,16 @@ function FeetStep({
         onClick={() => onConfirm(selected)}
         disabled={selected.length === 0}
         className={cn(
-          "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl py-5 font-display text-xl uppercase",
+          "tap-lg flex w-full items-center justify-center gap-3 rounded-lg py-5 font-display text-xl uppercase",
           selected.length > 0
             ? "bg-primary text-primary-foreground stamp"
             : "bg-muted text-muted-foreground",
         )}
       >
         {selected.length === 0
-          ? "Marque um pé com problema"
-          : `${selected.length} pé(s) com problema`}
+          ? "Marque o pé com problema"
+          : `Continuar com ${selected.length} pé(s)`}
         <ChevronRight className="h-6 w-6" />
-      </button>
-    </div>
-  );
-}
-
-function TacoQuickStep({
-  value,
-  onChange,
-  onConfirm,
-}: {
-  value: { action?: TacoAction; foot?: FootKey; side?: TacoSide };
-  onChange: (value: { action?: TacoAction; foot?: FootKey; side?: TacoSide }) => void;
-  onConfirm: () => void;
-}) {
-  const complete = Boolean(value.action && value.foot && value.side);
-  return (
-    <div className="space-y-5">
-      <div>
-        <p className="text-xs font-bold uppercase text-muted-foreground">Procedimento</p>
-        <h2 className="font-display text-2xl font-black uppercase">Registrar taco</h2>
-      </div>
-
-      <section>
-        <p className="mb-2 font-display text-sm font-black uppercase">1. O que foi feito?</p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {TACO_ACTIONS.map((item) => (
-            <button
-              key={item.action}
-              type="button"
-              onClick={() => onChange({ ...value, action: item.action })}
-              className={cn(
-                "tap min-h-14 rounded-xl border-2 px-4 font-display text-sm font-black uppercase",
-                value.action === item.action
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-card",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className={!value.action ? "pointer-events-none opacity-45" : ""}>
-        <p className="mb-2 font-display text-sm font-black uppercase">2. Em qual pé?</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(["FE", "FD", "TE", "TD"] as FootKey[]).map((foot) => (
-            <button
-              key={foot}
-              type="button"
-              disabled={!value.action}
-              onClick={() => onChange({ ...value, foot })}
-              className={cn(
-                "tap min-h-16 rounded-xl border-2 px-2 font-display text-sm font-black uppercase",
-                value.foot === foot
-                  ? "border-primary bg-primary text-primary-foreground stamp"
-                  : "border-border bg-card",
-              )}
-            >
-              <span className="block text-xl">{foot}</span>
-              <span className="block text-[10px]">{FOOT_LABEL[foot]}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className={!value.foot ? "pointer-events-none opacity-45" : ""}>
-        <p className="mb-2 font-display text-sm font-black uppercase">3. Em qual lado do casco?</p>
-        <div className="grid grid-cols-2 gap-2">
-          {(Object.entries(TACO_SIDE_LABEL) as [TacoSide, string][]).map(([side, label]) => (
-            <button
-              key={side}
-              type="button"
-              disabled={!value.foot}
-              onClick={() => onChange({ ...value, side })}
-              className={cn(
-                "tap min-h-16 rounded-xl border-2 px-3 font-display text-sm font-black uppercase",
-                value.side === side
-                  ? "border-good bg-good text-good-foreground stamp"
-                  : "border-border bg-card",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <button
-        type="button"
-        onClick={onConfirm}
-        disabled={!complete}
-        className={cn(
-          "tap-lg flex min-h-16 w-full items-center justify-center gap-2 rounded-2xl font-display text-lg font-black uppercase",
-          complete ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
-        )}
-      >
-        Continuar para lesão <ChevronRight className="h-5 w-5" aria-hidden="true" />
       </button>
     </div>
   );
@@ -5161,7 +5311,7 @@ function WorkSummary({
 function SummaryScreen({ farm }: { farm: FarmConfig }) {
   const today = todayISO();
   const visits = visitsForDay(today);
-  const all = loadVisits();
+  const all = loadVisits().filter(visitIsFinalized);
   const treatmentMetrics = curativeMetrics(today);
   const tacoMetrics = tacoMetricsFromVisits(all, today);
   const clinicalRules = diseaseCatalog(farm, false);
@@ -5403,6 +5553,7 @@ function ConfigScreen({
   const [newAnimalLote, setNewAnimalLote] = useState("");
   const [newAnimalSex, setNewAnimalSex] = useState<Sex>("vaca");
   const [diseases, setDiseases] = useState<DiseaseDefinition[]>(() => diseaseCatalog(farm));
+  const [diseaseSearch, setDiseaseSearch] = useState("");
   const [newDiseaseName, setNewDiseaseName] = useState("");
   const [newDiseaseDays, setNewDiseaseDays] = useState(30);
 
@@ -5420,6 +5571,13 @@ function ConfigScreen({
         disease.full.trim().length > 0 && disease.recheckDays >= 1 && disease.recheckDays <= 365,
     );
   const activeDiseases = diseases.filter((disease) => disease.active);
+  const visibleActiveDiseases = activeDiseases.filter(
+    (disease) =>
+      !diseaseSearch.trim() ||
+      disease.full
+        .toLocaleLowerCase("pt-BR")
+        .includes(diseaseSearch.trim().toLocaleLowerCase("pt-BR")),
+  );
   const inactiveDiseases = diseases.filter((disease) => !disease.active);
   const lastBackupAt = loadLastBackupAt();
 
@@ -5551,7 +5709,7 @@ function ConfigScreen({
 
   const tabBtnCls = (active: boolean) =>
     cn(
-      "flex-1 rounded-xl py-2.5 font-display text-sm uppercase transition-colors",
+      "flex-1 rounded-lg py-2.5 font-display text-sm uppercase transition-colors",
       active ? "bg-primary text-primary-foreground stamp" : "bg-surface text-muted-foreground",
     );
 
@@ -5641,23 +5799,50 @@ function ConfigScreen({
         </p>
       </div>
 
-      {/* Tabs principais */}
-      <div className="flex gap-1.5 rounded-2xl bg-card p-1.5 stamp">
-        <button onClick={() => setConfigTab("dados")} className={tabBtnCls(configTab === "dados")}>
-          Dados
-        </button>
-        <button
-          onClick={() => setConfigTab("cadastros")}
-          className={tabBtnCls(configTab === "cadastros")}
-        >
-          Cadastros
-        </button>
-        <button
-          onClick={() => setConfigTab("avancado")}
-          className={tabBtnCls(configTab === "avancado")}
-        >
-          Regras
-        </button>
+      <div className="grid gap-2 sm:grid-cols-3" role="tablist" aria-label="Gestão da fazenda">
+        {[
+          { id: "dados", label: "Informações", detail: "Nome e responsável", icon: FileText },
+          { id: "cadastros", label: "Cadastros", detail: "Lotes e animais", icon: ClipboardList },
+          {
+            id: "avancado",
+            label: "Regras clínicas",
+            detail: "Lesões e prazos",
+            icon: SlidersHorizontal,
+          },
+        ].map((item) => {
+          const Icon = item.icon;
+          const active = configTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setConfigTab(item.id as typeof configTab)}
+              className={cn(
+                "flex min-h-16 items-center gap-3 rounded-lg border-2 px-3 text-left",
+                active
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground",
+              )}
+            >
+              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span>
+                <span className="block font-display text-xs font-black uppercase">
+                  {item.label}
+                </span>
+                <span
+                  className={cn(
+                    "mt-0.5 block text-[10px]",
+                    active ? "opacity-85" : "text-muted-foreground",
+                  )}
+                >
+                  {item.detail}
+                </span>
+              </span>
+            </button>
+          );
+        })}
       </div>
       {!valid && (
         <p role="alert" className="rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -5943,16 +6128,29 @@ function ConfigScreen({
       {/* ── TAB: AVANÇADO ── */}
       {configTab === "avancado" && (
         <div className="space-y-4">
-          <section className="overflow-hidden rounded-2xl border-2 border-border bg-card">
+          <section className="overflow-hidden rounded-lg border-2 border-border bg-card">
             <div className="border-b-2 border-border p-4">
-              <p className="font-display text-base font-black uppercase">Doenças e revisões</p>
+              <p className="font-display text-base font-black uppercase">Lesões e prazo sugerido</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                O prazo preenche automaticamente a próxima visita. Com mais de uma doença, vale o
-                menor prazo.
+                O prazo aparece como sugestão no atendimento. A revisão só entra na agenda se o
+                funcionário escolher “Sim, agendar”.
+              </p>
+              <label className="relative mt-3 block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={diseaseSearch}
+                  onChange={(event) => setDiseaseSearch(event.target.value)}
+                  placeholder="Buscar lesão"
+                  aria-label="Buscar lesão nas regras"
+                  className="min-h-11 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm outline-none focus:border-primary"
+                />
+              </label>
+              <p className="mt-2 text-[10px] font-bold uppercase text-muted-foreground">
+                {visibleActiveDiseases.length} de {activeDiseases.length} lesões ativas
               </p>
             </div>
             <div className="divide-y divide-border">
-              {activeDiseases.map((disease) => (
+              {visibleActiveDiseases.map((disease) => (
                 <div
                   key={disease.code}
                   className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto]"

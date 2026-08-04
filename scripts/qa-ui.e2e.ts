@@ -38,7 +38,7 @@ test("Sandro gerencia doenças e prazos da fazenda", async ({ page }) => {
   await activate(page, "STARMILK", "Sandro");
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await page.getByRole("button", { name: "Gestão da fazenda" }).click();
-  await page.getByRole("button", { name: "Regras" }).click();
+  await page.getByRole("tab", { name: /Regras clínicas/i }).click();
 
   await page.getByLabel("Dias para revisão de Dermatite Digital").fill("8");
   await page.getByLabel("Nome da nova doença").fill("Dermatite interdigital");
@@ -49,7 +49,7 @@ test("Sandro gerencia doenças e prazos da fazenda", async ({ page }) => {
 
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await page.getByRole("button", { name: "Gestão da fazenda" }).click();
-  await page.getByRole("button", { name: "Regras" }).click();
+  await page.getByRole("tab", { name: /Regras clínicas/i }).click();
   await expect(page.getByLabel("Dias para revisão de Dermatite Digital")).toHaveValue("8");
   await page.getByRole("button", { name: "Remover doença Dermatite interdigital" }).click();
   await expect(
@@ -78,7 +78,7 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   await page.getByRole("button", { name: "Nova visita", exact: true }).click();
   await page.getByLabel("Número do brinco").fill("9876");
   await page.getByRole("button", { name: /Continuar/i }).click();
-  await page.getByRole("button", { name: /Casco normal/i }).click();
+  await page.getByRole("button", { name: /^Casqueamento preventivo Todos/i }).click();
   await expect(page.getByText("Horario (definido pelo app)")).toBeVisible();
   await expect(page.getByText("Romano", { exact: true })).toBeVisible();
   await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
@@ -98,44 +98,91 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   await expect(page.getByText("Casqueamento preventivo", { exact: true })).toBeVisible();
 });
 
-test("Dermatite Digital sugere revisão automática em 7 dias", async ({ page }) => {
+test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await page.getByRole("button", { name: "Nova visita", exact: true }).click();
   await page.getByLabel("Número do brinco").fill("7654");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
-  await page.getByRole("button", { name: /1 pé\(s\) com problema/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
-  await page.getByRole("button", { name: "Aplicar taco", exact: true }).click();
+  await page.getByRole("button", { name: /^Colocar taco/i }).click();
   await expect(page.getByText(/Escolha o lado esquerdo ou direito/i)).toBeVisible();
   await page.getByRole("button", { name: "Lado esquerdo do casco Frente Esq." }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
   await expect(page.getByText("Prazo sugerido: 7 dias")).toBeVisible();
+  await expect(page.getByText(/Nenhuma revisão será criada/i)).toBeVisible();
+  await page.getByRole("button", { name: "Sim, agendar" }).click();
   await expect(page.getByLabel("Escolher data da revisão")).not.toHaveValue("");
   await page.getByLabel("Intervalo personalizado em dias").fill("3");
   await page.getByLabel("Quantidade de revisões necessárias").fill("3");
   await expect(page.getByText(/3 revisão\(ões\) a cada 3 dia\(s\)/i)).toBeVisible();
 });
 
-test("fluxo rápido de taco exige ação, pé e lado", async ({ page }) => {
+test("taco existente é reconhecido e pré-selecionado na próxima visita", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await page.getByRole("button", { name: "Nova visita", exact: true }).click();
   await page.getByLabel("Número do brinco").fill("8765");
   await page.getByRole("button", { name: /Continuar/i }).click();
-  await page.getByRole("button", { name: /Registrar taco/i }).click();
-  await page.getByRole("button", { name: "Aplicar taco", exact: true }).click();
   await page.getByRole("button", { name: /TD.*Trás Dir/i }).click();
-  await page.getByRole("button", { name: "Lado direito", exact: true }).click();
-  await page.getByRole("button", { name: /Continuar para lesão/i }).click();
-  await page.getByRole("button", { name: /Continuar sem lesão/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /^Colocar taco/i }).click();
+  await page.getByRole("button", { name: "Lado direito do casco Trás Dir." }).click();
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
   await page.getByRole("button", { name: /Ver resumo/i }).click();
-  await expect(page.getByText(/Aplicar taco · Lado direito/i)).toBeVisible();
+  await expect(page.getByText(/Colocar taco · Lado direito/i)).toBeVisible();
   await expect(page.getByRole("button", { name: /Salvar visita/i })).toBeEnabled();
+  await page.getByRole("button", { name: /Salvar visita/i }).click();
+
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("8765");
+  await expect(page.getByText(/Taco ativo · Trás Dir/i)).toBeVisible();
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await expect(page.getByText(/Pé\(s\) em acompanhamento já marcados/i)).toBeVisible();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await expect(page.getByText("Taco já colocado")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Deixar taco colocado/i })).toHaveClass(
+    /bg-primary/,
+  );
+});
+
+test("problema curado pode ser liberado sem criar revisão", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("6543");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /FE Frente Esq/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await page.getByRole("button", { name: "Dermatite Digital: grau 1" }).click();
+  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /Spray.*Produto/i }).click();
+  await page.getByRole("button", { name: /^Confirmar$/i }).click();
+  await expect(page.getByText(/Nenhuma revisão será criada/i)).toBeVisible();
+  await page.getByRole("button", { name: /Ver resumo/i }).click();
+  await page.getByRole("button", { name: /Salvar visita/i }).click();
+
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("6543");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await page.getByRole("button", { name: /O problema não existe mais/i }).click();
+  await page.getByRole("button", { name: /Sim, está curado/i }).click();
+  await expect(page.getByRole("button", { name: /Liberado para preventivo/i })).toHaveClass(
+    /bg-good/,
+  );
+  await expect(page.getByText(/Precisa agendar revisão/i)).toHaveCount(0);
+  await page.getByRole("button", { name: /Ver resumo/i }).click();
+  await expect(page.getByText(/Marcado como CURADO/i)).toBeVisible();
+  await page.getByRole("button", { name: /Salvar visita/i }).click();
 });
 
 test("aparelho ativado reabre sem internet", async ({ page, context }) => {
@@ -157,7 +204,7 @@ test("página longa rola até o fim em celular estreito", async ({ page }) => {
   await activate(page, "STARMILK", "Sandro");
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await page.getByRole("button", { name: "Gestão da fazenda" }).click();
-  await page.getByRole("button", { name: "Regras" }).click();
+  await page.getByRole("tab", { name: /Regras clínicas/i }).click();
 
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
