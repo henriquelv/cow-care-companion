@@ -126,13 +126,23 @@
   }
   html {
     color-scheme: light;
+    min-height: 100%;
+    overflow-y: auto;
   }
   body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    margin: 0;
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
     -webkit-tap-highlight-color: transparent;
-    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: auto;
     touch-action: manipulation;
+  }
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
   }
   .dark {
     color-scheme: dark;
@@ -195,8 +205,32 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
   .app-bottom-space {
     padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+  .modal-viewport {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+  .modal-panel {
+    max-height: calc(100vh - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+  }
+  .long-list-item {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 92px;
   }
   .skip-link {
     position: fixed;

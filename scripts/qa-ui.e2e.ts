@@ -120,3 +120,39 @@ test("aparelho ativado reabre sem internet", async ({ page, context }) => {
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
   await expect(page.getByText(/Offline/).first()).toBeVisible();
 });
+
+test("página longa rola até o fim em celular estreito", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await activate(page, "STARMILK", "Sandro");
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Gestão da fazenda" }).click();
+  await page.getByRole("button", { name: "Regras" }).click();
+
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    scrollHeight: document.documentElement.scrollHeight,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+  expect(dimensions.scrollHeight).toBeGreaterThan(568);
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect(page.getByRole("button", { name: "Salvar regras" })).toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+});
+
+test("ajuda mantém ações acessíveis em tela baixa e bloqueia o fundo", async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 360 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Ajuda" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Tela inicial" });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await dialog.getByRole("button", { name: "Entendi" }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "Entendi" })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator("body")).not.toHaveCSS("overflow", "hidden");
+});

@@ -159,6 +159,27 @@ export function AdminScreen({
     if (unlocked) void loadOverview();
   }, [loadOverview, unlocked]);
 
+  useEffect(() => {
+    const modalOpen = Boolean(editingEmployee || removingEmployee || removingData || resetEmployee);
+    if (!modalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setEditingEmployee(null);
+      setRemovingEmployee(null);
+      setRemovingData(null);
+      setResetEmployee(null);
+      setDataRemovalReason("");
+      setResetPin("");
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [editingEmployee, removingData, removingEmployee, resetEmployee]);
+
   const farmNames = useMemo(
     () => new Map(overview.farms.map((farm) => [farm.id, farm.name])),
     [overview.farms],
@@ -714,7 +735,7 @@ export function AdminScreen({
                 </p>
               ) : (
                 operationalVisits.slice(0, 100).map((visit) => (
-                  <article key={visit.id} className="py-4">
+                  <article key={visit.id} className="long-list-item py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-display text-lg font-black uppercase">
@@ -1238,14 +1259,14 @@ export function AdminScreen({
 
       {editingEmployee && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          className="modal-viewport fixed inset-0 z-50 flex items-end bg-foreground/45 px-3 sm:items-center sm:justify-center"
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-employee-title"
         >
           <form
             onSubmit={submitEmployeeEdit}
-            className="w-full max-w-md rounded-lg bg-background p-5 shadow-2xl"
+            className="modal-panel w-full max-w-md rounded-lg bg-background p-5 shadow-2xl"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1310,12 +1331,12 @@ export function AdminScreen({
 
       {removingEmployee && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          className="modal-viewport fixed inset-0 z-50 flex items-end bg-foreground/45 px-3 sm:items-center sm:justify-center"
           role="dialog"
           aria-modal="true"
           aria-labelledby="remove-employee-title"
         >
-          <div className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
+          <div className="modal-panel w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-danger/10 text-danger">
               <AlertTriangle className="h-6 w-6" aria-hidden="true" />
             </div>
@@ -1352,12 +1373,12 @@ export function AdminScreen({
 
       {removingData && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          className="modal-viewport fixed inset-0 z-50 flex items-end bg-foreground/45 px-3 sm:items-center sm:justify-center"
           role="dialog"
           aria-modal="true"
           aria-labelledby="remove-data-title"
         >
-          <div className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
+          <div className="modal-panel w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-danger/10 text-danger">
               <AlertTriangle className="h-6 w-6" aria-hidden="true" />
             </div>
@@ -1381,7 +1402,6 @@ export function AdminScreen({
                 Motivo obrigatório
               </span>
               <textarea
-                autoFocus
                 required
                 maxLength={300}
                 value={dataRemovalReason}
@@ -1417,14 +1437,14 @@ export function AdminScreen({
 
       {resetEmployee && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-foreground/45 p-3 sm:items-center sm:justify-center"
+          className="modal-viewport fixed inset-0 z-50 flex items-end bg-foreground/45 px-3 sm:items-center sm:justify-center"
           role="dialog"
           aria-modal="true"
           aria-labelledby="reset-pin-title"
         >
           <form
             onSubmit={submitResetPin}
-            className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl"
+            className="modal-panel w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl"
           >
             <h2 id="reset-pin-title" className="font-display text-lg font-black uppercase">
               Novo PIN
@@ -1433,7 +1453,6 @@ export function AdminScreen({
               Redefinir o acesso de {resetEmployee.name}
             </p>
             <input
-              autoFocus
               required
               type="text"
               inputMode="numeric"

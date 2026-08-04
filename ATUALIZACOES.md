@@ -1325,3 +1325,45 @@ Critério de sucesso:
 - Trocar os PINs iniciais dos gerentes e funcionários.
 - Fazer um atendimento real com foto e revisão automática em celular Android.
 - Configurar backup e monitoramento antes de ampliar para mais fazendas.
+
+# 2026-08-04 - Rolagem mobile, responsividade e segurança
+
+## O que foi feito
+
+- Corrigida a rolagem global em celular e tablet, incluindo páginas longas, teclado virtual e aparelhos com área segura superior/inferior.
+- Os modais de ajuda, edição, exclusão e redefinição de PIN agora possuem rolagem própria, não deixam o conteúdo de fundo se mover e podem ser fechados com `Esc`.
+- Removido o foco automático dos campos críticos para evitar que o teclado abra e esconda as confirmações em telas pequenas.
+- Cabeçalhos fixos passaram a respeitar o recorte da câmera e a barra de status; a navegação inferior continua reservando espaço no fim das páginas.
+- A troca de tela agora retorna imediatamente ao topo, evitando abrir uma nova área no meio da rolagem anterior.
+- O PIN de acesso passou a ficar mascarado visualmente sem depender do gerenciador de senhas do navegador.
+- Substituídas transições genéricas por propriedades específicas e ativado carregamento otimizado dos itens da lista administrativa.
+- Adicionados testes Playwright para página longa em `320x568` e modal em `640x360`, cobrindo celular estreito e orientação paisagem.
+- A auditoria responsiva também foi executada em `390x844`, `768x1024` e `1024x768`, sem overflow horizontal.
+- Atualizadas dependências transitivas vulneráveis (`brace-expansion` e `postcss`); `npm audit` passou com zero vulnerabilidades conhecidas.
+- O ESLint agora ignora artefatos de cobertura e Playwright, evitando falha intermitente quando a pasta de resultados é recriada durante o QA.
+- Reforçados os cabeçalhos da Vercel com HSTS, COOP, CORP, bloqueio de políticas cross-domain e upgrade obrigatório para HTTPS.
+- Cache offline atualizado para `v15`, garantindo que os aparelhos recebam os novos estilos e scripts.
+
+## Por que foi feito
+
+- Garantir que qualquer ação continue alcançável em celulares pequenos, tablets e orientação paisagem.
+- Evitar travamento de rolagem, conteúdo escondido atrás do teclado e toque vazando de um modal para a tela inferior.
+- Reduzir exposição visual do PIN e endurecer o navegador contra incorporação indevida, conteúdo misto e leitura por outras origens.
+- Impedir que vulnerabilidades conhecidas em dependências de desenvolvimento cheguem à rotina de manutenção do produto.
+
+## Como validar
+
+- Em um celular, abrir “Gestão da fazenda” > “Regras” e rolar até “Salvar regras” e “Backup do aparelho”.
+- Em orientação paisagem, abrir “Ajuda”, rolar dentro da janela, tocar em “Entendi” e confirmar que o fundo permaneceu parado.
+- Abrir edição/exclusão no painel administrativo e confirmar que todos os botões continuam visíveis com o teclado aberto.
+- Confirmar que o PIN aparece mascarado durante a identificação do funcionário.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel`, `npm run test:e2e`, `npm audit --audit-level=high` e `npm run verify:production`.
+- Resultado desta rodada: 37 testes unitários, 10 fluxos Playwright, lint, typecheck, build e auditoria de dependências aprovados.
+- Verificação do banco real aprovada com acesso público bloqueado e zero registros cruzados entre StarMilk e Hullsjob.
+
+## Próximos passos
+
+- Fazer uma conferência tátil em um celular Android e um tablet reais, incluindo teclado, câmera e rotação de tela.
+- Trocar todos os PINs iniciais antes do uso diário e não reutilizar o mesmo PIN entre funcionários.
+- Revogar no projeto Supabase antigo as chaves administrativas compartilhadas durante a configuração.
+- Ativar monitoramento de erros e confirmar a rotina automática de backup antes de cadastrar o rebanho completo.

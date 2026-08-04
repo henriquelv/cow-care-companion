@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { HelpCircle, X } from "lucide-react";
 
 const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
@@ -52,14 +53,34 @@ interface HelpModalProps {
 export function HelpModal({ screen, onClose }: HelpModalProps) {
   const content = SCREEN_HELP[screen] ?? SCREEN_HELP.today;
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 sm:items-center sm:p-4">
-      <div className="w-full max-w-lg rounded-t-2xl border border-border bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:p-6">
+    <div
+      className="modal-viewport fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 sm:items-center sm:px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="help-modal-title"
+    >
+      <div className="modal-panel w-full max-w-lg rounded-t-2xl border border-border bg-card p-5 shadow-2xl sm:rounded-2xl sm:p-6">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <HelpCircle className="h-5 w-5" />
           </span>
-          <h2 className="min-w-0 flex-1 text-lg font-extrabold">{content.title}</h2>
+          <h2 id="help-modal-title" className="min-w-0 flex-1 text-lg font-extrabold">
+            {content.title}
+          </h2>
           <button
             type="button"
             onClick={onClose}

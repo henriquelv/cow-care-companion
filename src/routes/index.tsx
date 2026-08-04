@@ -214,6 +214,11 @@ export function Index() {
   const goToday = () => setScreen({ name: "today" });
   const appContext = farmContextService.getContext();
 
+  useEffect(() => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [screen]);
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
@@ -291,7 +296,7 @@ export function Index() {
 
   if (accessBlocked) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <main className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-8">
         <section className="w-full max-w-md text-center" aria-labelledby="access-blocked-title">
           <CalendarClock className="mx-auto h-12 w-12 text-warn-foreground" aria-hidden="true" />
           <h1 id="access-blocked-title" className="mt-4 font-display text-xl font-black uppercase">
@@ -347,7 +352,7 @@ export function Index() {
                 : "today";
 
   return (
-    <div className="app-bottom-space min-h-screen overflow-x-hidden">
+    <div className="app-bottom-space min-h-[100dvh] overflow-x-hidden">
       <a href="#conteudo-principal" className="skip-link">
         Pular para conteúdo
       </a>
@@ -398,7 +403,7 @@ export function Index() {
               refresh();
               showToast(
                 v.preventivo
-                  ? "Casqueamento preventivo registrado! ✂️"
+                  ? "Casqueamento preventivo registrado."
                   : "Visita registrada com sucesso!",
               );
               goToday();
@@ -679,8 +684,8 @@ function ActivationScreen({
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-background px-3 py-5 sm:px-4">
-      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] w-full min-w-0 max-w-2xl flex-col justify-center">
+    <main className="min-h-[100dvh] overflow-x-hidden bg-background px-3 py-5 sm:px-4">
+      <div className="mx-auto flex min-h-[calc(100dvh-2.5rem)] w-full min-w-0 max-w-2xl flex-col justify-start sm:justify-center">
         <section className="w-full min-w-0 overflow-hidden rounded-3xl border-2 border-border bg-card p-4 shadow-sm stamp sm:p-6">
           <div className="mb-6 flex min-w-0 items-center gap-3 sm:gap-4">
             {client ? (
@@ -827,7 +832,7 @@ function ActivationScreen({
                     }}
                     placeholder="PIN de acesso"
                     autoComplete="one-time-code"
-                    className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-center text-xl font-bold tracking-[0.18em] outline-none focus:border-primary"
+                    className="w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-center text-xl font-bold tracking-[0.18em] outline-none [-webkit-text-security:disc] focus:border-primary"
                   />
                   <button
                     type="button"
@@ -990,8 +995,8 @@ function EmployeeAgendaScreen({
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <header className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm">
+    <main className="min-h-[100dvh] bg-background">
+      <header className="safe-top sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm">
         <div className="mx-auto flex min-h-16 max-w-3xl items-center gap-3 px-4 py-2 sm:px-6">
           <button
             type="button"
@@ -1036,7 +1041,7 @@ function EmployeeAgendaScreen({
         {loading ? (
           <div className="flex min-h-48 items-center justify-center gap-3 text-muted-foreground">
             <RefreshCw className="h-5 w-5 animate-spin" />
-            <span className="font-semibold">Carregando agenda...</span>
+            <span className="font-semibold">Carregando agenda…</span>
           </div>
         ) : error ? (
           <div
@@ -1152,7 +1157,7 @@ function Header({
   };
 
   return (
-    <header className="sticky top-0 z-10 border-b-2 border-border bg-background/90 backdrop-blur">
+    <header className="safe-top sticky top-0 z-10 border-b-2 border-border bg-background/90 backdrop-blur">
       <div className="mx-auto flex max-w-2xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
         {showBack ? (
           <button
@@ -1502,7 +1507,7 @@ function TodayScreen({
         <button
           onClick={onFilters}
           className={cn(
-            "tap flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-2 transition-all",
+            "tap flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-2 transition-[color,background-color,border-color,transform]",
             filtersActive
               ? "border-primary bg-primary text-primary-foreground stamp"
               : "border-border bg-card",
@@ -1985,7 +1990,7 @@ function NavTab({
       <span
         aria-hidden="true"
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-xl transition-all",
+          "flex h-8 w-8 items-center justify-center rounded-xl transition-[color,background-color,transform]",
           active && "bg-primary/10",
         )}
       >
@@ -2144,7 +2149,7 @@ function BigStat({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-2xl border-2 p-4 text-center stamp w-full transition-all active:scale-95",
+        "rounded-2xl border-2 p-4 text-center stamp w-full transition-[color,background-color,border-color,transform] active:scale-95",
         active && "ring-2 ring-primary ring-offset-1",
         tone === "warn" && value > 0 ? "border-warn/40 bg-warn/10" : "border-border bg-card",
         tone === "danger" && value > 0
@@ -2230,7 +2235,7 @@ function FilterChip({
     <button
       onClick={onClick}
       className={cn(
-        "tap shrink-0 rounded-full border-2 px-4 font-display text-sm uppercase transition-all",
+        "tap shrink-0 rounded-full border-2 px-4 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
         active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-surface",
       )}
     >
@@ -2773,7 +2778,7 @@ function CalendarScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => voi
                 key={day}
                 onClick={() => setSelectedDate(dateStr)}
                 className={cn(
-                  "relative flex flex-col items-center justify-center rounded-xl py-2 transition-all",
+                  "relative flex flex-col items-center justify-center rounded-xl py-2 transition-[color,background-color,border-color,transform]",
                   isSel
                     ? "bg-primary text-primary-foreground stamp"
                     : isToday
@@ -3123,7 +3128,7 @@ function RegisterScreen({
         <div className="flex-1">
           <div className="h-2 w-full overflow-hidden rounded-full bg-border">
             <div
-              className="h-full rounded-full bg-primary transition-all duration-300"
+              className="h-full rounded-full bg-primary transition-[width] duration-300"
               style={{ width: progress + "%" }}
             />
           </div>
@@ -3235,7 +3240,7 @@ function RegisterScreen({
                   type="button"
                   onClick={() => updateVisit({ preventivo: !visit.preventivo })}
                   className={cn(
-                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
+                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
                     visit.preventivo
                       ? "border-good bg-good text-good-foreground stamp"
                       : "border-border bg-card text-muted-foreground",
@@ -3274,7 +3279,7 @@ function RegisterScreen({
             }
             onClick={() => setStep("feet")}
             className={cn(
-              "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl font-display text-xl uppercase py-5 transition-all",
+              "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl font-display text-xl uppercase py-5 transition-[color,background-color,transform]",
               visit.tag.trim() &&
                 (!visit.correction_of_id || (visit.correction_reason?.trim().length ?? 0) >= 3)
                 ? "bg-primary text-primary-foreground stamp"
@@ -3368,7 +3373,7 @@ function RegisterScreen({
                     updateCurrentFoot({ treatments: active ? without : [...without, t.code] });
                   }}
                   className={cn(
-                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
+                    "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
                     active
                       ? "border-primary bg-primary text-primary-foreground stamp"
                       : "border-border bg-surface",
@@ -3425,7 +3430,7 @@ function RegisterScreen({
               })
             }
             className={cn(
-              "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-all",
+              "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
               currentFootEntry.recheck
                 ? "border-warn bg-warn text-warn-foreground stamp"
                 : "border-border bg-surface text-muted-foreground",
@@ -3639,7 +3644,7 @@ function RegisterScreen({
                         });
                       }}
                       className={cn(
-                        "tap flex w-full items-center gap-2 rounded-xl border-2 px-3 py-3 text-left font-display transition-all",
+                        "tap flex w-full items-center gap-2 rounded-xl border-2 px-3 py-3 text-left font-display transition-[color,background-color,border-color,transform]",
                         active
                           ? "border-primary bg-primary text-primary-foreground stamp"
                           : "border-border bg-surface",
@@ -3865,7 +3870,7 @@ function FeetStep({
               type="button"
               onClick={() => toggle(k)}
               className={cn(
-                "tap-lg flex flex-col items-center justify-center gap-2 rounded-2xl border-2 py-8 transition-all",
+                "tap-lg flex flex-col items-center justify-center gap-2 rounded-2xl border-2 py-8 transition-[color,background-color,border-color,transform]",
                 sel ? "border-danger bg-danger/10" : "border-border bg-card",
               )}
             >
@@ -4635,7 +4640,7 @@ function EmployeeWorkScreen() {
                 : "bg-muted text-muted-foreground",
             )}
           >
-            {savingPin ? "Salvando..." : "Salvar novo PIN"}
+            {savingPin ? "Salvando…" : "Salvar novo PIN"}
           </button>
         </form>
       </section>
