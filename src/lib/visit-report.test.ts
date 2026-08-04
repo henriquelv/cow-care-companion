@@ -62,4 +62,25 @@ describe("visit reports", () => {
       withProblem: 1,
     });
   });
+
+  it("filtra e contabiliza atendimentos com taco", () => {
+    const withTaco = visit({
+      id: "taco",
+      tag: "400",
+      feet: [
+        {
+          foot: "TD",
+          ok: false,
+          diseases: [{ code: "DD", severity: 2 }],
+          taco: { action: "apply", side: "right" },
+        },
+      ],
+    });
+
+    expect(filterVisitsForReport([...visits, withTaco], { status: "taco" })).toEqual([withTaco]);
+    expect(visitReportMetrics([...visits, withTaco])).toMatchObject({
+      withTaco: 1,
+      tacosApplied: 1,
+    });
+  });
 });

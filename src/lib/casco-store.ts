@@ -25,6 +25,14 @@ export type TreatmentCode =
   | "INJ_AINE"
   | "NADA";
 
+export type TacoAction = "apply" | "remove" | "maintain";
+export type TacoSide = "left" | "right";
+
+export interface TacoEntry {
+  action: TacoAction;
+  side?: TacoSide;
+}
+
 export type CommentCode = "D1" | "D2" | "D3" | "D4" | "D5" | "D6";
 
 export interface DiseaseEntry {
@@ -48,6 +56,7 @@ export interface FootEntry {
   zones?: Zone[];
   diseases?: DiseaseEntry[];
   treatments?: TreatmentCode[];
+  taco?: TacoEntry;
   comments?: CommentCode[];
   nota?: string; // observação livre do funcionário
   recheck?: boolean;
@@ -162,6 +171,8 @@ export function toHoofFeetPayloads(v: Visit) {
     zones: f.zones ?? [],
     diseases: f.diseases ?? [],
     treatments: f.treatments ?? [],
+    taco_action: f.taco?.action,
+    taco_side: f.taco?.side,
     comments: f.comments ?? [],
     nota: f.nota,
     recheck: f.recheck,
@@ -294,14 +305,6 @@ export const LESIONS: DiseaseDefinition[] = [
     active: true,
   },
   {
-    code: "HHE",
-    name: "Talão c/ Lama",
-    full: "Talão por Lama / Esterco",
-    emoji: "💧",
-    recheckDays: 30,
-    active: true,
-  },
-  {
     code: "HI",
     name: "Hiperplasia",
     full: "Hiperplasia Interdigital",
@@ -311,8 +314,8 @@ export const LESIONS: DiseaseDefinition[] = [
   },
   {
     code: "FF",
-    name: "Fleimão",
-    full: "Fleimão / Podridão do Pé",
+    name: "Flegmão",
+    full: "Flegmão / Podridão do Pé",
     emoji: "🦨",
     recheckDays: 30,
     active: true,
@@ -359,6 +362,17 @@ export const LESIONS: DiseaseDefinition[] = [
   },
 ];
 
+const REMOVED_DISEASES: Record<string, DiseaseDefinition> = {
+  HHE: {
+    code: "HHE",
+    name: "Talão c/ Lama",
+    full: "Talão por Lama / Esterco",
+    emoji: "💧",
+    recheckDays: 30,
+    active: false,
+  },
+};
+
 function normalizeRecheckDays(value: unknown, fallback: number = CURATIVE_DEADLINES.other) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -380,12 +394,15 @@ function normalizeDiseaseCatalog(stored?: DiseaseDefinition[]) {
   const defaults = LESIONS.map((disease) => {
     const saved = storedByCode.get(disease.code);
     storedByCode.delete(disease.code);
+    const keepCanonicalName = disease.code === "FF";
     return {
       ...disease,
       ...saved,
       code: disease.code,
-      name: saved?.name?.trim() || disease.name,
-      full: saved?.full?.trim() || saved?.name?.trim() || disease.full,
+      name: keepCanonicalName ? disease.name : saved?.name?.trim() || disease.name,
+      full: keepCanonicalName
+        ? disease.full
+        : saved?.full?.trim() || saved?.name?.trim() || disease.full,
       emoji: saved?.emoji || disease.emoji,
       recheckDays: normalizeRecheckDays(saved?.recheckDays, disease.recheckDays),
       active: saved?.active !== false,
@@ -399,7 +416,7 @@ function normalizeDiseaseCatalog(stored?: DiseaseDefinition[]) {
     recheckDays: normalizeRecheckDays(disease.recheckDays),
     active: disease.active !== false,
   }));
-  return [...defaults, ...custom];
+  return [...defaults, ...custom].filter((disease) => !(disease.code in REMOVED_DISEASES));
 }
 
 export function defaultDiseaseCatalog() {
@@ -412,7 +429,7 @@ export function diseaseCatalog(farm = loadFarm(), includeInactive = true) {
 }
 
 export function diseaseDefinition(code: LesionCode, farm = loadFarm()) {
-  return diseaseCatalog(farm).find((disease) => disease.code === code);
+  return diseaseCatalog(farm).find((disease) => disease.code === code) ?? REMOVED_DISEASES[code];
 }
 
 export function recommendedRecheckForDiseases(
@@ -447,6 +464,160 @@ export const TREATMENTS: { code: TreatmentCode; label: string; emoji: string }[]
   { code: "INJ_AINE", label: "Injetável Anti-inflamatório", emoji: "🩺" },
   { code: "NADA", label: "Só Limpou", emoji: "✅" },
 ];
+
+const EXCLUSIVE_TREATMENT_GROUPS: TreatmentCode[][] = [
+  ["BLOCO_ON", "BLOCO_OFF", "BLOCO_FIX"],
+  ["BAND_ON", "BAND_OFF"],
+];
+
+export function normalizeTreatmentSelection(values: TreatmentCode[] = [], hasTaco = false) {
+  let result = Array.from(new Set(values));
+  if (hasTaco || result.length > 1) result = result.filter((code) => code !== "NADA");
+  for (const group of EXCLUSIVE_TREATMENT_GROUPS) {
+    const selected = [...values].reverse().find((code) => group.includes(code));
+    result = result.filter((code) => !group.includes(code));
+    if (selected) result.push(selected);
+  }
+  return result;
+}
+
+export function toggleTreatmentSelection(
+  current: TreatmentCode[],
+  code: TreatmentCode,
+  hasTaco = false,
+): TreatmentCode[] {
+  if (current.includes(code)) return current.filter((item) => item !== code);
+  if (code === "NADA") return hasTaco ? [] : ["NADA"];
+  return normalizeTreatmentSelection([...current, code], hasTaco);
+}
+
+export interface VisitValidationIssue {
+  foot?: FootKey;
+  message: string;
+}
+
+export function validateVisitClinicalData(visit: Visit): VisitValidationIssue[] {
+  const issues: VisitValidationIssue[] = [];
+  if (!visit.tag.trim()) issues.push({ message: "Informe o número do brinco." });
+
+  for (const foot of visit.feet) {
+    if (foot.ok || foot.resolved || foot.data_liberacao) continue;
+    const diseases = (foot.diseases ?? []).filter((disease) => disease.severity > 0);
+    const treatments = foot.treatments ?? [];
+    if (diseases.length > 1) {
+      issues.push({ foot: foot.foot, message: "Escolha somente uma lesão neste casco." });
+    }
+    if (diseases.length === 0 && treatments.length === 0 && !foot.taco) {
+      issues.push({
+        foot: foot.foot,
+        message: "Informe uma lesão, um taco ou outro tratamento para este casco.",
+      });
+    }
+    if (foot.taco && !foot.taco.side) {
+      issues.push({ foot: foot.foot, message: "Escolha o lado esquerdo ou direito do taco." });
+    }
+    if (treatments.includes("NADA") && (treatments.length > 1 || foot.taco)) {
+      issues.push({
+        foot: foot.foot,
+        message: "Só limpou não pode ser usado com outro tratamento.",
+      });
+    }
+    for (const group of EXCLUSIVE_TREATMENT_GROUPS) {
+      if (treatments.filter((code) => group.includes(code)).length > 1) {
+        issues.push({ foot: foot.foot, message: "Escolha somente uma ação do mesmo tratamento." });
+      }
+    }
+    if (foot.recheck && !foot.recheckDate) {
+      issues.push({ foot: foot.foot, message: "Escolha a data da primeira revisão." });
+    }
+  }
+  return issues;
+}
+
+export const TACO_ACTIONS: { action: TacoAction; label: string }[] = [
+  { action: "apply", label: "Aplicar taco" },
+  { action: "remove", label: "Remover taco" },
+  { action: "maintain", label: "Taco mantido" },
+];
+
+export const TACO_SIDE_LABEL: Record<TacoSide, string> = {
+  left: "Lado esquerdo",
+  right: "Lado direito",
+};
+
+export function tacoLabel(taco?: TacoEntry) {
+  if (!taco) return "";
+  const action = TACO_ACTIONS.find((item) => item.action === taco.action)?.label ?? "Taco";
+  return `${action} · ${taco.side ? TACO_SIDE_LABEL[taco.side] : "lado não informado"}`;
+}
+
+export function normalizeSingleDisease(diseases: DiseaseEntry[] = []) {
+  const active = diseases
+    .filter((disease) => normalizeSeverity(disease.severity) > 0)
+    .map((disease) => ({ ...disease, severity: normalizeSeverity(disease.severity) }));
+  if (active.length <= 1) return active;
+  return [
+    active.reduce((selected, disease) =>
+      disease.severity > selected.severity ? disease : selected,
+    ),
+  ];
+}
+
+export function visitHasTaco(visit: Visit) {
+  return visit.feet.some((foot) => Boolean(foot.taco));
+}
+
+export interface TacoMetrics {
+  applied: number;
+  removed: number;
+  maintained: number;
+  active: number;
+  appliedToday: number;
+}
+
+function activeTacoPlacementsFromVisits(visits: Visit[]) {
+  const active = new Map<string, string>();
+  for (const visit of visits.filter(visitIsVisible).sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const foot of visit.feet) {
+      if (!foot.taco?.side) continue;
+      const tag = visit.tag.trim().toLocaleLowerCase("pt-BR");
+      const key = `${visit.farm_id ?? "local"}:${tag}:${foot.foot}:${foot.taco.side}`;
+      if (foot.taco.action === "remove") active.delete(key);
+      else active.set(key, tag);
+    }
+  }
+  return active;
+}
+
+export function activeTacoAnimalTagsFromVisits(visits: Visit[]) {
+  return new Set(activeTacoPlacementsFromVisits(visits).values());
+}
+
+export function tacoMetricsFromVisits(visits: Visit[], referenceDate = todayISO()): TacoMetrics {
+  const metrics: TacoMetrics = {
+    applied: 0,
+    removed: 0,
+    maintained: 0,
+    active: 0,
+    appliedToday: 0,
+  };
+
+  for (const visit of visits.filter(visitIsVisible).sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const foot of visit.feet) {
+      if (!foot.taco?.side) continue;
+      if (foot.taco.action === "apply") {
+        metrics.applied += 1;
+        if (visit.date === referenceDate) metrics.appliedToday += 1;
+      } else if (foot.taco.action === "remove") {
+        metrics.removed += 1;
+      } else {
+        metrics.maintained += 1;
+      }
+    }
+  }
+  metrics.active = activeTacoPlacementsFromVisits(visits).size;
+  return metrics;
+}
 
 export const COMMENTS: { code: CommentCode; label: string }[] = [
   { code: "D1", label: "Já casqueado por terceiro" },
@@ -744,6 +915,7 @@ function migrateFootEntry(f: LegacyFootEntry): FootEntry {
     treatments: (
       f.treatments ?? (f.treatment && f.treatment !== "NADA" ? [f.treatment as TreatmentCode] : [])
     ).map((c: string) => (c === "BLOCO" ? "BLOCO_ON" : c)) as TreatmentCode[],
+    taco: f.taco,
     recheck: f.recheck,
     recheckDate: f.recheckDate,
     intervalo_revisao_dias: f.intervalo_revisao_dias,
@@ -824,6 +996,8 @@ export async function hydrateVisitsFromIndexedDb() {
       zones?: Zone[];
       diseases?: DiseaseEntry[];
       treatments?: TreatmentCode[];
+      taco_action?: TacoAction;
+      taco_side?: TacoSide;
       comments?: CommentCode[];
       nota?: string;
       recheck?: boolean;
@@ -844,6 +1018,11 @@ export async function hydrateVisitsFromIndexedDb() {
         severity: normalizeSeverity(d.severity),
       })),
       treatments: data.payload?.treatments ?? data.treatments ?? [],
+      taco:
+        data.payload?.taco ??
+        (data.taco_action && data.taco_side
+          ? { action: data.taco_action, side: data.taco_side }
+          : undefined),
       comments: data.payload?.comments ?? data.comments ?? [],
       nota: data.payload?.nota ?? data.nota,
       recheck: data.payload?.recheck ?? data.recheck,
@@ -993,19 +1172,24 @@ export function addVisit(v: Visit) {
     tag: v.tag.trim(),
     lote: v.lote?.trim().toUpperCase() || undefined,
     status: "active",
-    feet: v.feet.map((foot) =>
-      foot.recheck
+    feet: v.feet.map((foot) => {
+      const normalized = {
+        ...foot,
+        diseases: normalizeSingleDisease(foot.diseases),
+        treatments: normalizeTreatmentSelection(foot.treatments, Boolean(foot.taco)),
+      };
+      return foot.recheck
         ? {
-            ...foot,
+            ...normalized,
             revisoes_necessarias: normalizeReviewCount(foot.revisoes_necessarias),
           }
         : {
-            ...foot,
+            ...normalized,
             recheckDate: undefined,
             intervalo_revisao_dias: undefined,
             revisoes_necessarias: undefined,
-          },
-    ),
+          };
+    }),
   };
 
   // Auto-incrementa numero_revisoes para casos contínuos
@@ -1252,10 +1436,13 @@ export function allAnimals(): {
   totalVisits: number;
   hasRecheck: boolean;
   hasResolved: boolean;
+  hasProblem: boolean;
+  hasTaco: boolean;
   worstSeverity: Severity;
 }[] {
   const visits = loadVisits();
   const farm = loadFarm();
+  const activeTacoTags = activeTacoAnimalTagsFromVisits(visits);
   const map = new Map<string, ReturnType<typeof allAnimals>[number]>();
 
   // Animals from registered list (no visit yet appear with lastVisit=0)
@@ -1270,6 +1457,8 @@ export function allAnimals(): {
         totalVisits: 0,
         hasRecheck: false,
         hasResolved: false,
+        hasProblem: false,
+        hasTaco: false,
         worstSeverity: 0,
       });
     }
@@ -1279,6 +1468,8 @@ export function allAnimals(): {
     const key = v.tag.toLowerCase();
     const hasRecheck = v.feet.some((f) => f.recheck && !f.resolved && !f.data_liberacao);
     const hasResolved = v.feet.some((f) => f.resolved || !!f.data_liberacao);
+    const hasProblem = v.feet.some((f) => !f.ok && !f.resolved && !f.data_liberacao);
+    const hasTaco = v.feet.some((f) => f.taco?.action === "apply" || f.taco?.action === "maintain");
     const ws = footsWorstSeverity(v.feet);
     const existing = map.get(key);
     if (!existing) {
@@ -1290,6 +1481,8 @@ export function allAnimals(): {
         totalVisits: 1,
         hasRecheck,
         hasResolved,
+        hasProblem,
+        hasTaco,
         worstSeverity: ws,
       });
     } else {
@@ -1297,12 +1490,15 @@ export function allAnimals(): {
       if (v.createdAt > existing.lastVisit) {
         existing.lastVisit = v.createdAt;
         existing.worstSeverity = ws;
+        existing.hasProblem = hasProblem;
+        existing.hasTaco = hasTaco;
         if (v.lote) existing.lote = v.lote;
       }
       if (hasRecheck) existing.hasRecheck = true;
       if (hasResolved) existing.hasResolved = true;
     }
   }
+  for (const [tag, animal] of map) animal.hasTaco = activeTacoTags.has(tag);
   return Array.from(map.values()).sort((a, b) => b.lastVisit - a.lastVisit);
 }
 
@@ -1671,7 +1867,9 @@ export function curativeFollowupsFromVisits(
       seen.add(key);
 
       const activeDiseases = (foot.diseases ?? []).filter((d) => d.severity > 0);
-      const treated = (foot.treatments ?? []).some((treatment) => treatment !== "NADA");
+      const treated =
+        (foot.treatments ?? []).some((treatment) => treatment !== "NADA") ||
+        (Boolean(foot.taco) && foot.taco?.action !== "remove");
       if (
         foot.ok ||
         foot.resolved ||

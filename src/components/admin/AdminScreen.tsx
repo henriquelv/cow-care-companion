@@ -568,6 +568,7 @@ export function AdminScreen({
                 <option value="normal">Cascos normais</option>
                 <option value="problem">Com problema</option>
                 <option value="recheck">Com revisão</option>
+                <option value="taco">Com taco</option>
               </select>
             </label>
             <label>
@@ -614,6 +615,7 @@ export function AdminScreen({
               ["Preventivos", reportMetrics.preventive],
               ["Normais", reportMetrics.normal],
               ["Problemas", reportMetrics.withProblem],
+              ["Com taco", reportMetrics.withTaco],
               ["Revisões", reportMetrics.scheduledReviews],
             ].map(([label, value]) => (
               <div

@@ -2,13 +2,15 @@ import {
   FOOT_LABEL,
   TREATMENTS,
   diseaseDefinition,
+  tacoLabel,
   visitBelongsToEmployee,
+  visitHasTaco,
   visitIsVisible,
   type AgendaItem,
   type Visit,
 } from "@/lib/casco-store";
 
-export type VisitReportStatus = "all" | "normal" | "preventive" | "problem" | "recheck";
+export type VisitReportStatus = "all" | "normal" | "preventive" | "problem" | "recheck" | "taco";
 
 export interface VisitReportFilters {
   dateFrom?: string;
@@ -26,6 +28,8 @@ export interface VisitReportMetrics {
   normal: number;
   withProblem: number;
   scheduledReviews: number;
+  withTaco: number;
+  tacosApplied: number;
 }
 
 function hasProblem(visit: Visit) {
@@ -57,6 +61,8 @@ export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilte
           return hasProblem(visit);
         case "recheck":
           return hasRecheck(visit);
+        case "taco":
+          return visitHasTaco(visit);
         default:
           return true;
       }
@@ -76,6 +82,11 @@ export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): 
     scheduledReviews: agenda.filter((item) =>
       visibleVisits.some((visit) => visit.id === item.visit_id),
     ).length,
+    withTaco: visibleVisits.filter(visitHasTaco).length,
+    tacosApplied: visibleVisits.reduce(
+      (count, visit) => count + visit.feet.filter((foot) => foot.taco?.action === "apply").length,
+      0,
+    ),
   };
 }
 
@@ -95,7 +106,7 @@ function diagnosisSummary(visit: Visit) {
 }
 
 function treatmentSummary(visit: Visit) {
-  return Array.from(
+  const treatments = Array.from(
     new Set(
       visit.feet.flatMap((foot) =>
         (foot.treatments ?? [])
@@ -103,7 +114,11 @@ function treatmentSummary(visit: Visit) {
           .filter((label): label is string => Boolean(label)),
       ),
     ),
-  ).join(", ");
+  );
+  const tacos = visit.feet
+    .filter((foot) => foot.taco)
+    .map((foot) => `${FOOT_LABEL[foot.foot]}: ${tacoLabel(foot.taco)}`);
+  return [...treatments, ...tacos].join(", ");
 }
 
 function reviewSummary(visit: Visit) {
@@ -156,7 +171,7 @@ export async function exportVisitsPdf(input: {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.text(
-    `${metrics.visits} visitas   ${metrics.animals} animais   ${metrics.preventive} preventivos   ${metrics.withProblem} com problema   ${metrics.scheduledReviews} revisões agendadas`,
+    `${metrics.visits} visitas   ${metrics.animals} animais   ${metrics.preventive} preventivos   ${metrics.withProblem} com problema   ${metrics.tacosApplied} tacos aplicados   ${metrics.scheduledReviews} revisões agendadas`,
     12,
     34,
   );

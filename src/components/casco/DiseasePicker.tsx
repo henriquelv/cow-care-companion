@@ -113,18 +113,21 @@ export function DiseasePicker({ catalog, diseases, onChange }: Props) {
 
   function setSeverity(code: LesionCode, s: Severity) {
     if (s === 0) {
-      onChange(diseases.filter((d) => d.code !== code));
+      onChange([]);
     } else {
       const existing = diseases.find((d) => d.code === code);
-      if (existing) {
-        onChange(diseases.map((d) => (d.code === code ? { ...d, severity: s } : d)));
-      } else {
-        onChange([...diseases, { code, severity: s }]);
-      }
+      onChange([{ ...(existing ?? { code }), severity: s }]);
     }
   }
 
   const activeDiseases = diseases.filter((d) => d.severity > 0);
+  const selectedDisease = activeDiseases.reduce<DiseaseEntry | undefined>(
+    (selected, disease) => (!selected || disease.severity > selected.severity ? disease : selected),
+    undefined,
+  );
+  const visibleCatalog = selectedDisease
+    ? catalog.filter((disease) => disease.code === selectedDisease.code)
+    : catalog;
 
   return (
     <div className="space-y-2">
@@ -133,12 +136,23 @@ export function DiseasePicker({ catalog, diseases, onChange }: Props) {
           Nenhuma doença ativa. O gerente pode ativar ou cadastrar doenças em Configurações.
         </p>
       )}
-      {activeDiseases.length > 0 && (
-        <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-bold text-danger">
-          {activeDiseases.length} doença(s) marcada(s)
+      {selectedDisease ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-primary/10 px-3 py-2">
+          <p className="text-sm font-bold text-primary">1 lesão selecionada</p>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="min-h-10 rounded-lg border border-primary/30 bg-card px-3 font-display text-xs font-black uppercase text-primary"
+          >
+            Trocar lesão
+          </button>
+        </div>
+      ) : (
+        <p className="rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+          Escolha uma lesão. Para evitar erro, somente uma pode ser registrada por casco.
         </p>
       )}
-      {catalog.map((l) => (
+      {visibleCatalog.map((l) => (
         <DiseaseRow
           key={l.code}
           code={l.code}

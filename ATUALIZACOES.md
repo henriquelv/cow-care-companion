@@ -8,6 +8,48 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - Taco por casco, uma lesão e travas de preenchimento
+
+### O que foi feito
+
+- Removida a opção `Talão com Lama` dos novos diagnósticos, preservando a descrição em históricos antigos.
+- Corrigido `Fleimão` para `Flegmão`, inclusive ao carregar configurações antigas da fazenda.
+- Limitado o diagnóstico novo a uma lesão por casco; para trocar, o usuário usa a ação explícita `Trocar lesão`.
+- Mantidos todos os tratamentos de bloco existentes sem renomeá-los ou alterar seu histórico.
+- Criada a categoria independente `Taco`, com as ações `Aplicar taco`, `Remover taco` e `Taco mantido`.
+- O taco registra o pé e exige a seleção do lado `Esquerdo` ou `Direito` antes de continuar.
+- Adicionado o atalho `Registrar taco`, seguindo o fluxo `ação → pé → lado → lesão`, além da opção dentro do tratamento normal.
+- Taco pode coexistir com uma lesão, curativo, bloco, spray ou outro tratamento no mesmo casco.
+- Adicionados filtros por ação e lado do taco, filtro `Com taco` no histórico e filtro `Com taco` nos relatórios de funcionário e gerente.
+- Adicionadas métricas de tacos ativos, aplicados hoje, total aplicado e total removido no resumo.
+- Histórico e PDF agora informam ação, pé e lado do taco.
+- Criadas travas contra lado do taco vazio, duas lesões no mesmo casco, ações contraditórias de bloco/curativo, `Só limpou` junto de outro procedimento e revisão sem data.
+- Ao desmarcar um pé com problema, os dados clínicos daquele pé são limpos para evitar informações invisíveis no salvamento.
+- Adicionadas colunas estruturadas de taco no Supabase e validações de ação/lado no banco.
+- Migração `202608040003` aplicada e conferida no Supabase de produção: duas colunas de taco disponíveis, nenhuma configuração ainda oferecendo `HHE` e as duas fazendas com `Flegmão` normalizado.
+- Atualizado o cache offline para `v19`.
+
+### Por que foi feito
+
+- Representar corretamente o taco como procedimento adicional, sem confundi-lo com bloco ou com a doença principal.
+- Reduzir erros de preenchimento em campo com passos curtos, seleção progressiva e mensagens diretas.
+- Permitir acompanhamento operacional dos tacos por fazenda, funcionário, período, pé e lado.
+
+### Como validar
+
+- Confirmar que `Talão com Lama` não aparece e que `Flegmão` está escrito corretamente.
+- Abrir uma visita, tocar em `Registrar taco` e confirmar que não é possível avançar sem ação, pé e lado.
+- Registrar `Dermatite Digital + Aplicar taco + Spray` no mesmo casco.
+- Tentar marcar outra lesão e confirmar que é necessário usar `Trocar lesão`.
+- Conferir o taco no resumo da visita, histórico, filtros, relatório PDF e métricas.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Receber a planilha real de animais para definir o mapeamento exato das colunas sem exigir retrabalho do cliente.
+2. Implementar importação Excel/CSV com pré-visualização, erros por linha, deduplicação por brinco e cálculo preventivo pela data do último casqueamento.
+3. Validar com o cliente se os termos `lado esquerdo` e `lado direito` são os usados pela equipe ou se prefere `unha interna` e `unha externa`.
+
 ## 2026-08-04 - Preventivos na agenda e ações mais claras
 
 ### O que foi feito

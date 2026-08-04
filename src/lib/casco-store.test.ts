@@ -23,6 +23,7 @@ import {
   loadLastBackupAt,
   loadVisits,
   normalizeSeverity,
+  normalizeSingleDisease,
   preventiveAgendaItems,
   preventiveList,
   recommendedRecheckForDiseases,
@@ -30,7 +31,10 @@ import {
   saveFarm,
   saveVisits,
   todayISO,
+  tacoMetricsFromVisits,
+  toggleTreatmentSelection,
   toHoofVisitPayload,
+  validateVisitClinicalData,
   visitIsVisible,
   type FarmConfig,
   type FootEntry,
@@ -176,6 +180,96 @@ describe("casco-store domain rules", () => {
         }),
       ),
     ).toBe(3);
+  });
+
+  it("remove Talão com Lama da seleção e corrige Flegmão", () => {
+    saveFarm({
+      ...farm,
+      diseases: [
+        ...defaultDiseaseCatalog(),
+        {
+          code: "HHE",
+          name: "Talão c/ Lama",
+          full: "Talão por Lama / Esterco",
+          emoji: "💧",
+          recheckDays: 30,
+          active: true,
+        },
+        {
+          code: "FF",
+          name: "Fleimão",
+          full: "Fleimão / Podridão do Pé",
+          emoji: "🦨",
+          recheckDays: 30,
+          active: true,
+        },
+      ],
+    });
+
+    expect(loadFarm().diseases.some((disease) => disease.code === "HHE")).toBe(false);
+    expect(loadFarm().diseases.find((disease) => disease.code === "FF")).toMatchObject({
+      name: "Flegmão",
+      full: "Flegmão / Podridão do Pé",
+    });
+  });
+
+  it("mantém uma lesão por casco e bloqueia tratamentos contraditórios", () => {
+    expect(
+      normalizeSingleDisease([
+        { code: "DD", severity: 1 },
+        { code: "SU", severity: 3 },
+      ]),
+    ).toEqual([{ code: "SU", severity: 3 }]);
+    expect(toggleTreatmentSelection(["BLOCO_ON"], "BLOCO_OFF")).toEqual(["BLOCO_OFF"]);
+    expect(toggleTreatmentSelection([], "NADA", true)).toEqual([]);
+
+    const invalid = visit({
+      tag: "900",
+      feet: [
+        foot({
+          ok: false,
+          taco: { action: "apply" },
+          diseases: [{ code: "DD", severity: 2 }],
+        }),
+      ],
+    });
+    expect(validateVisitClinicalData(invalid)).toEqual([
+      expect.objectContaining({ foot: "FE", message: expect.stringContaining("lado") }),
+    ]);
+  });
+
+  it("calcula tacos aplicados, removidos e ainda ativos", () => {
+    const visits = [
+      visit({
+        id: "taco-apply-left",
+        tag: "100",
+        date: "2026-05-20",
+        createdAt: new Date("2026-05-20T10:00:00-03:00").getTime(),
+        feet: [foot({ ok: false, taco: { action: "apply", side: "left" } })],
+      }),
+      visit({
+        id: "taco-remove-left",
+        tag: "100",
+        date: "2026-05-21",
+        createdAt: new Date("2026-05-21T10:00:00-03:00").getTime(),
+        feet: [foot({ ok: false, taco: { action: "remove", side: "left" } })],
+      }),
+      visit({
+        id: "taco-apply-right",
+        tag: "200",
+        date: "2026-05-22",
+        createdAt: new Date("2026-05-22T10:00:00-03:00").getTime(),
+        feet: [foot({ foot: "FD", ok: false, taco: { action: "apply", side: "right" } })],
+      }),
+    ];
+
+    expect(tacoMetricsFromVisits(visits, "2026-05-22")).toEqual({
+      applied: 2,
+      removed: 1,
+      maintained: 0,
+      active: 1,
+      appliedToday: 1,
+    });
   });
 
   it("calcula datas rápidas de revisão", () => {

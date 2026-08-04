@@ -55,10 +55,13 @@ import {
   RotateCcw,
   FileText,
   ListChecks,
+  Box,
 } from "lucide-react";
 import {
   FOOT_LABEL,
   TREATMENTS,
+  TACO_ACTIONS,
+  TACO_SIDE_LABEL,
   COMMENTS,
   QUICK_RECHECK_OPTIONS,
   addVisit,
@@ -78,6 +81,10 @@ import {
   diseaseDefinition,
   employeeWorkMetricsFromVisits,
   recommendedRecheckForDiseases,
+  tacoLabel,
+  tacoMetricsFromVisits,
+  toggleTreatmentSelection,
+  validateVisitClinicalData,
   normalizeReviewCount,
   severityBucket,
   todayISO,
@@ -100,6 +107,8 @@ import {
   type Sex,
   type Severity,
   type TreatmentCode,
+  type TacoAction,
+  type TacoSide,
   type Visit,
   type AgendaItem,
 } from "@/lib/casco-store";
@@ -131,6 +140,8 @@ type Filters = {
   feet: FootKey[];
   minSeverity: Severity;
   treatments: TreatmentCode[];
+  tacoActions: TacoAction[];
+  tacoSides: TacoSide[];
   status: "all" | "problem" | "ok" | "recheck" | "curado";
 };
 
@@ -141,6 +152,8 @@ const EMPTY_FILTERS: Filters = {
   feet: [],
   minSeverity: 0,
   treatments: [],
+  tacoActions: [],
+  tacoSides: [],
   status: "all",
 };
 
@@ -152,6 +165,8 @@ function hasActiveFilters(f: Filters): boolean {
     f.feet.length > 0 ||
     f.minSeverity > 0 ||
     f.treatments.length > 0 ||
+    f.tacoActions.length > 0 ||
+    f.tacoSides.length > 0 ||
     f.status !== "all"
   );
 }
@@ -1324,7 +1339,7 @@ function TodayScreen({
     return m;
   }, [visits]);
 
-  const totalWithProblem = animals.filter((a) => a.worstSeverity > 0).length;
+  const totalWithProblem = animals.filter((a) => a.hasProblem).length;
   const totalSevere = animals.filter((a) => a.worstSeverity >= 3).length;
   const totalRecheck = animals.filter((a) => a.hasRecheck).length;
   const totalRegisteredOnly = animals.filter((a) => a.totalVisits === 0).length;
@@ -1355,8 +1370,8 @@ function TodayScreen({
     if (search.trim()) {
       list = list.filter((a) => a.tag.toLowerCase().includes(search.toLowerCase()));
     }
-    if (filters.status === "problem") list = list.filter((a) => a.worstSeverity > 0);
-    if (filters.status === "ok") list = list.filter((a) => a.worstSeverity === 0);
+    if (filters.status === "problem") list = list.filter((a) => a.hasProblem);
+    if (filters.status === "ok") list = list.filter((a) => !a.hasProblem);
     if (filters.status === "recheck") list = list.filter((a) => a.hasRecheck);
     if (filters.status === "curado") list = list.filter((a) => a.hasResolved);
     if (filters.minSeverity > 0) list = list.filter((a) => a.worstSeverity >= filters.minSeverity);
@@ -1382,6 +1397,22 @@ function TodayScreen({
         );
       });
     }
+    if (filters.tacoActions.length > 0) {
+      list = list.filter((a) => {
+        const lv = latestVisit.get(a.tag.toLowerCase());
+        return lv?.feet.some((foot) =>
+          foot.taco ? filters.tacoActions.includes(foot.taco.action) : false,
+        );
+      });
+    }
+    if (filters.tacoSides.length > 0) {
+      list = list.filter((a) => {
+        const lv = latestVisit.get(a.tag.toLowerCase());
+        return lv?.feet.some((foot) =>
+          foot.taco?.side ? filters.tacoSides.includes(foot.taco.side) : false,
+        );
+      });
+    }
     if (filters.dateFrom) {
       const from = new Date(filters.dateFrom + "T00:00:00").getTime();
       list = list.filter((a) => a.lastVisit >= from);
@@ -1391,8 +1422,8 @@ function TodayScreen({
       list = list.filter((a) => a.lastVisit <= to);
     }
     if (tab === "revisao") list = list.filter((a) => a.hasRecheck);
-    if (tab === "com_problema") list = list.filter((a) => a.worstSeverity > 0 && !a.hasRecheck);
-    if (tab === "ok") list = list.filter((a) => a.worstSeverity === 0 && a.totalVisits > 0);
+    if (tab === "com_problema") list = list.filter((a) => a.hasProblem && !a.hasRecheck);
+    if (tab === "ok") list = list.filter((a) => !a.hasProblem && a.totalVisits > 0);
     if (tab === "cadastrados") list = list.filter((a) => a.totalVisits === 0);
     return list;
   }, [animals, search, filters, latestVisit, tab]);
@@ -1669,7 +1700,7 @@ function TodayScreen({
           {filtered.map((a) => {
             const lv = latestVisit.get(a.tag.toLowerCase());
             const badFeet = lv?.feet.filter((f) => !f.ok && !f.resolved && !f.data_liberacao) ?? [];
-            const hasProblema = a.worstSeverity > 0;
+            const hasProblema = a.hasProblem;
             const recheckDates =
               lv?.feet
                 .filter((f) => f.recheck && !f.resolved && !f.data_liberacao && f.recheckDate)
@@ -1694,7 +1725,7 @@ function TodayScreen({
                         ? "bg-warn"
                         : a.worstSeverity >= 3
                           ? "bg-danger"
-                          : a.worstSeverity >= 1
+                          : a.hasProblem
                             ? "bg-warn"
                             : "bg-good",
                   )}
@@ -1785,6 +1816,11 @@ function TodayScreen({
                           ✅ Curado
                         </span>
                       )}
+                      {a.hasTaco && (
+                        <span className="rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-bold uppercase text-primary">
+                          Taco
+                        </span>
+                      )}
                     </div>
 
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -1840,7 +1876,7 @@ function TodayScreen({
 
 function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: string) => void }) {
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"all" | "normal" | "problem" | "preventive">("all");
+  const [status, setStatus] = useState<"all" | "normal" | "problem" | "preventive" | "taco">("all");
   const visits = useMemo(() => loadVisits().sort((a, b) => b.createdAt - a.createdAt), []);
   const latestByTag = useMemo(() => {
     const map = new Map<string, Visit>();
@@ -1859,9 +1895,10 @@ function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: strin
         )
         .filter((animal) => {
           const latest = latestByTag.get(animal.tag.toLocaleLowerCase("pt-BR"));
-          if (status === "normal") return animal.worstSeverity === 0;
-          if (status === "problem") return animal.worstSeverity > 0;
+          if (status === "normal") return !animal.hasProblem;
+          if (status === "problem") return animal.hasProblem;
           if (status === "preventive") return latest?.preventivo === true;
+          if (status === "taco") return animal.hasTaco;
           return true;
         }),
     [latestByTag, search, status],
@@ -1890,7 +1927,7 @@ function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: strin
       </label>
 
       <div
-        className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-5"
         role="group"
         aria-label="Filtrar histórico"
       >
@@ -1899,6 +1936,7 @@ function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: strin
           ["normal", "Normais"],
           ["problem", "Problemas"],
           ["preventive", "Preventivos"],
+          ["taco", "Com taco"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -1928,7 +1966,7 @@ function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: strin
         <ul className="divide-y divide-border border-y border-border">
           {animals.map((animal) => {
             const latest = latestByTag.get(animal.tag.toLocaleLowerCase("pt-BR"));
-            const normal = animal.worstSeverity === 0;
+            const normal = !animal.hasProblem;
             return (
               <li key={animal.tag}>
                 <button
@@ -2373,6 +2411,22 @@ function FiltersScreen({
         : [...p.treatments, code],
     }));
   }
+  function toggleTacoAction(action: TacoAction) {
+    setF((previous) => ({
+      ...previous,
+      tacoActions: previous.tacoActions.includes(action)
+        ? previous.tacoActions.filter((item) => item !== action)
+        : [...previous.tacoActions, action],
+    }));
+  }
+  function toggleTacoSide(side: TacoSide) {
+    setF((previous) => ({
+      ...previous,
+      tacoSides: previous.tacoSides.includes(side)
+        ? previous.tacoSides.filter((item) => item !== side)
+        : [...previous.tacoSides, side],
+    }));
+  }
 
   return (
     <div className="space-y-5 pb-8">
@@ -2476,6 +2530,48 @@ function FiltersScreen({
             >
               <span className="text-lg leading-none shrink-0">{l.emoji}</span>
               <span className="font-display text-xs uppercase leading-tight">{l.name}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Taco */}
+      <section>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Taco
+        </p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {TACO_ACTIONS.map((item) => (
+            <button
+              key={item.action}
+              type="button"
+              onClick={() => toggleTacoAction(item.action)}
+              className={cn(
+                "tap flex min-h-12 items-center gap-2 rounded-xl border-2 px-3 text-left font-display text-sm uppercase",
+                f.tacoActions.includes(item.action)
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
+              <Box className="h-5 w-5 shrink-0" aria-hidden="true" />
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {(Object.entries(TACO_SIDE_LABEL) as [TacoSide, string][]).map(([side, label]) => (
+            <button
+              key={side}
+              type="button"
+              onClick={() => toggleTacoSide(side)}
+              className={cn(
+                "tap min-h-12 rounded-xl border-2 px-3 font-display text-sm uppercase",
+                f.tacoSides.includes(side)
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-surface",
+              )}
+            >
+              {label}
             </button>
           ))}
         </div>
@@ -2951,7 +3047,7 @@ function CalendarScreen({
 }
 
 /* ───────────── Register (multi-step) ───────────── */
-type RegStep = "worker" | "feet" | "disease" | "treatment" | "notes" | "review";
+type RegStep = "worker" | "feet" | "taco" | "disease" | "treatment" | "notes" | "review";
 
 function RegisterScreen({
   initialTag,
@@ -2990,6 +3086,7 @@ function RegisterScreen({
           zones: disease.zones ? [...disease.zones] : undefined,
         })),
         treatments: [...(foot.treatments ?? [])],
+        taco: foot.taco ? { ...foot.taco } : undefined,
         comments: [...(foot.comments ?? [])],
         photo: undefined,
         photoStoragePath: undefined,
@@ -3002,6 +3099,11 @@ function RegisterScreen({
     () => correctionSource?.feet.filter((foot) => !foot.ok).map((foot) => foot.foot) ?? [],
   );
   const [footIdx, setFootIdx] = useState(0);
+  const [tacoDraft, setTacoDraft] = useState<{
+    action?: TacoAction;
+    foot?: FootKey;
+    side?: TacoSide;
+  }>({});
   const [showVisitOptions, setShowVisitOptions] = useState(false);
   const [showFootAdvanced, setShowFootAdvanced] = useState(false);
 
@@ -3017,6 +3119,12 @@ function RegisterScreen({
   const currentRecommendation = currentFootEntry
     ? recommendedRecheckForDiseases(currentFootEntry.diseases ?? [], fullDiseaseCatalog)
     : null;
+  const hasCurrentDisease = (currentFootEntry?.diseases ?? []).some(
+    (disease) => disease.severity > 0,
+  );
+  const hasCurrentProcedure =
+    (currentFootEntry?.treatments ?? []).length > 0 || Boolean(currentFootEntry?.taco);
+  const currentTacoNeedsSide = Boolean(currentFootEntry?.taco && !currentFootEntry.taco.side);
 
   function updateVisit(partial: Partial<Visit>) {
     setVisit((v) => ({ ...v, ...partial }));
@@ -3032,7 +3140,17 @@ function RegisterScreen({
 
   function confirmFeet(selected: FootKey[]) {
     setBadFeet(selected);
-    const updated = visit.feet.map((f) => ({ ...f, ok: !selected.includes(f.foot) }));
+    const updated = visit.feet.map((foot) =>
+      selected.includes(foot.foot)
+        ? { ...foot, ok: false }
+        : {
+            foot: foot.foot,
+            ok: true,
+            zones: [],
+            diseases: [],
+            treatments: [],
+          },
+    );
     setVisit((v) => ({ ...v, feet: updated }));
     if (selected.length === 0) {
       setStep("review");
@@ -3052,6 +3170,7 @@ function RegisterScreen({
         ok: true,
         diseases: [],
         treatments: [],
+        taco: undefined,
         recheck: false,
         recheckDate: undefined,
         intervalo_revisao_dias: undefined,
@@ -3072,6 +3191,12 @@ function RegisterScreen({
   }
 
   function advanceFromTreatment() {
+    if (!currentFootEntry) return;
+    const hasDisease = (currentFootEntry.diseases ?? []).some((disease) => disease.severity > 0);
+    const hasProcedure = (currentFootEntry.treatments ?? []).length > 0 || currentFootEntry.taco;
+    if ((!hasDisease && !hasProcedure) || (currentFootEntry.taco && !currentFootEntry.taco.side)) {
+      return;
+    }
     if (currentRecommendation && currentFootEntry && !currentFootEntry.recheckDate) {
       updateCurrentFoot({
         recheck: true,
@@ -3090,6 +3215,10 @@ function RegisterScreen({
     }
     if (step === "feet") {
       setStep("worker");
+      return;
+    }
+    if (step === "taco") {
+      setStep("feet");
       return;
     }
     if (step === "disease" && footIdx === 0) {
@@ -3119,6 +3248,29 @@ function RegisterScreen({
     }
   }
 
+  function fixFirstValidationIssue() {
+    const issue = validationIssues[0];
+    if (!issue) return;
+    if (!issue.foot) {
+      setStep("worker");
+      return;
+    }
+    const index = badFeet.indexOf(issue.foot);
+    if (index < 0) {
+      setStep("feet");
+      return;
+    }
+    setFootIdx(index);
+    setStep(
+      issue.message.toLocaleLowerCase("pt-BR").includes("taco") ||
+        issue.message.toLocaleLowerCase("pt-BR").includes("tratamento")
+        ? "treatment"
+        : issue.message.toLocaleLowerCase("pt-BR").includes("revisão")
+          ? "notes"
+          : "disease",
+    );
+  }
+
   function pickPhoto(file: File) {
     const r = new FileReader();
     r.onload = () => {
@@ -3134,6 +3286,27 @@ function RegisterScreen({
     r.readAsDataURL(file);
   }
 
+  function confirmTacoFlow() {
+    if (!tacoDraft.action || !tacoDraft.foot || !tacoDraft.side) return;
+    const nextBadFeet = badFeet.includes(tacoDraft.foot) ? badFeet : [...badFeet, tacoDraft.foot];
+    setBadFeet(nextBadFeet);
+    setVisit((current) => ({
+      ...current,
+      feet: current.feet.map((foot) =>
+        foot.foot === tacoDraft.foot
+          ? {
+              ...foot,
+              ok: false,
+              taco: { action: tacoDraft.action!, side: tacoDraft.side },
+              treatments: (foot.treatments ?? []).filter((treatment) => treatment !== "NADA"),
+            }
+          : foot,
+      ),
+    }));
+    setFootIdx(nextBadFeet.indexOf(tacoDraft.foot));
+    setStep("disease");
+  }
+
   const totalSteps = 2 + badFeet.length * 3 + 1;
   const stepIdx =
     step === "worker"
@@ -3142,11 +3315,14 @@ function RegisterScreen({
         ? 1
         : step === "review"
           ? Math.max(totalSteps - 1, 2)
-          : 2 + footIdx * 3 + (step === "disease" ? 0 : step === "treatment" ? 1 : 2);
+          : step === "taco"
+            ? 1
+            : 2 + footIdx * 3 + (step === "disease" ? 0 : step === "treatment" ? 1 : 2);
   const progress = Math.round((stepIdx / Math.max(totalSteps - 1, 2)) * 100);
   const footStepLabel = currentFoot
     ? FOOT_LABEL[currentFoot] + " · Pé " + (footIdx + 1) + " de " + badFeet.length
     : "";
+  const validationIssues = validateVisitClinicalData(visit);
 
   return (
     <div className="space-y-4 pb-6">
@@ -3331,7 +3507,15 @@ function RegisterScreen({
           visit={visit}
           onConfirm={confirmFeet}
           onNormalPreventive={confirmNormalPreventive}
+          onTaco={() => {
+            setTacoDraft({});
+            setStep("taco");
+          }}
         />
+      )}
+
+      {step === "taco" && (
+        <TacoQuickStep value={tacoDraft} onChange={setTacoDraft} onConfirm={confirmTacoFlow} />
       )}
 
       {/* ── ETAPA 3: Doença ── */}
@@ -3371,13 +3555,23 @@ function RegisterScreen({
             diseases={currentFootEntry.diseases ?? []}
             onChange={(d) => updateCurrentFoot({ diseases: d })}
           />
-          <button
-            type="button"
-            onClick={() => setStep("treatment")}
-            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
-          >
-            Confirmar <ChevronRight className="h-6 w-6" />
-          </button>
+          {hasCurrentDisease ? (
+            <button
+              type="button"
+              onClick={() => setStep("treatment")}
+              className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+            >
+              Confirmar lesão <ChevronRight className="h-6 w-6" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStep("treatment")}
+              className="tap flex min-h-14 w-full items-center justify-center rounded-xl border-2 border-border bg-surface px-4 font-display text-sm font-black uppercase text-foreground"
+            >
+              Continuar sem lesão
+            </button>
+          )}
         </div>
       )}
 
@@ -3390,6 +3584,85 @@ function RegisterScreen({
             </p>
             <h2 className="font-display text-2xl font-black uppercase">Tratamento</h2>
           </div>
+          <section className="space-y-3 rounded-2xl border-2 border-primary/25 bg-primary/5 p-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Box className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="font-display text-base font-black uppercase">Taco</p>
+                <p className="text-xs text-muted-foreground">Opcional e separado da lesão</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {TACO_ACTIONS.map((item) => {
+                const active = currentFootEntry.taco?.action === item.action;
+                return (
+                  <button
+                    key={item.action}
+                    type="button"
+                    onClick={() =>
+                      updateCurrentFoot({
+                        taco: active
+                          ? undefined
+                          : { action: item.action, side: currentFootEntry.taco?.side },
+                        treatments: active
+                          ? currentFootEntry.treatments
+                          : (currentFootEntry.treatments ?? []).filter(
+                              (treatment) => treatment !== "NADA",
+                            ),
+                      })
+                    }
+                    className={cn(
+                      "tap min-h-12 rounded-xl border-2 px-3 font-display text-sm font-black uppercase",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground stamp"
+                        : "border-border bg-card text-foreground",
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+            {currentFootEntry.taco && (
+              <div>
+                <p className="mb-2 text-xs font-black uppercase text-foreground">
+                  Em qual lado deste casco?
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(Object.entries(TACO_SIDE_LABEL) as [TacoSide, string][]).map(
+                    ([side, label]) => (
+                      <button
+                        key={side}
+                        type="button"
+                        onClick={() =>
+                          updateCurrentFoot({ taco: { ...currentFootEntry.taco!, side } })
+                        }
+                        aria-label={`${label} do casco ${FOOT_LABEL[currentFoot]}`}
+                        className={cn(
+                          "tap min-h-14 rounded-xl border-2 px-3 font-display text-sm font-black uppercase",
+                          currentFootEntry.taco?.side === side
+                            ? "border-good bg-good text-good-foreground stamp"
+                            : "border-border bg-card",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ),
+                  )}
+                </div>
+                {!currentFootEntry.taco.side && (
+                  <p role="alert" className="mt-2 text-sm font-bold text-danger">
+                    Escolha o lado esquerdo ou direito para continuar.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Outros tratamentos
+          </p>
           <div className="flex flex-col gap-2">
             {TREATMENTS.map((t) => {
               const active = (currentFootEntry.treatments ?? []).includes(t.code);
@@ -3399,12 +3672,14 @@ function RegisterScreen({
                   type="button"
                   onClick={() => {
                     const cur = currentFootEntry.treatments ?? [];
-                    if (t.code === "NADA") {
-                      updateCurrentFoot({ treatments: active ? [] : ["NADA"] });
-                      return;
-                    }
-                    const without = cur.filter((c) => c !== "NADA" && c !== t.code);
-                    updateCurrentFoot({ treatments: active ? without : [...without, t.code] });
+                    updateCurrentFoot({
+                      treatments: toggleTreatmentSelection(
+                        cur,
+                        t.code,
+                        Boolean(currentFootEntry.taco),
+                      ),
+                      taco: t.code === "NADA" && !active ? undefined : currentFootEntry.taco,
+                    });
                   }}
                   className={cn(
                     "tap flex w-full items-center gap-3 rounded-xl border-2 px-3 py-3 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
@@ -3419,10 +3694,24 @@ function RegisterScreen({
               );
             })}
           </div>
+          {!hasCurrentDisease && !hasCurrentProcedure && (
+            <p
+              role="alert"
+              className="rounded-xl bg-warn/10 px-3 py-3 text-sm font-bold text-warn-foreground"
+            >
+              Sem lesão: selecione um taco ou outro tratamento para continuar.
+            </p>
+          )}
           <button
             type="button"
             onClick={advanceFromTreatment}
-            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+            disabled={currentTacoNeedsSide || (!hasCurrentDisease && !hasCurrentProcedure)}
+            className={cn(
+              "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl py-5 font-display text-xl uppercase",
+              currentTacoNeedsSide || (!hasCurrentDisease && !hasCurrentProcedure)
+                ? "bg-muted text-muted-foreground"
+                : "bg-primary text-primary-foreground stamp",
+            )}
           >
             Confirmar <ChevronRight className="h-6 w-6" />
           </button>
@@ -3798,6 +4087,12 @@ function RegisterScreen({
                           </p>
                         );
                       })}
+                      {f.taco && (
+                        <p className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm font-bold text-primary">
+                          <Box className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          {tacoLabel(f.taco)}
+                        </p>
+                      )}
                       {(f.treatments ?? []).length > 0 && (
                         <p className="text-sm text-muted-foreground">
                           Tratamento:{" "}
@@ -3837,10 +4132,43 @@ function RegisterScreen({
               </p>
             </div>
           )}
+          {validationIssues.length > 0 && (
+            <div role="alert" className="rounded-2xl border-2 border-danger/50 bg-danger/5 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-danger" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-display text-base font-black uppercase text-danger">
+                    Corrija antes de salvar
+                  </p>
+                  <ul className="mt-2 space-y-1 text-sm text-foreground">
+                    {validationIssues.map((issue, index) => (
+                      <li key={`${issue.foot ?? "visit"}-${index}`}>
+                        {issue.foot ? `${FOOT_LABEL[issue.foot]}: ` : ""}
+                        {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={fixFirstValidationIssue}
+                className="mt-3 min-h-12 w-full rounded-xl bg-danger px-4 font-display text-sm font-black uppercase text-danger-foreground"
+              >
+                Corrigir agora
+              </button>
+            </div>
+          )}
           <button
             type="button"
-            onClick={() => onSave(visit)}
-            className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-good py-6 font-display text-2xl font-black uppercase text-good-foreground stamp active:scale-[0.98] transition-transform"
+            onClick={() => validationIssues.length === 0 && onSave(visit)}
+            disabled={validationIssues.length > 0}
+            className={cn(
+              "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl py-6 font-display text-2xl font-black uppercase transition-transform active:scale-[0.98]",
+              validationIssues.length === 0
+                ? "bg-good text-good-foreground stamp"
+                : "bg-muted text-muted-foreground",
+            )}
           >
             <Save className="h-7 w-7" /> Salvar Visita
           </button>
@@ -3854,10 +4182,12 @@ function FeetStep({
   visit,
   onConfirm,
   onNormalPreventive,
+  onTaco,
 }: {
   visit: Visit;
   onConfirm: (feet: FootKey[]) => void;
   onNormalPreventive: () => void;
+  onTaco: () => void;
 }) {
   const [selected, setSelected] = useState<FootKey[]>(
     visit.feet.filter((f) => !f.ok).map((f) => f.foot) as FootKey[],
@@ -3887,6 +4217,20 @@ function FeetStep({
             Salvar como casqueamento preventivo, sem lesão
           </span>
         </span>
+      </button>
+      <button
+        type="button"
+        onClick={onTaco}
+        className="flex min-h-20 w-full items-center gap-4 rounded-2xl border-2 border-primary/40 bg-primary/5 px-4 text-left text-primary"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <Box className="h-6 w-6" aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="block font-display text-lg font-black uppercase">Registrar taco</span>
+          <span className="block text-xs text-muted-foreground">Escolher ação, pé e lado</span>
+        </span>
+        <ChevronRight className="ml-auto h-5 w-5 shrink-0" aria-hidden="true" />
       </button>
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-border" />
@@ -3948,6 +4292,104 @@ function FeetStep({
           ? "Marque um pé com problema"
           : `${selected.length} pé(s) com problema`}
         <ChevronRight className="h-6 w-6" />
+      </button>
+    </div>
+  );
+}
+
+function TacoQuickStep({
+  value,
+  onChange,
+  onConfirm,
+}: {
+  value: { action?: TacoAction; foot?: FootKey; side?: TacoSide };
+  onChange: (value: { action?: TacoAction; foot?: FootKey; side?: TacoSide }) => void;
+  onConfirm: () => void;
+}) {
+  const complete = Boolean(value.action && value.foot && value.side);
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-bold uppercase text-muted-foreground">Procedimento</p>
+        <h2 className="font-display text-2xl font-black uppercase">Registrar taco</h2>
+      </div>
+
+      <section>
+        <p className="mb-2 font-display text-sm font-black uppercase">1. O que foi feito?</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {TACO_ACTIONS.map((item) => (
+            <button
+              key={item.action}
+              type="button"
+              onClick={() => onChange({ ...value, action: item.action })}
+              className={cn(
+                "tap min-h-14 rounded-xl border-2 px-4 font-display text-sm font-black uppercase",
+                value.action === item.action
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-card",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className={!value.action ? "pointer-events-none opacity-45" : ""}>
+        <p className="mb-2 font-display text-sm font-black uppercase">2. Em qual pé?</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(["FE", "FD", "TE", "TD"] as FootKey[]).map((foot) => (
+            <button
+              key={foot}
+              type="button"
+              disabled={!value.action}
+              onClick={() => onChange({ ...value, foot })}
+              className={cn(
+                "tap min-h-16 rounded-xl border-2 px-2 font-display text-sm font-black uppercase",
+                value.foot === foot
+                  ? "border-primary bg-primary text-primary-foreground stamp"
+                  : "border-border bg-card",
+              )}
+            >
+              <span className="block text-xl">{foot}</span>
+              <span className="block text-[10px]">{FOOT_LABEL[foot]}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className={!value.foot ? "pointer-events-none opacity-45" : ""}>
+        <p className="mb-2 font-display text-sm font-black uppercase">3. Em qual lado do casco?</p>
+        <div className="grid grid-cols-2 gap-2">
+          {(Object.entries(TACO_SIDE_LABEL) as [TacoSide, string][]).map(([side, label]) => (
+            <button
+              key={side}
+              type="button"
+              disabled={!value.foot}
+              onClick={() => onChange({ ...value, side })}
+              className={cn(
+                "tap min-h-16 rounded-xl border-2 px-3 font-display text-sm font-black uppercase",
+                value.side === side
+                  ? "border-good bg-good text-good-foreground stamp"
+                  : "border-border bg-card",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={!complete}
+        className={cn(
+          "tap-lg flex min-h-16 w-full items-center justify-center gap-2 rounded-2xl font-display text-lg font-black uppercase",
+          complete ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
+        )}
+      >
+        Continuar para lesão <ChevronRight className="h-5 w-5" aria-hidden="true" />
       </button>
     </div>
   );
@@ -4281,6 +4723,11 @@ function HistoryScreen({
                                 );
                               })}
                               {treats && <span className="text-muted-foreground">{treats}</span>}
+                              {f.taco && (
+                                <span className="rounded bg-primary/10 px-2 py-0.5 font-bold text-primary">
+                                  {tacoLabel(f.taco)}
+                                </span>
+                              )}
                             </div>
                             {f.recheck && f.recheckDate && (
                               <p className="mt-1 font-semibold text-warn-foreground">
@@ -4559,6 +5006,7 @@ function EmployeeWorkScreen() {
               <option value="normal">Cascos normais</option>
               <option value="problem">Com problema</option>
               <option value="recheck">Com revisão marcada</option>
+              <option value="taco">Com taco</option>
             </select>
           </label>
         </div>
@@ -4715,6 +5163,7 @@ function SummaryScreen({ farm }: { farm: FarmConfig }) {
   const visits = visitsForDay(today);
   const all = loadVisits();
   const treatmentMetrics = curativeMetrics(today);
+  const tacoMetrics = tacoMetricsFromVisits(all, today);
   const clinicalRules = diseaseCatalog(farm, false);
 
   const buckets = { leve: 0, medio: 0, grave: 0 };
@@ -4784,6 +5233,24 @@ function SummaryScreen({ farm }: { farm: FarmConfig }) {
               <span className="w-8 text-right font-display text-xl">{buckets[b]}</span>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border-2 border-primary/20 bg-card p-5">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Box className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="font-display text-sm font-black uppercase">Controle de tacos</p>
+            <p className="text-xs text-muted-foreground">Aplicação, manutenção e retirada</p>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Stat label="Tacos ativos" value={tacoMetrics.active} />
+          <Stat label="Aplicados hoje" value={tacoMetrics.appliedToday} />
+          <Stat label="Total aplicado" value={tacoMetrics.applied} />
+          <Stat label="Total removido" value={tacoMetrics.removed} />
         </div>
       </section>
 

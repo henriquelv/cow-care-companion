@@ -108,6 +108,9 @@ test("Dermatite Digital sugere revisão automática em 7 dias", async ({ page })
   await page.getByRole("button", { name: /1 pé\(s\) com problema/i }).click();
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
+  await page.getByRole("button", { name: "Aplicar taco", exact: true }).click();
+  await expect(page.getByText(/Escolha o lado esquerdo ou direito/i)).toBeVisible();
+  await page.getByRole("button", { name: "Lado esquerdo do casco Frente Esq." }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
   await expect(page.getByText("Prazo sugerido: 7 dias")).toBeVisible();
@@ -115,6 +118,24 @@ test("Dermatite Digital sugere revisão automática em 7 dias", async ({ page })
   await page.getByLabel("Intervalo personalizado em dias").fill("3");
   await page.getByLabel("Quantidade de revisões necessárias").fill("3");
   await expect(page.getByText(/3 revisão\(ões\) a cada 3 dia\(s\)/i)).toBeVisible();
+});
+
+test("fluxo rápido de taco exige ação, pé e lado", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("8765");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /Registrar taco/i }).click();
+  await page.getByRole("button", { name: "Aplicar taco", exact: true }).click();
+  await page.getByRole("button", { name: /TD.*Trás Dir/i }).click();
+  await page.getByRole("button", { name: "Lado direito", exact: true }).click();
+  await page.getByRole("button", { name: /Continuar para lesão/i }).click();
+  await page.getByRole("button", { name: /Continuar sem lesão/i }).click();
+  await page.getByRole("button", { name: /^Confirmar$/i }).click();
+  await page.getByRole("button", { name: /Ver resumo/i }).click();
+  await expect(page.getByText(/Aplicar taco · Lado direito/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Salvar visita/i })).toBeEnabled();
 });
 
 test("aparelho ativado reabre sem internet", async ({ page, context }) => {
