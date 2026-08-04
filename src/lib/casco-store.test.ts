@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import {
+  addVisit,
   allAnimals,
   agendaByDate,
   agendaByDateFromVisits,
@@ -100,6 +101,35 @@ beforeEach(() => {
 });
 
 describe("casco-store domain rules", () => {
+  it("cadastra automaticamente o animal na primeira visita sem duplicar o brinco", async () => {
+    vi.useRealTimers();
+    await localdb.open();
+    await localdb.animals.clear();
+
+    const first = addVisit(
+      visit({
+        id: "first-visit",
+        farm_id: "farm-1",
+        tag: "  Ab-123  ",
+        sex: "vaca",
+        lote: "a1",
+      }),
+    );
+    const second = addVisit(
+      visit({ id: "second-visit", farm_id: "farm-1", tag: "ab-123", sex: "vaca" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(first.animalCreated).toBe(true);
+    expect(second.animalCreated).toBe(false);
+    expect(loadFarm().animais).toEqual([{ tag: "Ab-123", sex: "vaca", lote: "A1" }]);
+    expect(await localdb.animals.get("farm-1_Ab-123")).toMatchObject({
+      farm_id: "farm-1",
+      synced: false,
+      data: expect.objectContaining({ tag: "Ab-123", lote: "A1", status: "active" }),
+    });
+  });
+
   it("retira visitas canceladas das telas e mantém o status no payload remoto", () => {
     const cancelled = visit({ id: "visit-cancelled", status: "cancelled" });
     saveVisits([cancelled, visit({ id: "visit-active", status: "active" })]);

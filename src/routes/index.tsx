@@ -398,13 +398,15 @@ export function Index() {
             correctionOfId={screen.correctionOf}
             farm={farm}
             onSave={(v) => {
-              addVisit(v);
+              const { animalCreated } = addVisit(v);
               void runSync();
               refresh();
               showToast(
-                v.preventivo
-                  ? "Casqueamento preventivo registrado."
-                  : "Visita registrada com sucesso!",
+                animalCreated
+                  ? `Visita salva. Animal ${v.tag.trim()} cadastrado automaticamente.`
+                  : v.preventivo
+                    ? "Casqueamento preventivo registrado."
+                    : "Visita registrada com sucesso!",
               );
               goToday();
             }}

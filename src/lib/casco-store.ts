@@ -940,11 +940,56 @@ export async function hydrateVisitsFromIndexedDb() {
   return visits;
 }
 
+function registerAnimalFromVisit(v: Visit) {
+  if (!canUseStorage()) return false;
+  const tag = v.tag.trim();
+  if (!tag) return false;
+
+  const farm = loadFarm();
+  const normalizedTag = tag.toLocaleLowerCase("pt-BR");
+  if (
+    farm.animais.some((animal) => animal.tag.trim().toLocaleLowerCase("pt-BR") === normalizedTag)
+  ) {
+    return false;
+  }
+
+  const animal: RegisteredAnimal = {
+    tag,
+    sex: v.sex,
+    lote: v.lote?.trim().toUpperCase() || undefined,
+  };
+  const next = normalizeFarm({ ...farm, animais: [...farm.animais, animal] });
+  localStorage.setItem(scopedKey(FARM_KEY), JSON.stringify(next));
+
+  if (v.farm_id) {
+    const payload = {
+      id: `${v.farm_id}_${tag}`,
+      farm_id: v.farm_id,
+      tag,
+      sex: animal.sex ?? "vaca",
+      lote: animal.lote,
+      status: "active",
+    };
+    void putLocalRecord("animals", {
+      id: payload.id,
+      farm_id: v.farm_id,
+      data: payload,
+      updated_at: new Date().toISOString(),
+      synced: false,
+    });
+  }
+
+  writeAutoBackup();
+  return true;
+}
+
 export function addVisit(v: Visit) {
   const all = loadVisits();
   v = {
     ...v,
     ...currentVisitMetadata(),
+    tag: v.tag.trim(),
+    lote: v.lote?.trim().toUpperCase() || undefined,
     status: "active",
     feet: v.feet.map((foot) =>
       foot.recheck
@@ -988,6 +1033,7 @@ export function addVisit(v: Visit) {
 
   all.unshift(v);
   saveVisits(all);
+  const animalCreated = registerAnimalFromVisit(v);
   const syncPayloads = createVisitSyncPayloads(v);
   const updatedAt = new Date().toISOString();
   if (v.farm_id) {
@@ -1060,6 +1106,7 @@ export function addVisit(v: Visit) {
         ]
       : []),
   ]);
+  return { animalCreated };
 }
 
 export function createPreventiveVisit(input: {

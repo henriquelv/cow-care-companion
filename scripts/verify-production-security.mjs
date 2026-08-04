@@ -94,7 +94,32 @@ async function verifyTenant({ company, login, pin, deviceId, expectedFarmName })
   });
   assert(overview?.ok === true, `${company}: painel não carregou.`);
 
-  return { access, farm, overview, clinicalRules: diseases.length };
+  const [activeVisits, registeredAnimals] = await Promise.all([
+    request(
+      `hoof_visits?select=id,tag&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`,
+      { session: access.session_token, deviceId },
+    ),
+    request(`animals?select=id,tag&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`, {
+      session: access.session_token,
+      deviceId,
+    }),
+  ]);
+  const registeredTags = new Set(
+    registeredAnimals.map((animal) => animal.tag.trim().toLocaleLowerCase("pt-BR")),
+  );
+  assert(
+    activeVisits.every((visit) => registeredTags.has(visit.tag.trim().toLocaleLowerCase("pt-BR"))),
+    `${company}: existe visita ativa sem animal cadastrado.`,
+  );
+
+  return {
+    access,
+    farm,
+    overview,
+    clinicalRules: diseases.length,
+    activeVisits: activeVisits.length,
+    registeredAnimals: registeredAnimals.length,
+  };
 }
 
 async function main() {
@@ -171,12 +196,16 @@ async function main() {
           farm: starMilk.farm.name,
           employees: starMilk.overview.employees.length,
           clinical_rules: starMilk.clinicalRules,
+          active_visits: starMilk.activeVisits,
+          registered_animals: starMilk.registeredAnimals,
         },
         hullsjob: {
           farm: hullsjob.farm.name,
           employees: hullsjob.overview.employees.length,
           common_employees_verified: 2,
           clinical_rules: hullsjob.clinicalRules,
+          active_visits: hullsjob.activeVisits,
+          registered_animals: hullsjob.registeredAnimals,
         },
         cross_tenant_rows: crossFarmRows.length,
       },

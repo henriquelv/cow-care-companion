@@ -1400,5 +1400,41 @@ Critério de sucesso:
 
 ## Próximos passos
 
-- Definir com o cliente se todo brinco digitado em uma nova visita também deve ser gravado automaticamente no cadastro formal de animais.
 - Exibir visitas canceladas em uma seção administrativa própria, com filtro e ação de restauração para gerente.
+
+# 2026-08-04 - Cadastro automático na primeira visita
+
+## O que foi feito
+
+- Toda nova visita agora procura o brinco no cadastro da fazenda antes de salvar.
+- Quando o brinco ainda não existe, o animal é cadastrado automaticamente com sexo e lote informados na visita.
+- O cadastro aparece imediatamente no aparelho, inclusive offline, e é preservado para a sincronização posterior.
+- O Supabase passou a executar a mesma regra por trigger na inclusão ou atualização da visita, garantindo que funcionários comuns também cadastrem o animal sem receber permissão administrativa ampla.
+- O cadastro remoto e a visita são processados na mesma operação do banco; se a visita não sincronizar, o cadastro também não fica incompleto no servidor.
+- A comparação local de brincos não diferencia maiúsculas e minúsculas, evitando duplicidades como `AB-123` e `ab-123`.
+- Ao criar o animal automaticamente, o app confirma: “Visita salva. Animal [brinco] cadastrado automaticamente.”
+- A migration `202608040002_auto_register_visited_animals.sql` também cadastrou retroativamente os animais das visitas ativas existentes.
+- StarMilk ficou com o animal `5249` cadastrado e Fazenda Vitória com o animal `12`, sem duplicar o brinco que possui múltiplas visitas.
+- Adicionado teste de domínio cobrindo primeira visita, normalização de lote, persistência offline e prevenção de duplicidade.
+- Cache offline atualizado para `v17`.
+
+## Por que foi feito
+
+- Manter a regra de que toda vaca atendida pertence automaticamente ao cadastro da fazenda.
+- Evitar diferença entre os números do perfil, o histórico e a lista formal de animais.
+- Permitir o trabalho rápido no campo sem obrigar o funcionário a sair da visita para abrir uma tela de cadastro.
+
+## Como validar
+
+- Informar um brinco ainda inexistente em “Nova visita” e salvar.
+- Abrir “Gestão da fazenda” > “Cadastros” > “Animais” e confirmar que o brinco foi incluído.
+- Repetir uma visita para o mesmo brinco e confirmar que não foi criado outro animal.
+- Fazer o primeiro atendimento offline, reabrir o app e confirmar o cadastro; depois conectar e sincronizar.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run verify:production`.
+- Resultado: 38 testes, lint, typecheck, build e verificação de produção aprovados.
+- O verificador confirmou que todas as visitas ativas das duas fazendas possuem animal correspondente, sem vazamento entre empresas.
+
+## Próximos passos
+
+- Validar em um atendimento real se o lote da visita deve sempre atualizar automaticamente o lote atual do cadastro.
+- Definir se touros e outras categorias precisarão de campos cadastrais adicionais no futuro.
