@@ -1433,6 +1433,7 @@ Critério de sucesso:
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run verify:production`.
 - Resultado: 38 testes, lint, typecheck, build e verificação de produção aprovados.
 - O verificador confirmou que todas as visitas ativas das duas fazendas possuem animal correspondente, sem vazamento entre empresas.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`, com a confirmação de cadastro automático e cache `v17` ativos.
 
 ## Próximos passos
 
