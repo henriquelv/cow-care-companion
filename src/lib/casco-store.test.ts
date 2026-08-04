@@ -369,6 +369,14 @@ describe("casco-store domain rules", () => {
         date: "2026-05-22",
         tag: "300",
       }),
+      visit({
+        id: "cancelled-romano",
+        employee_id: "employee-romano",
+        employee_name: "Romano",
+        date: "2026-05-22",
+        tag: "999",
+        status: "cancelled",
+      }),
     ];
     const agenda: AgendaItem[] = [
       {
@@ -416,6 +424,12 @@ describe("casco-store domain rules", () => {
       visit({ employee_id: "employee-romano", date: "2026-05-03", tag: "100" }),
       visit({ employee_id: "employee-romano", date: "2026-05-04", tag: "200" }),
       visit({ employee_id: "employee-patrick", date: "2026-05-05", tag: "300" }),
+      visit({
+        employee_id: "employee-romano",
+        date: "2026-05-06",
+        tag: "999",
+        status: "cancelled",
+      }),
     ];
     const agenda = [
       { id: "1", date: "2026-05-08", tag: "100" },

@@ -654,9 +654,9 @@ export function employeeWorkMetricsFromVisits(
   employeeName?: string,
   referenceDate = todayISO(),
 ): EmployeeWorkMetrics {
-  const ownedVisits = visits.filter((visit) =>
-    visitBelongsToEmployee(visit, employeeId, employeeName),
-  );
+  const ownedVisits = visits
+    .filter(visitIsVisible)
+    .filter((visit) => visitBelongsToEmployee(visit, employeeId, employeeName));
   const monthPrefix = referenceDate.slice(0, 7);
   const endOfReferenceDay = new Date(`${referenceDate}T23:59:59`).getTime();
   const sevenDaysAgo = endOfReferenceDay - 6 * 86400000;
@@ -695,7 +695,9 @@ export function calendarMonthMetricsFromVisits(
   const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
   const monthVisits = visits.filter(
     (visit) =>
-      visit.date.startsWith(prefix) && visitBelongsToEmployee(visit, employeeId, employeeName),
+      visitIsVisible(visit) &&
+      visit.date.startsWith(prefix) &&
+      visitBelongsToEmployee(visit, employeeId, employeeName),
   );
   const monthAgenda = agendaItems.filter((item) => item.date.startsWith(prefix));
   const uniqueTags = (items: Array<{ tag: string }>) =>

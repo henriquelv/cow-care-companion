@@ -1369,3 +1369,34 @@ Critério de sucesso:
 - Trocar todos os PINs iniciais antes do uso diário e não reutilizar o mesmo PIN entre funcionários.
 - Revogar no projeto Supabase antigo as chaves administrativas compartilhadas durante a configuração.
 - Ativar monitoramento de erros e confirmar a rotina automática de backup antes de cadastrar o rebanho completo.
+
+# 2026-08-04 - Clareza das métricas de animais
+
+## O que foi feito
+
+- Conferido no banco que as tabelas de cadastros de animais estão vazias nas duas fazendas.
+- Confirmado que o número exibido no perfil vem de brincos únicos com visitas reais do funcionário, mesmo quando o animal não foi cadastrado manualmente antes.
+- A métrica “Animais atendidos” foi renomeada para “Animais com visita”, deixando clara a origem da contagem.
+- Métricas do perfil, calendário e relatórios agora ignoram explicitamente visitas canceladas, mesmo quando recebem dados ainda não filtrados do armazenamento.
+- Adicionados testes de regressão com visitas canceladas no perfil, calendário e PDF.
+- Cache offline atualizado para `v16` para distribuir imediatamente a correção nos aparelhos já ativados.
+- Criada a migration `202608040001_restore_cancelled_visit.sql` para restauração administrativa auditável de visitas canceladas por engano.
+- Três visitas afetadas durante a conferência foram restauradas com os mesmos IDs, brincos, datas, horários, funcionários e dados clínicos; o cancelamento e a restauração permaneceram registrados na auditoria.
+
+## Por que foi feito
+
+- Diferenciar cadastro manual de animal e atendimento: registrar uma visita pelo brinco já deve contar como animal atendido.
+- Evitar que um cancelamento ainda presente em cache distorça produção, calendário ou PDF.
+- Permitir recuperação segura de um cancelamento administrativo sem apagar o histórico do que aconteceu.
+
+## Como validar
+
+- Abrir “Meu trabalho” com Sandro, Romano ou Jeová e conferir “Animais com visita”.
+- Confirmar que o valor corresponde aos brincos únicos das visitas ativas daquele funcionário.
+- Cancelar uma visita em ambiente de teste, sincronizar e confirmar que ela deixa de contar no perfil, calendário e PDF.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck` e `npm run build:vercel`.
+
+## Próximos passos
+
+- Definir com o cliente se todo brinco digitado em uma nova visita também deve ser gravado automaticamente no cadastro formal de animais.
+- Exibir visitas canceladas em uma seção administrativa própria, com filtro e ação de restauração para gerente.

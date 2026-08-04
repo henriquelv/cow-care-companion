@@ -3,6 +3,7 @@ import {
   TREATMENTS,
   diseaseDefinition,
   visitBelongsToEmployee,
+  visitIsVisible,
   type AgendaItem,
   type Visit,
 } from "@/lib/casco-store";
@@ -37,6 +38,7 @@ function hasRecheck(visit: Visit) {
 
 export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilters) {
   return visits
+    .filter(visitIsVisible)
     .filter(
       (visit) =>
         !filters.employeeId ||
@@ -63,14 +65,17 @@ export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilte
 }
 
 export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): VisitReportMetrics {
+  const visibleVisits = visits.filter(visitIsVisible);
   return {
-    visits: visits.length,
-    animals: new Set(visits.map((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR"))).size,
-    preventive: visits.filter((visit) => visit.preventivo).length,
-    normal: visits.filter((visit) => !hasProblem(visit)).length,
-    withProblem: visits.filter(hasProblem).length,
-    scheduledReviews: agenda.filter((item) => visits.some((visit) => visit.id === item.visit_id))
-      .length,
+    visits: visibleVisits.length,
+    animals: new Set(visibleVisits.map((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR")))
+      .size,
+    preventive: visibleVisits.filter((visit) => visit.preventivo).length,
+    normal: visibleVisits.filter((visit) => !hasProblem(visit)).length,
+    withProblem: visibleVisits.filter(hasProblem).length,
+    scheduledReviews: agenda.filter((item) =>
+      visibleVisits.some((visit) => visit.id === item.visit_id),
+    ).length,
   };
 }
 

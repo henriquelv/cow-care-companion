@@ -4453,7 +4453,7 @@ function EmployeeWorkScreen() {
       </section>
 
       <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4">
-        <WorkSummary label="Animais atendidos" value={metrics.uniqueAnimals} icon={<Users />} />
+        <WorkSummary label="Animais com visita" value={metrics.uniqueAnimals} icon={<Users />} />
         <WorkSummary label="Sem problema" value={metrics.okVisits} icon={<CheckCircle2 />} />
         <WorkSummary label="Com problema" value={metrics.problemVisits} icon={<AlertTriangle />} />
         <WorkSummary label="Para atender" value={metrics.pendingAnimals} icon={<CalendarDays />} />

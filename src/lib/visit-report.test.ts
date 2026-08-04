@@ -39,6 +39,7 @@ describe("visit reports", () => {
         },
       ],
     }),
+    visit({ id: "cancelled", tag: "300", status: "cancelled" }),
   ];
 
   it("limita o relatório do funcionário aos próprios atendimentos", () => {
