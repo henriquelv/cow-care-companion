@@ -27,8 +27,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { farmContextService } from "@/services/farm-context.service";
+import { syncService } from "@/services/sync.service";
 import {
   adminService,
+  deviceDisplayName,
+  isTechnicalDeviceName,
   type AdminEmployee,
   type AdminFarm,
   type AdminOverview,
@@ -235,6 +238,11 @@ export function AdminScreen({
     () => new Map(overview.employees.map((employee) => [employee.id, employee.name])),
     [overview.employees],
   );
+  const managedDevices = overview.devices.filter(
+    (device) => !isTechnicalDeviceName(device.device_name),
+  );
+  const activeDeviceCount = managedDevices.filter((device) => device.status === "active").length;
+  const blockedDeviceCount = managedDevices.length - activeDeviceCount;
   const reportFilters = {
     farmId: context?.farm_id,
     dateFrom: reportFrom,
@@ -244,7 +252,23 @@ export function AdminScreen({
     lote: reportLote === "all" ? undefined : reportLote,
     status: reportStatus,
   };
-  const reportVisits = filterVisitsForReport(loadVisits(), reportFilters);
+  const teamReportVisits = filterVisitsForReport(loadVisits(), {
+    farmId: context?.farm_id,
+    dateFrom: reportFrom,
+    dateTo: reportTo,
+    lote: reportLote === "all" ? undefined : reportLote,
+    status: reportStatus,
+  });
+  const mineReportVisits = filterVisitsForReport(loadVisits(), {
+    farmId: context?.farm_id,
+    dateFrom: reportFrom,
+    dateTo: reportTo,
+    employeeId: context?.employee_id,
+    employeeName: context?.employee_name,
+    lote: reportLote === "all" ? undefined : reportLote,
+    status: reportStatus,
+  });
+  const reportVisits = reportScope === "team" ? teamReportVisits : mineReportVisits;
   const reportAgenda = Array.from(
     agendaByDate(today, reportScope === "mine" ? context?.employee_id : undefined).values(),
   ).flat();
@@ -446,6 +470,10 @@ export function AdminScreen({
     setExportingPdf(true);
     setError("");
     try {
+      const syncResult = await syncService.syncAll();
+      if (!syncResult.ok && syncResult.message !== "Offline.") {
+        throw new Error(syncResult.message || "Não foi possível atualizar os atendimentos.");
+      }
       await exportVisitsPdf({
         visits: loadVisits(),
         agenda: reportAgenda,
@@ -681,7 +709,7 @@ export function AdminScreen({
                       Só o meu
                     </span>
                     <span className="block text-[10px] opacity-80">
-                      Atendimentos do administrador
+                      {mineReportVisits.length} visita(s) do administrador
                     </span>
                   </button>
                   <button
@@ -699,10 +727,15 @@ export function AdminScreen({
                       Toda a equipe
                     </span>
                     <span className="block text-[10px] opacity-80">
-                      Administrador e funcionários
+                      {teamReportVisits.length} visita(s) de todos
                     </span>
                   </button>
                 </div>
+                <p className="mt-2 rounded-lg bg-background px-3 py-2 text-xs font-semibold text-foreground">
+                  {reportScope === "team"
+                    ? `Mostrando as ${teamReportVisits.length} visita(s) da equipe neste período.`
+                    : `Mostrando ${mineReportVisits.length} visita(s) suas. Existem ${teamReportVisits.length} visita(s) da equipe neste período.`}
+                </p>
               </fieldset>
               <label>
                 <span className="text-[10px] font-black uppercase text-muted-foreground">
@@ -1564,22 +1597,32 @@ export function AdminScreen({
           <h2 id="devices-title" className="font-display text-lg font-black uppercase">
             Aparelhos
           </h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Bloquear interrompe a próxima sincronização
-          </p>
+          <div className="mb-3 rounded-lg border border-border bg-card p-3">
+            <p className="text-sm font-bold">
+              {activeDeviceCount} ativo(s) · {blockedDeviceCount} bloqueado(s)
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Entrar novamente no mesmo navegador apenas atualiza o último acesso. Um novo registro
+              só deve surgir em outro celular, outro navegador ou após apagar os dados do site.
+            </p>
+          </div>
           <div className="divide-y divide-border border-y border-border">
-            {overview.devices.length === 0 ? (
+            {managedDevices.length === 0 ? (
               <p className="py-6 text-sm text-muted-foreground">Nenhum aparelho ativado.</p>
             ) : (
-              overview.devices.map((device) => (
-                <article key={device.id} className="flex items-center gap-3 py-4">
+              managedDevices.map((device) => (
+                <article key={device.id} className="flex flex-wrap items-center gap-3 py-4">
                   <Laptop className="h-6 w-6 shrink-0 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-bold">
-                      {employeeNames.get(device.employee_id ?? "") ?? "Sem funcionário"}
+                      {deviceDisplayName(device.device_name)}
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {farmNames.get(device.farm_id)} · {formatDate(device.last_seen_at)}
+                    <p className="text-xs text-muted-foreground">
+                      {employeeNames.get(device.employee_id ?? "") ?? "Sem funcionário"} ·{" "}
+                      {farmNames.get(device.farm_id)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Último acesso: {formatDate(device.last_seen_at)}
                     </p>
                   </div>
                   <StatusBadge status={device.status} />

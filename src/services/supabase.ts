@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { farmContextService } from "./farm-context.service";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -18,7 +19,6 @@ export const isSupabaseConfigured =
   !forceLocalDevelopment && hasRealSupabaseConfig(supabaseUrl, supabaseAnonKey);
 
 const CONTEXT_KEY = "casco.farm_context.v2";
-const DEVICE_KEY = "casco.device_id.v1";
 const PENDING_SESSION_KEY = "casco.employee_session.pending.v1";
 
 function readSessionToken() {
@@ -39,15 +39,7 @@ function readSessionToken() {
 
 function readDeviceId() {
   if (typeof localStorage === "undefined") return null;
-  let deviceId = localStorage.getItem(DEVICE_KEY);
-  if (!deviceId) {
-    deviceId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `device_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    localStorage.setItem(DEVICE_KEY, deviceId);
-  }
-  return deviceId;
+  return farmContextService.getDeviceId();
 }
 
 async function sessionFetch(input: RequestInfo | URL, init?: RequestInit) {

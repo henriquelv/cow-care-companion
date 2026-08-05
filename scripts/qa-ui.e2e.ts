@@ -76,6 +76,8 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await page.getByRole("button", { name: /Ver resumo/i }).click();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
+  await expect(page.getByText("Este é o seu relatório individual")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Abrir relatório da equipe" })).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exportar PDF" }).click();
@@ -282,11 +284,15 @@ test("problema curado pode ser liberado sem criar revisão", async ({ page }) =>
 test("aparelho ativado reabre sem internet", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
+  const firstDeviceId = await page.evaluate(() => localStorage.getItem("casco.device_id.v1"));
+  expect(firstDeviceId).toBeTruthy();
+  await expect.poll(() => page.evaluate(() => document.cookie)).toContain("casco_device_id_v1=");
   await page.waitForFunction(() => navigator.serviceWorker?.controller != null, undefined, {
     timeout: 15_000,
   });
   await page.reload();
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("casco.device_id.v1"))).toBe(firstDeviceId);
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();

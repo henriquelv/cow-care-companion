@@ -365,7 +365,10 @@ export function Index() {
         farm={farm}
         isAdmin={appContext?.is_admin === true}
         onConfig={() => setScreen({ name: "config" })}
-        onAdmin={() => setScreen({ name: "admin" })}
+        onAdmin={() => {
+          setScreen({ name: "admin" });
+          void runSync();
+        }}
         onHistory={() => setScreen({ name: "history-list" })}
         showBack={screen.name !== "today"}
         onBack={goToday}
@@ -430,7 +433,14 @@ export function Index() {
         {screen.name === "history-list" && (
           <AnimalHistoryListScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
         )}
-        {screen.name === "profile" && <EmployeeWorkScreen />}
+        {screen.name === "profile" && (
+          <EmployeeWorkScreen
+            onOpenTeamReport={() => {
+              setScreen({ name: "admin" });
+              void runSync();
+            }}
+          />
+        )}
         {screen.name === "calendar" && (
           <CalendarScreen
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
@@ -4736,7 +4746,7 @@ function HistoryScreen({
 }
 
 /* ───────────── Meu trabalho ───────────── */
-function EmployeeWorkScreen() {
+function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => void }) {
   const context = farmContextService.getContext();
   const today = todayISO();
   const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
@@ -4778,6 +4788,16 @@ function EmployeeWorkScreen() {
         employeeName: context?.employee_name,
       }),
     [context?.employee_id, context?.employee_name, reportFrom, reportStatus, reportTo],
+  );
+  const teamReportVisits = useMemo(
+    () =>
+      filterVisitsForReport(loadVisits(), {
+        farmId: context?.farm_id,
+        dateFrom: reportFrom,
+        dateTo: reportTo,
+        status: reportStatus,
+      }),
+    [context?.farm_id, reportFrom, reportStatus, reportTo],
   );
   const monthLabel = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", {
     month: "long",
@@ -4927,6 +4947,25 @@ function EmployeeWorkScreen() {
             </p>
           </div>
         </div>
+        {context.is_admin && onOpenTeamReport ? (
+          <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <p className="font-display text-sm font-black uppercase text-primary">
+              Este é o seu relatório individual
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              Aqui aparecem {reportVisits.length} visita(s) de {context.employee_name}. A equipe
+              inteira possui {teamReportVisits.length} visita(s) nos mesmos filtros.
+            </p>
+            <button
+              type="button"
+              onClick={onOpenTeamReport}
+              className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground"
+            >
+              <Users className="h-5 w-5" aria-hidden="true" />
+              Abrir relatório da equipe
+            </button>
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label>
             <span className="text-xs font-bold uppercase text-muted-foreground">De</span>

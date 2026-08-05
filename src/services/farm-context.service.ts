@@ -22,6 +22,7 @@ export const TRIAL_DAYS = 15;
 
 const CONTEXT_KEY = "casco.farm_context.v2";
 const DEVICE_KEY = "casco.device_id.v1";
+const DEVICE_COOKIE_KEY = "casco_device_id_v1";
 const PENDING_SESSION_KEY = "casco.employee_session.pending.v1";
 
 export interface PendingEmployeeSession {
@@ -37,6 +38,29 @@ function createDeviceId() {
   }
 }
 
+function readDeviceCookie() {
+  if (typeof document === "undefined") return null;
+  const prefix = `${DEVICE_COOKIE_KEY}=`;
+  const value = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+    ?.slice(prefix.length);
+  return value ? decodeURIComponent(value) : null;
+}
+
+function persistDeviceId(id: string) {
+  try {
+    localStorage.setItem(DEVICE_KEY, id);
+  } catch {
+    // O cookie mantém o identificador quando o navegador restringe o localStorage.
+  }
+  if (typeof document === "undefined") return;
+  const secure =
+    typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${DEVICE_COOKIE_KEY}=${encodeURIComponent(id)}; Max-Age=63072000; Path=/; SameSite=Lax${secure}`;
+}
+
 function readJson<T>(key: string): T | null {
   try {
     const raw = localStorage.getItem(key);
@@ -48,11 +72,17 @@ function readJson<T>(key: string): T | null {
 
 export const farmContextService = {
   getDeviceId(): string {
-    let id = localStorage.getItem(DEVICE_KEY);
+    let id: string | null = null;
+    try {
+      id = localStorage.getItem(DEVICE_KEY);
+    } catch {
+      id = null;
+    }
+    id ||= readDeviceCookie();
     if (!id) {
       id = createDeviceId();
-      localStorage.setItem(DEVICE_KEY, id);
     }
+    persistDeviceId(id);
     return id;
   },
 

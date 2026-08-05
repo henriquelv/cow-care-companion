@@ -8,6 +8,52 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - Relatório da equipe e aparelho persistente
+
+### O que foi feito
+
+- Conferidos diretamente no Supabase os atendimentos da Fazenda Vitória; não havia perda de visitas.
+- Confirmadas `11` visitas ativas em 04/08/2026: `2` preventivos do Romano e `9` visitas da Jeová, das quais `7` possuem lesão e `2` são preventivas.
+- Identificado que a tela `Meu trabalho` mostrava corretamente apenas as duas visitas do próprio Romano, mas não deixava suficientemente claro que o consolidado ficava na administração.
+- Adicionado ao gerente um aviso com a quantidade individual e a quantidade da equipe nos mesmos filtros.
+- Adicionado botão direto `Abrir relatório da equipe` dentro de `Meu trabalho` para usuários administradores.
+- Os botões `Só o meu` e `Toda a equipe` da administração agora mostram suas respectivas quantidades de visitas.
+- A administração explica claramente qual escopo está sendo exibido e quantas visitas existem na equipe.
+- Ao abrir a administração, o app solicita uma sincronização; antes de exportar o PDF administrativo, sincroniza novamente para evitar relatório baseado em cópia local atrasada.
+- O identificador do aparelho continua salvo no `localStorage` e agora possui uma cópia de recuperação em cookie seguro por dois anos.
+- O Supabase passou a usar a mesma função central de identificação do aparelho usada pela ativação.
+- Sair, trocar fazenda ou entrar novamente continua removendo somente a sessão, sem apagar o identificador do navegador.
+- A aba `Aparelhos` agora mostra nomes simples para Android, iPhone, iPad, Windows e Mac, além de separar quantos estão ativos e bloqueados.
+- Registros de auditoria, restauração e navegador automatizado deixaram de aparecer como aparelhos reais da equipe.
+- Bloqueados no Supabase três registros técnicos antigos que consumiam o limite da Hullsjob: dois navegadores `HeadlessChrome` e uma restauração auditada.
+- Nenhum Android, iPhone, computador, visita ou animal real foi excluído ou alterado.
+- Adicionados testes para persistência após trocar a fazenda, recuperação do ID por cookie, nomes amigáveis, exclusão visual de aparelhos técnicos e atalho do relatório da equipe.
+- Validação concluída com `60` testes unitários e `14` fluxos de navegador em celular e tablet.
+- Atualizado o cache offline para `v24`.
+
+### Por que foi feito
+
+- Evitar que o gerente interprete o relatório individual como se fosse o relatório completo da fazenda.
+- Garantir que atendimentos enviados por outro funcionário apareçam no consolidado após a sincronização.
+- Evitar novos registros de aparelho quando o mesmo navegador sai e entra novamente.
+- Remover registros técnicos da contagem visual e liberar espaço para aparelhos reais.
+
+### Como validar
+
+- Entrar como Romano, abrir `Meu trabalho` e confirmar que aparecem `2` visitas próprias e um aviso sobre o total da equipe.
+- Tocar em `Abrir relatório da equipe`, confirmar o PIN e verificar que `Toda a equipe` mostra `11` visitas no período de 04/08/2026.
+- Alternar para `Só o meu` e confirmar que aparecem apenas as `2` visitas do Romano.
+- Filtrar `Com problema` no escopo da equipe e confirmar os atendimentos com lesão feitos pela Jeová.
+- Sair e entrar novamente no mesmo navegador e confirmar que apenas o último acesso do aparelho é atualizado.
+- Abrir `Administração > Aparelhos` e conferir nomes compreensíveis e a separação entre ativos e bloqueados.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Orientar a equipe a usar sempre `https://gestao-de-cascos.vercel.app`, evitando links temporários de implantação que possuem armazenamento separado.
+2. Confirmar no uso real se Safari e o aplicativo instalado no iPhone estão sendo usados alternadamente, pois cada contexto pode manter armazenamento próprio.
+3. Depois da confirmação dos aparelhos reais, bloquear manualmente eventuais registros antigos duplicados sem apagar o histórico de acesso.
+
 ## 2026-08-04 - PDF clínico detalhado por visita e quatro cascos
 
 ### O que foi feito

@@ -59,6 +59,25 @@ export interface AdminOverview {
   audit: AdminAuditEntry[];
 }
 
+export function isTechnicalDeviceName(deviceName?: string | null) {
+  const normalized = deviceName?.toLocaleLowerCase("pt-BR") ?? "";
+  return (
+    normalized.includes("auditoria de produção") ||
+    normalized.includes("restauração auditada") ||
+    normalized.includes("headlesschrome")
+  );
+}
+
+export function deviceDisplayName(deviceName?: string | null) {
+  const normalized = deviceName?.toLocaleLowerCase("pt-BR") ?? "";
+  if (normalized.includes("iphone")) return "iPhone";
+  if (normalized.includes("ipad")) return "iPad";
+  if (normalized.includes("android")) return "Celular ou tablet Android";
+  if (normalized.includes("windows")) return "Computador Windows";
+  if (normalized.includes("macintosh") || normalized.includes("mac os")) return "Computador Mac";
+  return "Navegador cadastrado";
+}
+
 interface ManagerSession {
   token: string;
   expires_at: string;
