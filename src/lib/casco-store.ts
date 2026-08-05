@@ -497,6 +497,13 @@ export const TREATMENTS: { code: TreatmentCode; label: string; emoji: string }[]
   { code: "NADA", label: "Só Limpou", emoji: "✅" },
 ];
 
+const LEGACY_BLOCK_TREATMENTS = new Set<TreatmentCode>(["BLOCO_ON", "BLOCO_OFF", "BLOCO_FIX"]);
+
+// Bloco continua legível no histórico, mas novos registros usam o fluxo estruturado de Taco.
+export const SELECTABLE_TREATMENTS = TREATMENTS.filter(
+  (treatment) => !LEGACY_BLOCK_TREATMENTS.has(treatment.code),
+);
+
 const EXCLUSIVE_TREATMENT_GROUPS: TreatmentCode[][] = [
   ["BLOCO_ON", "BLOCO_OFF", "BLOCO_FIX"],
   ["BAND_ON", "BAND_OFF"],

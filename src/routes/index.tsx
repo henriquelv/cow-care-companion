@@ -59,6 +59,7 @@ import {
 import {
   FOOT_LABEL,
   TREATMENTS,
+  SELECTABLE_TREATMENTS,
   TACO_ACTIONS,
   TACO_SIDE_LABEL,
   COMMENTS,
@@ -2412,7 +2413,7 @@ function FiltersScreen({
               Tratamento
             </p>
             <div className="flex flex-col gap-1.5">
-              {TREATMENTS.map((t) => (
+              {SELECTABLE_TREATMENTS.map((t) => (
                 <button
                   key={t.code}
                   type="button"
@@ -3612,7 +3613,7 @@ function RegisterScreen({
             Outros tratamentos
           </p>
           <div className="flex flex-col gap-2">
-            {TREATMENTS.map((t) => {
+            {SELECTABLE_TREATMENTS.map((t) => {
               const active = (currentFootEntry.treatments ?? []).includes(t.code);
               return (
                 <button

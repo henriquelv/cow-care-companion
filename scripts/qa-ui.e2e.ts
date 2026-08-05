@@ -141,6 +141,9 @@ test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async (
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
+  await expect(page.getByRole("button", { name: /Aplicar bloco/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Remover bloco/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Bloco mantido/i })).toHaveCount(0);
   await page.getByRole("button", { name: /^Colocar taco/i }).click();
   await expect(page.getByText(/Escolha o lado esquerdo ou direito/i)).toBeVisible();
   await page.getByRole("button", { name: "Lado esquerdo do casco Frente Esq." }).click();

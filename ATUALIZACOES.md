@@ -8,6 +8,36 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - Bloco legado removido dos novos tratamentos
+
+### O que foi feito
+
+- Confirmado que `Aplicar bloco`, `Remover bloco` e `Bloco mantido` eram opções antigas, anteriores ao controle estruturado de Taco.
+- Essas opções apenas gravavam texto no tratamento; não atualizavam taco ativo, lado, duração ou métricas.
+- Removidas as três opções da tela de tratamento e dos filtros de novos atendimentos.
+- O fluxo `Taco` passa a ser o único usado em novos registros, exigindo pé e lado e permitindo colocar, retirar ou deixar colocado.
+- Mantidos os códigos antigos no catálogo interno para visitas históricas e PDFs continuarem mostrando o tratamento originalmente registrado.
+- Adicionado teste de compatibilidade para impedir que Bloco volte ao preenchimento sem perder a leitura de dados antigos.
+- Atualizado o cache offline para `v22`.
+
+### Por que foi feito
+
+- Evitar dois caminhos para a mesma rotina operacional.
+- Impedir o registro de bloco sem pé, lado, acompanhamento ativo e métricas de taco.
+- Simplificar a tela de tratamento sem apagar informações já usadas pela fazenda.
+
+### Como validar
+
+- Abrir uma visita com problema e confirmar que os outros tratamentos não mostram mais as três opções de Bloco.
+- Confirmar que a seção Taco continua oferecendo colocar, retirar ou deixar colocado conforme o estado do animal.
+- Abrir uma visita antiga com Bloco e confirmar que o histórico e o PDF ainda exibem o nome original.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Confirmar no piloto se a equipe usa apenas o termo `Taco` ou se prefere outro nome no botão.
+2. Receber a planilha real de animais para iniciar a importação validada.
+
 ## 2026-08-04 - Home operacional, navegação enxuta e novo PDF
 
 ### O que foi feito

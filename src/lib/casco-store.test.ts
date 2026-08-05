@@ -31,6 +31,8 @@ import {
   rechecksByDate,
   saveFarm,
   saveVisits,
+  SELECTABLE_TREATMENTS,
+  TREATMENTS,
   todayISO,
   tacoMetricsFromVisits,
   toggleTreatmentSelection,
@@ -108,6 +110,15 @@ beforeEach(() => {
 });
 
 describe("casco-store domain rules", () => {
+  it("remove bloco dos novos tratamentos e preserva sua leitura no histórico", () => {
+    const selectableCodes = SELECTABLE_TREATMENTS.map((treatment) => treatment.code);
+    const historicalCodes = TREATMENTS.map((treatment) => treatment.code);
+    expect(selectableCodes).not.toContain("BLOCO_ON");
+    expect(selectableCodes).not.toContain("BLOCO_OFF");
+    expect(selectableCodes).not.toContain("BLOCO_FIX");
+    expect(historicalCodes).toEqual(expect.arrayContaining(["BLOCO_ON", "BLOCO_OFF", "BLOCO_FIX"]));
+  });
+
   it("não considera rascunho ou registro incompleto como visita finalizada", () => {
     expect(visitIsFinalized(visit({ id: "finalizada", tag: "101" }))).toBe(true);
     expect(visitIsFinalized(visit({ id: "rascunho", tag: "" }))).toBe(false);
