@@ -1774,6 +1774,8 @@ Critério de sucesso:
 - Entrar como funcionário e gerente nas contas StarMilk e Hullsjob e navegar por registro, calendário, histórico e administração.
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run test:e2e`.
 - Resultado: 60 testes unitários, lint, typecheck e build aprovados; 14 fluxos Playwright aprovados e 1 fluxo administrativo ignorado de forma prevista no ambiente local.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`, com resposta `200` e cache offline `v25` confirmado.
+- Verificação do banco de produção aprovada: acesso público bloqueado e nenhum registro cruzado entre StarMilk e Hullsjob.
 
 ## Próximos passos
 
