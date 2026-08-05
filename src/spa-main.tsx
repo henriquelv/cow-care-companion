@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { Index } from "./routes/index";
+import { Index } from "@/telas/principal";
 import "./styles.css";
 
 const root = document.getElementById("root");

@@ -25,9 +25,9 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { farmContextService } from "@/services/farm-context.service";
-import { syncService } from "@/services/sync.service";
+import { cn } from "@/dominio/utils";
+import { farmContextService } from "@/servicos/farm-context.service";
+import { syncService } from "@/servicos/sync.service";
 import {
   adminService,
   deviceDisplayName,
@@ -35,8 +35,8 @@ import {
   type AdminEmployee,
   type AdminFarm,
   type AdminOverview,
-} from "@/services/admin.service";
-import { isSupabaseConfigured } from "@/services/supabase";
+} from "@/servicos/admin.service";
+import { isSupabaseConfigured } from "@/servicos/supabase";
 import {
   agendaByDate,
   allAnimals,
@@ -45,13 +45,13 @@ import {
   todayISO,
   visitIsFinalized,
   type Visit,
-} from "@/lib/casco-store";
+} from "@/dominio/casco-store";
 import {
   exportVisitsPdf,
   filterVisitsForReport,
   visitReportMetrics,
   type VisitReportStatus,
-} from "@/lib/visit-report";
+} from "@/dominio/visit-report";
 
 type AdminTab = "reports" | "data" | "farms" | "employees" | "devices" | "licenses" | "audit";
 

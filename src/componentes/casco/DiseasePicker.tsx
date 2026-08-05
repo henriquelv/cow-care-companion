@@ -3,8 +3,8 @@ import {
   type DiseaseEntry,
   type LesionCode,
   type Severity,
-} from "@/lib/casco-store";
-import { cn } from "@/lib/utils";
+} from "@/dominio/casco-store";
+import { cn } from "@/dominio/utils";
 
 interface Props {
   catalog: DiseaseDefinition[];

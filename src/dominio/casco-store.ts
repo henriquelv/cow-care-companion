@@ -1,8 +1,8 @@
 // Armazenamento local offline-first. Com fazenda ativada, as chaves locais ficam isoladas por farm_id.
 
-import { farmContextService } from "@/services/farm-context.service";
-import { enqueueOutboxMany, localdb, putLocalRecord } from "@/services/localdb";
-import { mediaIdFromRef, mediaRef } from "@/services/media.service";
+import { farmContextService } from "@/servicos/farm-context.service";
+import { enqueueOutboxMany, localdb, putLocalRecord } from "@/servicos/localdb";
+import { mediaIdFromRef, mediaRef } from "@/servicos/media.service";
 
 export type Sex = "vaca" | "touro";
 export type FootKey = "FE" | "FD" | "TE" | "TD";

@@ -6,7 +6,7 @@ import {
   type FootEntry,
   type Sex,
   type Visit,
-} from "@/lib/casco-store";
+} from "@/dominio/casco-store";
 import { isSupabaseConfigured, requireSupabase } from "./supabase";
 import { localdb } from "./localdb";
 

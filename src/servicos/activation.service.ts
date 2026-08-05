@@ -80,7 +80,7 @@ async function developmentBootstrap() {
   if (!import.meta.env.DEV) {
     throw new Error("Servidor não configurado para este ambiente.");
   }
-  return import("@/config/tenant-bootstrap");
+  return import("@/configuracao/tenant-bootstrap");
 }
 
 async function localClientOrThrow(code: string) {

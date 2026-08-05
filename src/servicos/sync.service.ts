@@ -3,7 +3,7 @@ import { activationService } from "./activation.service";
 import { farmContextService } from "./farm-context.service";
 import { localdb, pendingOutbox } from "./localdb";
 import { uploadPhotoBlob } from "./media.service";
-import { hydrateFarmFromIndexedDb, hydrateVisitsFromIndexedDb } from "@/lib/casco-store";
+import { hydrateFarmFromIndexedDb, hydrateVisitsFromIndexedDb } from "@/dominio/casco-store";
 
 const SYNC_TABLES = [
   "hoof_visits",

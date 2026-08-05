@@ -773,7 +773,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Criar ícones PNG de 192 e 512 pixels para ampliar a compatibilidade de instalação em aparelhos antigos.
 - Criar gestão de funcionários por fazenda com ativação/bloqueio e PIN de gerente.
 - Adicionar uma visão de agenda em lista semanal e exportação de vários compromissos em um único calendário.
-- Separar `src/routes/index.tsx` em módulos menores e carregar telas secundárias sob demanda para reduzir o bundle inicial.
+- Separar `src/telas/principal/index.tsx` em módulos menores e carregar telas secundárias sob demanda para reduzir o bundle inicial.
 
 ## 2026-07-01 - Publicação no GitHub
 
@@ -1742,3 +1742,43 @@ Critério de sucesso:
 
 - Validar em um atendimento real se o lote da visita deve sempre atualizar automaticamente o lote atual do cadastro.
 - Definir se touros e outras categorias precisarão de campos cadastrais adicionais no futuro.
+
+# 2026-08-05 - Organização do projeto e do Explorer
+
+## O que foi feito
+
+- Reorganizado o código próprio do aplicativo em pastas em português: `componentes`, `configuracao`, `dominio`, `servicos` e `telas`.
+- A interface foi dividida inicialmente em `telas/principal`, `telas/preventivo` e `telas/administrador`, mantendo os nomes originais dos arquivos.
+- A tela de casqueamento preventivo saiu do arquivo principal e ganhou o módulo próprio `src/telas/preventivo/PreventiveScreen.tsx`.
+- Todos os imports foram atualizados para os novos caminhos sem alterar as regras clínicas, os dados locais ou a integração com Supabase.
+- `Projeto.md`, este histórico e as anotações de trabalho foram reunidos na pasta `documentacao`.
+- A anotação `ADICIONAR DOENÇA ACESSO DE SOLA.txt` foi preservada em `documentacao/anotacoes` para não perder requisitos antigos.
+- O protótipo descartado `Casco.cod` foi arquivado localmente em `documentacao/prototipos`; ele continua fora do aplicativo e do versionamento.
+- Capturas e logs de testes foram retirados da raiz e reunidos em `.qa-artifacts/capturas` e `.qa-artifacts/logs`.
+- Criado `.vscode/settings.json` para ocultar no Explorer dependências, builds, caches e resultados gerados, sem apagar arquivos necessários.
+- Criados `README.md`, `documentacao/ESTRUTURA.md` e `documentacao/AMBIENTES.md` para explicar onde cada parte deve ficar.
+- Confirmado que os quatro arquivos `.env` não são duplicados: exemplo, máquina local, produção e QA têm funções diferentes e precisam permanecer na raiz para o carregamento automático do Vite.
+- Removidas as antigas pastas vazias em inglês e atualizado o cache offline para `v25`.
+
+## Por que foi feito
+
+- Tornar o Explorer compreensível sem exigir conhecimento prévio da história do projeto.
+- Evitar documentos, imagens de teste e logs misturados com arquivos obrigatórios de build.
+- Criar limites claros entre interface, regra de negócio, integração e configuração antes de novas funcionalidades.
+- Reduzir o risco de editar a área errada ou apagar um arquivo que Vite, Vercel, Supabase ou Playwright esperam encontrar.
+
+## Como validar
+
+- Abrir o Explorer e confirmar que `src` mostra somente as cinco áreas principais e os dois arquivos de entrada/estilo.
+- Abrir a aba Preventivo e confirmar a listagem, os filtros por dias e o registro rápido.
+- Entrar como funcionário e gerente nas contas StarMilk e Hullsjob e navegar por registro, calendário, histórico e administração.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run test:e2e`.
+- Resultado: 60 testes unitários, lint, typecheck e build aprovados; 14 fluxos Playwright aprovados e 1 fluxo administrativo ignorado de forma prevista no ambiente local.
+
+## Próximos passos
+
+- Extrair de `src/telas/principal/index.tsx`, uma por vez, as telas de ativação, agenda, registro, calendário, histórico e configuração.
+- Colocar tipos e funções de navegação compartilhados em módulos pequenos antes de concluir essa divisão.
+- Carregar o gerador de PDF somente quando o usuário solicitar uma exportação; o build atual aponta o pacote de PDF com aproximadamente 621 kB antes de gzip.
+- Avaliar a separação futura de testes de interface em `testes/interface` e scripts operacionais em `ferramentas`, atualizando Playwright e os comandos npm juntos.
+- Revisar as anotações antigas depois de confirmar que todos os requisitos foram incorporados e então arquivar ou remover o que não tiver mais valor.

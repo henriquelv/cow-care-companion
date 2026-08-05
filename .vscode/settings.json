@@ -1,0 +1,22 @@
+{
+  "files.exclude": {
+    "**/.lovable": true,
+    "**/.qa-artifacts": true,
+    "**/.tanstack": true,
+    "**/.vercel": true,
+    "**/.wrangler": true,
+    "**/dist": true,
+    "**/dist-vercel": true,
+    "**/node_modules": true,
+    "**/playwright-report": true,
+    "**/supabase/.temp": true,
+    "**/test-results": true
+  },
+  "search.exclude": {
+    "**/.qa-artifacts": true,
+    "**/dist": true,
+    "**/dist-vercel": true,
+    "**/node_modules": true,
+    "**/test-results": true
+  }
+}

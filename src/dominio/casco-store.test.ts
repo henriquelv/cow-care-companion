@@ -45,7 +45,7 @@ import {
   type AgendaItem,
   type Visit,
 } from "./casco-store";
-import { enqueueOutboxMany, localdb, pendingOutbox } from "@/services/localdb";
+import { enqueueOutboxMany, localdb, pendingOutbox } from "@/servicos/localdb";
 
 class MemoryStorage {
   private store = new Map<string, string>();

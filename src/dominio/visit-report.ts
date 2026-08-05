@@ -14,7 +14,7 @@ import {
   type FootKey,
   type Severity,
   type Visit,
-} from "@/lib/casco-store";
+} from "@/dominio/casco-store";
 
 export type VisitReportStatus =
   | "all"

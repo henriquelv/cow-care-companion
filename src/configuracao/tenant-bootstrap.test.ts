@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { activationService } from "@/services/activation.service";
-import { farmContextService } from "@/services/farm-context.service";
+import { activationService } from "@/servicos/activation.service";
+import { farmContextService } from "@/servicos/farm-context.service";
 import {
   authenticateBootstrapEmployee,
   findBootstrapClient,
