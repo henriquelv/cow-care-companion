@@ -19,6 +19,28 @@ test("Romano administra Hullsjob no celular", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Administração" })).toBeVisible();
 });
 
+test("tela inicial concentra acompanhamento e permite retirar o filtro rápido", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+
+  const main = page.locator("#conteudo-principal");
+  await expect(main.getByText("Agenda clínica", { exact: true })).toBeVisible();
+  await expect(main.getByText("Resumo", { exact: true })).toHaveCount(0);
+  await expect(main.getByText("Histórico", { exact: true })).toHaveCount(0);
+
+  const treatment = main.getByRole("button", { name: /Em tratamento/ });
+  await expect(treatment).toHaveAttribute("aria-pressed", "true");
+  await treatment.click();
+  await expect(treatment).toHaveAttribute("aria-pressed", "false");
+  await expect(main.getByRole("button", { name: /Todos/ })).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Histórico dos animais" }).click();
+  await expect(page.getByRole("heading", { name: "Histórico das vacas" })).toBeVisible();
+});
+
 test("Jeová não recebe ações de gerente", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Jeová");
@@ -31,6 +53,17 @@ test("Sandro entra na StarMilk no tablet", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");
   await expect(page.getByText("StarMilk", { exact: true }).first()).toBeVisible();
+});
+
+test("funcionário gera o próprio PDF com o novo resumo", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await activate(page, "STARMILK", "Sandro");
+  await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Exportar PDF" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
 });
 
 test("Sandro gerencia doenças e prazos da fazenda", async ({ page }) => {
@@ -84,7 +117,7 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await expect(page.getByText(/Animal 9876 cadastrado automaticamente/i)).toBeVisible();
-  await page.getByRole("button", { name: /^OK/ }).click();
+  await page.getByRole("button", { name: /^Todos/ }).click();
   await expect(page.getByText("9876", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Preventivo" }).click();
   await expect(

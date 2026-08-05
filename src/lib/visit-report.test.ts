@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterVisitsForReport, visitReportMetrics } from "./visit-report";
+import { employeeReportBreakdown, filterVisitsForReport, visitReportMetrics } from "./visit-report";
 import type { Visit } from "./casco-store";
 
 function visit(overrides: Partial<Visit>): Visit {
@@ -68,6 +68,13 @@ describe("visit reports", () => {
   it("não inclui registro incompleto nas métricas", () => {
     const incomplete = visit({ id: "draft", tag: "", feet: [] });
     expect(visitReportMetrics([...visits, incomplete]).visits).toBe(2);
+  });
+
+  it("separa a produção da equipe por funcionário sem incluir cancelados", () => {
+    expect(employeeReportBreakdown(visits)).toMatchObject([
+      { employeeName: "Patrick", visits: 1, animals: 1, withProblem: 1 },
+      { employeeName: "Romano", visits: 1, animals: 1, preventive: 1 },
+    ]);
   });
 
   it("filtra e contabiliza atendimentos com taco", () => {

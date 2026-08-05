@@ -47,6 +47,10 @@ export interface VisitReportMetrics {
   tacosApplied: number;
 }
 
+export interface EmployeeReportRow extends VisitReportMetrics {
+  employeeName: string;
+}
+
 function hasProblem(visit: Visit) {
   return visit.feet.some((foot) => !foot.ok && !foot.resolved && !foot.data_liberacao);
 }
@@ -118,6 +122,20 @@ export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): 
   };
 }
 
+export function employeeReportBreakdown(visits: Visit[]): EmployeeReportRow[] {
+  const groups = new Map<string, { name: string; visits: Visit[] }>();
+  for (const visit of visits.filter(visitIsFinalized)) {
+    const name = visit.employee_name?.trim() || visit.visitante_nome?.trim() || "Sem responsável";
+    const key = visit.employee_id?.trim() || name.toLocaleLowerCase("pt-BR");
+    const group = groups.get(key) ?? { name, visits: [] };
+    group.visits.push(visit);
+    groups.set(key, group);
+  }
+  return Array.from(groups.values())
+    .map((group) => ({ employeeName: group.name, ...visitReportMetrics(group.visits) }))
+    .sort((left, right) => left.employeeName.localeCompare(right.employeeName, "pt-BR"));
+}
+
 function diagnosisSummary(visit: Visit) {
   if (!hasProblem(visit)) return visit.preventivo ? "Casco normal / preventivo" : "Casco normal";
   const diagnoses = visit.feet
@@ -159,11 +177,226 @@ function reviewSummary(visit: Visit) {
   const plans = visit.feet.filter((foot) => foot.recheck && foot.recheckDate);
   if (!plans.length) return "-";
   return plans
-    .map(
-      (foot) =>
-        `${foot.revisoes_necessarias ?? 1}x / ${foot.intervalo_revisao_dias ?? "data"}d (${FOOT_LABEL[foot.foot]})`,
-    )
+    .map((foot) => {
+      const date = new Date(`${foot.recheckDate}T12:00:00`).toLocaleDateString("pt-BR");
+      const count = foot.revisoes_necessarias ?? 1;
+      return foot.intervalo_revisao_dias
+        ? `${count} revisão(ões) a cada ${foot.intervalo_revisao_dias} dias · próxima ${date} (${FOOT_LABEL[foot.foot]})`
+        : `Revisão em ${date} (${FOOT_LABEL[foot.foot]})`;
+    })
     .join("; ");
+}
+
+function reportStatusLabel(status?: VisitReportStatus) {
+  const labels: Record<VisitReportStatus, string> = {
+    all: "Todos os atendimentos",
+    normal: "Sem lesão, não preventivo",
+    preventive: "Preventivo sem lesão",
+    problem: "Com problema",
+    light: "Problema leve (G1)",
+    moderate: "Problema moderado (G2)",
+    severe: "Problema grave (G3)",
+    recheck: "Com revisão marcada",
+    taco: "Com taco",
+  };
+  return labels[status ?? "all"];
+}
+
+export async function exportVisitsPdf(input: {
+  visits: Visit[];
+  agenda?: AgendaItem[];
+  farmName: string;
+  reportTitle: string;
+  scopeLabel?: string;
+  includeEmployeeBreakdown?: boolean;
+  filters?: VisitReportFilters;
+}) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+  const visits = filterVisitsForReport(input.visits, input.filters ?? {});
+  const metrics = visitReportMetrics(visits, input.agenda ?? []);
+  const employees = input.includeEmployeeBreakdown ? employeeReportBreakdown(visits) : [];
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const generatedAt = new Date();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const scope =
+    input.scopeLabel || input.filters?.employeeName || "Administrador e funcionários da fazenda";
+  const formatDate = (value?: string) =>
+    value ? new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR") : "sem limite";
+  const period = `${formatDate(input.filters?.dateFrom)} a ${formatDate(input.filters?.dateTo)}`;
+  const filterDescription = [
+    `Período: ${period}`,
+    `Tipo: ${reportStatusLabel(input.filters?.status)}`,
+    input.filters?.lote ? `Lote: ${input.filters.lote}` : "Todos os lotes",
+  ].join("  |  ");
+
+  doc.setFillColor(31, 91, 48);
+  doc.rect(0, 0, pageWidth, 28, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(17);
+  doc.text(input.reportTitle, 12, 11, { maxWidth: 210 });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(input.farmName, 12, 18);
+  doc.text(`Emitido em ${generatedAt.toLocaleString("pt-BR")}`, pageWidth - 12, 18, {
+    align: "right",
+  });
+
+  doc.setTextColor(35, 45, 37);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text(`Escopo: ${scope}`, 12, 35);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(filterDescription, 12, 40, { maxWidth: pageWidth - 24 });
+
+  const metricCards = [
+    { label: "Atendimentos", value: metrics.visits, color: [31, 91, 48] as const },
+    { label: "Animais únicos", value: metrics.animals, color: [31, 91, 48] as const },
+    { label: "Preventivos", value: metrics.preventive, color: [52, 120, 67] as const },
+    { label: "Sem lesão", value: metrics.withoutProblem, color: [52, 120, 67] as const },
+    { label: "Com problema", value: metrics.withProblem, color: [174, 109, 20] as const },
+    {
+      label: "Revisões na agenda",
+      value: metrics.scheduledReviews,
+      color: [174, 109, 20] as const,
+    },
+    { label: "Visitas com taco", value: metrics.withTaco, color: [73, 86, 76] as const },
+    { label: "Tacos colocados", value: metrics.tacosApplied, color: [73, 86, 76] as const },
+  ];
+  const cardGap = 4;
+  const cardWidth = (pageWidth - 24 - cardGap * 3) / 4;
+  metricCards.forEach((card, index) => {
+    const column = index % 4;
+    const row = Math.floor(index / 4);
+    const x = 12 + column * (cardWidth + cardGap);
+    const y = 46 + row * 20;
+    doc.setFillColor(244, 247, 244);
+    doc.setDrawColor(207, 216, 208);
+    doc.roundedRect(x, y, cardWidth, 16, 2, 2, "FD");
+    doc.setTextColor(card.color[0], card.color[1], card.color[2]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(String(card.value), x + 4, y + 7);
+    doc.setTextColor(70, 78, 71);
+    doc.setFontSize(7.5);
+    doc.text(card.label.toUpperCase(), x + 4, y + 12.5, { maxWidth: cardWidth - 8 });
+  });
+
+  doc.setFillColor(252, 248, 237);
+  doc.setDrawColor(225, 206, 160);
+  doc.roundedRect(12, 88, pageWidth - 24, 13, 2, 2, "FD");
+  doc.setTextColor(80, 65, 34);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text(
+    `GRAVIDADE DAS LESÕES     G1 Leves: ${metrics.light}     G2 Moderados: ${metrics.moderate}     G3 Graves: ${metrics.severe}`,
+    17,
+    96,
+  );
+
+  if (input.includeEmployeeBreakdown) {
+    doc.setTextColor(35, 45, 37);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Produção por funcionário", 12, 110);
+    autoTable(doc, {
+      startY: 114,
+      margin: { left: 12, right: 12 },
+      head: [["Funcionário", "Atend.", "Animais", "Preventivos", "Problemas", "G1", "G2", "G3"]],
+      body: employees.map((employee) => [
+        employee.employeeName,
+        employee.visits,
+        employee.animals,
+        employee.preventive,
+        employee.withProblem,
+        employee.light,
+        employee.moderate,
+        employee.severe,
+      ]),
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 8, cellPadding: 2, halign: "center" },
+      headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "left", cellWidth: 60, fontStyle: "bold" } },
+      alternateRowStyles: { fillColor: [244, 247, 244] },
+    });
+  } else {
+    doc.setTextColor(70, 78, 71);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(
+      "Os indicadores acima e o detalhamento consideram somente os atendimentos do administrador.",
+      12,
+      113,
+    );
+  }
+
+  if (visits.length) {
+    doc.addPage();
+    doc.setFillColor(31, 91, 48);
+    doc.rect(0, 0, pageWidth, 16, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Detalhamento dos atendimentos", 12, 10);
+    autoTable(doc, {
+      startY: 21,
+      margin: { left: 10, right: 10, bottom: 13 },
+      head: [
+        ["Data e hora", "Brinco", "Funcionário", "Lote", "Diagnóstico", "Tratamento", "Revisão"],
+      ],
+      body: visits.map((visit) => [
+        new Date(visit.createdAt).toLocaleString("pt-BR", {
+          dateStyle: "short",
+          timeStyle: "short",
+        }),
+        visit.tag,
+        visit.employee_name ?? visit.visitante_nome ?? "-",
+        visit.lote ?? "-",
+        diagnosisSummary(visit),
+        treatmentSummary(visit) || "-",
+        reviewSummary(visit),
+      ]),
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 7.2, cellPadding: 2, overflow: "linebreak" },
+      headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [244, 247, 244] },
+      columnStyles: {
+        0: { cellWidth: 27 },
+        1: { cellWidth: 17, fontStyle: "bold" },
+        2: { cellWidth: 27 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 67 },
+        5: { cellWidth: 51 },
+        6: { cellWidth: 63 },
+      },
+    });
+  } else {
+    doc.setTextColor(90, 98, 91);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text("Nenhum atendimento encontrado para os filtros escolhidos.", 12, 128);
+  }
+
+  const pageCount = doc.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    doc.setPage(page);
+    doc.setDrawColor(215, 220, 216);
+    doc.line(10, pageHeight - 9, pageWidth - 10, pageHeight - 9);
+    doc.setTextColor(100, 108, 101);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(`${input.farmName} · Gestão de Cascos`, 10, pageHeight - 5);
+    doc.text(`Página ${page} de ${pageCount}`, pageWidth - 10, pageHeight - 5, { align: "right" });
+  }
+
+  const suffix = input.filters?.employeeName || input.farmName || "relatorio";
+  doc.save(`casqueamento-${safeFilename(suffix)}-${generatedAt.toISOString().slice(0, 10)}.pdf`);
+  return { count: visits.length };
 }
 
 function safeFilename(value: string) {
@@ -173,86 +406,4 @@ function safeFilename(value: string) {
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-}
-
-export async function exportVisitsPdf(input: {
-  visits: Visit[];
-  agenda?: AgendaItem[];
-  farmName: string;
-  reportTitle: string;
-  filters?: VisitReportFilters;
-}) {
-  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-    import("jspdf"),
-    import("jspdf-autotable"),
-  ]);
-  const visits = filterVisitsForReport(input.visits, input.filters ?? {});
-  const metrics = visitReportMetrics(visits, input.agenda ?? []);
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const generatedAt = new Date();
-
-  doc.setFillColor(31, 91, 48);
-  doc.rect(0, 0, 297, 26, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(17);
-  doc.text(input.reportTitle, 12, 11);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.text(`${input.farmName} | emitido em ${generatedAt.toLocaleString("pt-BR")}`, 12, 18);
-
-  doc.setTextColor(35, 45, 37);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text(
-    `${metrics.visits} atendimentos   ${metrics.animals} animais únicos   ${metrics.withoutProblem} sem lesão   ${metrics.withProblem} com problema   G1 ${metrics.light}   G2 ${metrics.moderate}   G3 ${metrics.severe}`,
-    12,
-    34,
-  );
-
-  autoTable(doc, {
-    startY: 40,
-    margin: { left: 10, right: 10 },
-    head: [["Data", "Brinco", "Funcionário", "Lote", "Diagnóstico", "Tratamento", "Plano"]],
-    body: visits.map((visit) => [
-      new Date(visit.createdAt).toLocaleString("pt-BR", {
-        dateStyle: "short",
-        timeStyle: "short",
-      }),
-      visit.tag,
-      visit.employee_name ?? visit.visitante_nome ?? "-",
-      visit.lote ?? "-",
-      diagnosisSummary(visit),
-      treatmentSummary(visit) || "-",
-      reviewSummary(visit),
-    ]),
-    theme: "grid",
-    styles: { font: "helvetica", fontSize: 7.5, cellPadding: 2, overflow: "linebreak" },
-    headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [242, 247, 242] },
-    columnStyles: {
-      0: { cellWidth: 27 },
-      1: { cellWidth: 18, fontStyle: "bold" },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 20 },
-      4: { cellWidth: 76 },
-      5: { cellWidth: 54 },
-      6: { cellWidth: 37 },
-    },
-    didDrawPage: ({ pageNumber }) => {
-      doc.setFontSize(8);
-      doc.setTextColor(90, 98, 91);
-      doc.text(`Página ${pageNumber}`, 276, 202);
-    },
-  });
-
-  if (!visits.length) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.text("Nenhuma visita encontrada para os filtros selecionados.", 12, 50);
-  }
-
-  const suffix = input.filters?.employeeName || input.farmName || "relatorio";
-  doc.save(`casqueamento-${safeFilename(suffix)}-${generatedAt.toISOString().slice(0, 10)}.pdf`);
-  return { count: visits.length };
 }

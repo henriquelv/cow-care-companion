@@ -6,8 +6,9 @@ const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
     title: "Tela inicial",
     steps: [
       "Use Nova para registrar um atendimento.",
-      "As abas separam revisões, problemas, animais OK e animais sem visita.",
-      "A busca encontra o animal pelo número do brinco.",
+      "A Agenda clínica reúne revisões e prazos de liberação sem repetir os animais na tela.",
+      "Use Em tratamento, Com revisão ou Sem visita para reduzir a lista. Toque novamente para desmarcar.",
+      "A busca consulta todos os animais pelo número do brinco, mesmo fora do filtro rápido.",
     ],
   },
   register: {
@@ -37,10 +38,11 @@ const SCREEN_HELP: Record<string, { title: string; steps: string[] }> = {
     ],
   },
   summary: {
-    title: "Resumo",
+    title: "Meu trabalho",
     steps: [
-      "Consulte atendimentos, gravidade e doenças do período.",
-      "Os prazos de curativo ajudam a priorizar os próximos atendimentos.",
+      "Consulte somente os seus atendimentos e animais do período.",
+      "Escolha as datas e o tipo antes de gerar seu PDF.",
+      "Use Alterar PIN para trocar sua senha numérica com segurança.",
     ],
   },
 };

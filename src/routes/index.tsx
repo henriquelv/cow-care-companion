@@ -29,7 +29,6 @@ import {
   AlertTriangle,
   HelpCircle,
   SlidersHorizontal,
-  BarChart3,
   Users,
   Scissors,
   CheckCircle2,
@@ -77,22 +76,18 @@ import {
   agendaByDate,
   calendarMonthMetricsFromVisits,
   curativeFollowups,
-  curativeMetrics,
   diseaseCatalog,
   diseaseDefinition,
   employeeWorkMetricsFromVisits,
   recommendedRecheckForDiseases,
   tacoLabel,
-  tacoMetricsFromVisits,
   toggleTreatmentSelection,
   validateVisitClinicalData,
   normalizeReviewCount,
-  severityBucket,
   severityLabel,
   todayISO,
   uid,
   visitsByTag,
-  visitsForDay,
   visitBelongsToEmployee,
   visitIsFinalized,
   allAnimals,
@@ -145,7 +140,7 @@ type Filters = {
   treatments: TreatmentCode[];
   tacoActions: TacoAction[];
   tacoSides: TacoSide[];
-  status: "all" | "problem" | "ok" | "recheck" | "taco";
+  status: "all" | "problem" | "recheck" | "taco";
 };
 
 const EMPTY_FILTERS: Filters = {
@@ -179,7 +174,6 @@ type Screen =
   | { name: "register"; tag?: string; correctionOf?: string }
   | { name: "history"; tag: string }
   | { name: "history-list" }
-  | { name: "summary" }
   | {
       name: "config";
       section?: "dados" | "cadastros" | "avancado";
@@ -355,13 +349,11 @@ export function Index() {
         ? "history"
         : screen.name === "history-list"
           ? "history"
-          : screen.name === "summary"
+          : screen.name === "profile"
             ? "summary"
-            : screen.name === "profile"
-              ? "summary"
-              : screen.name === "preventivo"
-                ? "today"
-                : "today";
+            : screen.name === "preventivo"
+              ? "today"
+              : "today";
 
   return (
     <div className="app-bottom-space min-h-[100dvh] overflow-x-hidden">
@@ -373,6 +365,7 @@ export function Index() {
         isAdmin={appContext?.is_admin === true}
         onConfig={() => setScreen({ name: "config" })}
         onAdmin={() => setScreen({ name: "admin" })}
+        onHistory={() => setScreen({ name: "history-list" })}
         showBack={screen.name !== "today"}
         onBack={goToday}
         screen={screen.name}
@@ -396,8 +389,6 @@ export function Index() {
             onNew={() => setScreen({ name: "register" })}
             onEdit={(tag) => openEdit(tag)}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
-            onOpenAllHistory={() => setScreen({ name: "history-list" })}
-            onSummary={() => setScreen({ name: "summary" })}
             onCalendar={() => setScreen({ name: "calendar" })}
             onFilters={() => setScreen({ name: "filters" })}
             filters={homeFilters}
@@ -438,7 +429,6 @@ export function Index() {
         {screen.name === "history-list" && (
           <AnimalHistoryListScreen onOpenHistory={(tag) => setScreen({ name: "history", tag })} />
         )}
-        {screen.name === "summary" && <SummaryScreen farm={farm} />}
         {screen.name === "profile" && <EmployeeWorkScreen />}
         {screen.name === "calendar" && (
           <CalendarScreen
@@ -1138,6 +1128,7 @@ function Header({
   isAdmin,
   onConfig,
   onAdmin,
+  onHistory,
   showBack,
   onBack,
   screen,
@@ -1150,6 +1141,7 @@ function Header({
   isAdmin: boolean;
   onConfig: () => void;
   onAdmin: () => void;
+  onHistory: () => void;
   showBack: boolean;
   onBack: () => void;
   screen: string;
@@ -1165,7 +1157,6 @@ function Header({
     register: "Nova Visita",
     history: "Histórico",
     "history-list": "Histórico das vacas",
-    summary: "Resumo",
     config: "Gestão da Fazenda",
     admin: "Administração",
     filters: "Filtros",
@@ -1245,6 +1236,17 @@ function Header({
                 type="button"
                 onClick={() => {
                   setShowMenu(false);
+                  onHistory();
+                }}
+                className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
+              >
+                <History className="h-5 w-5 text-primary" />
+                Histórico dos animais
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMenu(false);
                   onHelp();
                 }}
                 className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface"
@@ -1304,8 +1306,6 @@ function TodayScreen({
   onNew,
   onEdit,
   onOpenHistory,
-  onOpenAllHistory,
-  onSummary,
   onCalendar,
   onFilters,
   filters,
@@ -1314,15 +1314,13 @@ function TodayScreen({
   onNew: () => void;
   onEdit: (tag: string) => void;
   onOpenHistory: (tag: string) => void;
-  onOpenAllHistory: () => void;
-  onSummary: () => void;
   onCalendar: () => void;
   onFilters: () => void;
   filters: Filters;
   onClearFilters: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"revisao" | "com_problema" | "ok" | "cadastrados">("revisao");
+  const [tab, setTab] = useState<"treatment" | "recheck" | "registered" | "all">("treatment");
 
   const visits = useMemo(
     () =>
@@ -1343,7 +1341,6 @@ function TodayScreen({
   }, [visits]);
 
   const totalWithProblem = animals.filter((a) => a.hasProblem).length;
-  const totalSevere = animals.filter((a) => a.worstSeverity >= 3).length;
   const totalRecheck = animals.filter((a) => a.hasRecheck).length;
   const totalRegisteredOnly = animals.filter((a) => a.totalVisits === 0).length;
   const curatives = useMemo(() => curativeFollowups(), []);
@@ -1367,6 +1364,8 @@ function TodayScreen({
         return (a.nextDate ?? "9999-12-31").localeCompare(b.nextDate ?? "9999-12-31");
       });
   }, [animals, latestVisit]);
+  const overdueRechecks = recheckAnimals.filter((animal) => animal.overdue).length;
+  const dueTodayRechecks = recheckAnimals.filter((animal) => animal.nextDate === todayISO()).length;
 
   const filtered = useMemo(() => {
     let list = animals;
@@ -1374,7 +1373,6 @@ function TodayScreen({
       list = list.filter((a) => a.tag.toLowerCase().includes(search.toLowerCase()));
     }
     if (filters.status === "problem") list = list.filter((a) => a.hasProblem);
-    if (filters.status === "ok") list = list.filter((a) => !a.hasProblem);
     if (filters.status === "recheck") list = list.filter((a) => a.hasRecheck);
     if (filters.status === "taco") list = list.filter((a) => a.hasTaco);
     if (filters.minSeverity > 0) list = list.filter((a) => a.worstSeverity >= filters.minSeverity);
@@ -1424,10 +1422,10 @@ function TodayScreen({
       const to = new Date(filters.dateTo + "T23:59:59").getTime();
       list = list.filter((a) => a.lastVisit <= to);
     }
-    if (tab === "revisao") list = list.filter((a) => a.hasRecheck);
-    if (tab === "com_problema") list = list.filter((a) => a.hasProblem && !a.hasRecheck);
-    if (tab === "ok") list = list.filter((a) => !a.hasProblem && a.totalVisits > 0);
-    if (tab === "cadastrados") list = list.filter((a) => a.totalVisits === 0);
+    const useQuickView = !search.trim() && filters.status === "all";
+    if (useQuickView && tab === "treatment") list = list.filter((a) => a.hasProblem || a.hasTaco);
+    if (useQuickView && tab === "recheck") list = list.filter((a) => a.hasRecheck);
+    if (useQuickView && tab === "registered") list = list.filter((a) => a.totalVisits === 0);
     return list;
   }, [animals, search, filters, latestVisit, tab]);
 
@@ -1453,68 +1451,71 @@ function TodayScreen({
         </div>
       </section>
 
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={onCalendar}
-          className="rounded-2xl border-2 border-warn/35 bg-warn/10 p-4 text-left"
-        >
-          <CalendarDays className="h-5 w-5 text-warn-foreground" />
-          <p className="mt-3 font-display text-3xl font-black leading-none">{totalRecheck}</p>
-          <p className="mt-1 text-xs font-bold uppercase text-warn-foreground">Revisões abertas</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Abrir agenda</p>
-        </button>
-        <button
-          type="button"
-          onClick={onCalendar}
-          className={cn(
-            "rounded-2xl border-2 p-4 text-left",
-            curativesUrgent > 0
-              ? "border-danger/35 bg-danger/10"
-              : "border-primary/25 bg-primary/10",
-          )}
-        >
-          <Bandage
-            className={cn("h-5 w-5", curativesUrgent > 0 ? "text-danger" : "text-primary")}
-          />
-          <p className="mt-3 font-display text-3xl font-black leading-none">{curatives.length}</p>
-          <p className="mt-1 text-xs font-bold uppercase">Curativos abertos</p>
-          <p
-            className={cn(
-              "mt-1 text-[11px]",
-              curativesUrgent > 0 ? "text-danger" : "text-muted-foreground",
-            )}
-          >
-            {curativesUrgent > 0 ? `${curativesUrgent} exige(m) atenção` : "Todos dentro do prazo"}
-          </p>
-        </button>
-      </div>
-
-      {totalRecheck > 0 && (
-        <div className="sticky top-[73px] z-10 -mx-4 px-4 py-2 bg-background/95 backdrop-blur-sm">
-          <button
-            type="button"
-            onClick={() => setTab("revisao")}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left shadow-sm",
-              recheckAnimals.some((a) => a.overdue)
-                ? "border-danger bg-danger/10"
-                : "border-warn bg-warn/10",
-            )}
-          >
-            <Clock className="h-6 w-6 shrink-0 text-warn-foreground" />
-            <div className="flex-1">
-              <p className="font-display text-sm font-black uppercase text-warn-foreground">
-                {totalRecheck} animal(is) aguardando revisão
-              </p>
-              {recheckAnimals.some((a) => a.overdue) && (
-                <p className="text-xs font-bold text-danger">Há revisões atrasadas</p>
-              )}
-            </div>
-            <ChevronRight className="h-5 w-5 text-muted-foreground" />
-          </button>
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={onCalendar}
+        className={cn(
+          "w-full rounded-xl border-2 bg-card p-4 text-left",
+          overdueRechecks + curativesUrgent > 0 ? "border-danger/35" : "border-border",
+        )}
+        aria-label="Abrir agenda clínica"
+      >
+        <span className="flex items-center justify-between gap-3 border-b border-border pb-3">
+          <span>
+            <span className="block font-display text-base font-black uppercase">
+              Agenda clínica
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Próximas revisões e liberações de curativo
+            </span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+        </span>
+        <span className="mt-3 grid gap-3 sm:grid-cols-2">
+          <span className="flex items-start gap-3">
+            <Clock className="mt-0.5 h-5 w-5 shrink-0 text-warn-foreground" aria-hidden="true" />
+            <span>
+              <span className="block text-sm font-bold">
+                {totalRecheck === 0
+                  ? "Nenhuma revisão marcada"
+                  : `${totalRecheck} animal(is) com revisão marcada`}
+              </span>
+              <span
+                className={cn(
+                  "block text-xs",
+                  overdueRechecks > 0 ? "font-bold text-danger" : "text-muted-foreground",
+                )}
+              >
+                {overdueRechecks > 0
+                  ? `${overdueRechecks} atrasada(s)`
+                  : dueTodayRechecks > 0
+                    ? `${dueTodayRechecks} para hoje`
+                    : "Nenhuma revisão atrasada"}
+              </span>
+            </span>
+          </span>
+          <span className="flex items-start gap-3">
+            <Bandage className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <span>
+              <span className="block text-sm font-bold">
+                {curatives.length === 0
+                  ? "Nenhum curativo em acompanhamento"
+                  : `${curatives.length} pé(s) aguardando liberação`}
+              </span>
+              <span
+                className={cn(
+                  "block text-xs",
+                  curativesUrgent > 0 ? "font-bold text-danger" : "text-muted-foreground",
+                )}
+              >
+                {curativesUrgent > 0
+                  ? `${curativesUrgent} vencido(s) ou com prazo hoje`
+                  : "Nenhum prazo vencido"}
+              </span>
+            </span>
+          </span>
+        </span>
+      </button>
 
       {/* Busca + Filtros */}
       <div className="flex gap-2">
@@ -1569,85 +1570,68 @@ function TodayScreen({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={onSummary}
-          className="tap-lg flex min-h-20 items-center gap-3 rounded-xl border-2 border-border bg-card px-3 text-left active:scale-[0.99]"
-          aria-label="Ver resumo do dia"
-        >
-          <BarChart3 className="h-6 w-6 shrink-0 text-primary" />
-          <span className="min-w-0">
-            <span className="block font-display text-sm font-black uppercase">Resumo</span>
-            <span className="block text-[11px] text-muted-foreground">Produção de hoje</span>
-          </span>
-        </button>
-        <button
-          onClick={onOpenAllHistory}
-          className="tap-lg flex min-h-20 items-center gap-3 rounded-xl border-2 border-border bg-card px-3 text-left active:scale-[0.99]"
-          aria-label="Abrir histórico das vacas"
-        >
-          <History className="h-6 w-6 shrink-0 text-primary" />
-          <span className="min-w-0">
-            <span className="block font-display text-sm font-black uppercase">Histórico</span>
-            <span className="block text-[11px] text-muted-foreground">Todas as vacas</span>
-          </span>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <CompactStat label="Problemas" value={totalWithProblem} tone="warn" />
-        <CompactStat label="Graves" value={totalSevere} tone="danger" />
-        <CompactStat label="Sem visita" value={totalRegisteredOnly} />
-      </div>
-
-      {/* Abas operacionais */}
-      <div className="grid grid-cols-2 gap-2">
-        {[
-          {
-            val: "revisao" as const,
-            label: `Revisão (${totalRecheck})`,
-            icon: <Clock className="h-4 w-4" />,
-          },
-          {
-            val: "com_problema" as const,
-            label: `Problema (${totalWithProblem})`,
-            icon: <AlertTriangle className="h-4 w-4" />,
-          },
-          { val: "ok" as const, label: "OK", icon: <CheckCircle2 className="h-4 w-4" /> },
-          {
-            val: "cadastrados" as const,
-            label: `Cadastrados (${totalRegisteredOnly})`,
-            icon: <Users className="h-4 w-4" />,
-          },
-        ].map(({ val, label, icon }) => (
-          <button
-            key={val}
-            type="button"
-            onClick={() => setTab(val)}
-            aria-pressed={tab === val}
-            className={cn(
-              "tap rounded-xl border-2 px-2 py-3 font-display text-sm uppercase",
-              tab === val
-                ? "border-primary bg-primary text-primary-foreground stamp"
-                : "border-border bg-surface",
-            )}
-          >
-            <span className="flex items-center justify-center gap-2">
+      <section aria-labelledby="lista-operacional-title">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground">Mostrar animais</p>
+            <h2
+              id="lista-operacional-title"
+              className="font-display text-base font-black uppercase"
+            >
+              Lista de acompanhamento
+            </h2>
+          </div>
+          {tab !== "all" && !search.trim() && filters.status === "all" && (
+            <button
+              type="button"
+              onClick={() => setTab("all")}
+              className="min-h-10 text-xs font-black uppercase text-primary"
+            >
+              Mostrar todos
+            </button>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[
+            {
+              val: "treatment" as const,
+              label: `Em tratamento · ${totalWithProblem}`,
+              icon: <AlertTriangle className="h-4 w-4" />,
+            },
+            {
+              val: "recheck" as const,
+              label: `Com revisão · ${totalRecheck}`,
+              icon: <Clock className="h-4 w-4" />,
+            },
+            {
+              val: "registered" as const,
+              label: `Sem visita · ${totalRegisteredOnly}`,
+              icon: <ClipboardList className="h-4 w-4" />,
+            },
+            {
+              val: "all" as const,
+              label: `Todos · ${animals.length}`,
+              icon: <Users className="h-4 w-4" />,
+            },
+          ].map(({ val, label, icon }) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setTab(tab === val && val !== "all" ? "all" : val)}
+              aria-pressed={tab === val}
+              className={cn(
+                "flex min-h-11 items-center gap-2 rounded-full border-2 px-4 font-display text-xs uppercase",
+                tab === val
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-surface",
+              )}
+            >
               {icon}
               {label}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {/* Separador: Lista de Animais */}
-      <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-border" />
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Lista de Animais
-        </p>
-        <div className="h-px flex-1 bg-border" />
-      </div>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <div className="flex items-center justify-between px-1">
         <p className="text-xs text-muted-foreground">
@@ -1767,16 +1751,16 @@ function TodayScreen({
                       )}
                     >
                       {registeredOnly
-                        ? "📋 Sem visita"
+                        ? "Sem visita"
                         : recheckOverdue
-                          ? "⏰ Revisão atrasada"
+                          ? "Revisão atrasada"
                           : a.hasRecheck
-                            ? "⏰ Revisão marcada"
+                            ? "Revisão marcada"
                             : !hasProblema
-                              ? "✅ Tudo OK"
+                              ? "Sem problema ativo"
                               : a.worstSeverity >= 3
-                                ? "🚨 Problema Grave"
-                                : "⚠️ Com Problema"}
+                                ? "Problema grave"
+                                : "Em tratamento"}
                     </p>
 
                     {/* Pés com problema */}
@@ -1849,8 +1833,14 @@ function TodayScreen({
                         <div
                           key={k}
                           className={cn(
-                            "flex h-9 w-9 items-center justify-center rounded-lg text-[10px] font-black text-white",
-                            !ft || ft.ok ? "bg-good/80" : ws >= 3 ? "bg-danger" : "bg-warn",
+                            "flex h-9 w-9 items-center justify-center rounded-lg text-[10px] font-black",
+                            !ft
+                              ? "bg-muted text-muted-foreground"
+                              : ft.ok
+                                ? "bg-good/80 text-white"
+                                : ws >= 3
+                                  ? "bg-danger text-white"
+                                  : "bg-warn text-white",
                           )}
                         >
                           {k}
@@ -1935,11 +1925,7 @@ function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: strin
         />
       </label>
 
-      <div
-        className="grid grid-cols-2 gap-2 sm:grid-cols-5"
-        role="group"
-        aria-label="Filtrar histórico"
-      >
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar histórico">
         {[
           ["all", "Todos"],
           ["normal", "Normais"],
@@ -1950,10 +1936,14 @@ function AnimalHistoryListScreen({ onOpenHistory }: { onOpenHistory: (tag: strin
           <button
             key={value}
             type="button"
-            onClick={() => setStatus(value as typeof status)}
+            onClick={() =>
+              setStatus((current) =>
+                current === value && value !== "all" ? "all" : (value as typeof status),
+              )
+            }
             aria-pressed={status === value}
             className={cn(
-              "min-h-11 rounded-xl border px-2 text-xs font-black uppercase",
+              "min-h-11 rounded-full border px-4 text-xs font-black uppercase",
               status === value
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-surface text-muted-foreground",
@@ -2181,208 +2171,6 @@ function CascoPhoto({
   return <img src={src} alt={alt} loading="lazy" decoding="async" className={className} />;
 }
 
-function BigStat({
-  emoji,
-  label,
-  value,
-  tone,
-  onClick,
-  active,
-}: {
-  emoji: string;
-  label: string;
-  value: number;
-  tone: "neutral" | "warn" | "danger";
-  onClick?: () => void;
-  active?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-2xl border-2 p-4 text-center stamp w-full transition-[color,background-color,border-color,transform] active:scale-95",
-        active && "ring-2 ring-primary ring-offset-1",
-        tone === "warn" && value > 0 ? "border-warn/40 bg-warn/10" : "border-border bg-card",
-        tone === "danger" && value > 0
-          ? "border-danger/40 bg-danger/10"
-          : tone !== "warn"
-            ? "border-border bg-card"
-            : "",
-        tone === "neutral" && "border-border bg-card",
-      )}
-    >
-      <p className="text-2xl leading-none">{emoji}</p>
-      <p
-        className={cn(
-          "mt-1 font-display text-4xl font-black leading-none",
-          tone === "warn" && value > 0 && "text-warn-foreground",
-          tone === "danger" && value > 0 && "text-danger",
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-    </button>
-  );
-}
-
-function CompactStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: "warn" | "danger";
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-3 py-3 text-center">
-      <p
-        className={cn(
-          "font-display text-2xl font-black leading-none",
-          tone === "warn" && value > 0 && "text-warn-foreground",
-          tone === "danger" && value > 0 && "text-danger",
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-function ActionButton({
-  emoji,
-  label,
-  onClick,
-}: {
-  emoji: string;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="tap-lg flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-border bg-card font-display uppercase stamp active:scale-95 transition-transform"
-    >
-      <span className="text-3xl">{emoji}</span>
-      <span className="text-sm leading-tight text-center">{label}</span>
-    </button>
-  );
-}
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "tap shrink-0 rounded-full border-2 px-4 font-display text-sm uppercase transition-[color,background-color,border-color,transform]",
-        active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-surface",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function VisitRow({ v, onClick }: { v: Visit; onClick: () => void }) {
-  const bad = v.feet.filter((f) => !f.ok);
-  const worst = footsWorstSeverity(v.feet);
-  const hasRecheck = v.feet.some((f) => f.recheck);
-  const hasResolved = v.feet.some((f) => f.resolved);
-  const tone =
-    bad.length === 0
-      ? "border-good/60 bg-good/5"
-      : worst >= 3
-        ? "border-danger/60 bg-danger/5"
-        : "border-warn/60 bg-warn/5";
-
-  return (
-    <li>
-      <button
-        onClick={onClick}
-        className={cn(
-          "tap-lg flex w-full items-center gap-4 rounded-2xl border-2 bg-card p-4 text-left active:scale-[0.99] transition-transform",
-          tone,
-        )}
-      >
-        <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-xl bg-surface font-display">
-          <span className="text-[10px] uppercase text-muted-foreground">Brinco</span>
-          <span className="text-2xl font-black leading-none">{v.tag || "—"}</span>
-          <span className="text-lg leading-none">{v.sex === "vaca" ? "🐄" : "🐂"}</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-display text-base uppercase">
-            {bad.length === 0 ? "✅ Tudo bom" : `${bad.length} pé(s) c/ problema`}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {new Date(v.createdAt).toLocaleTimeString("pt-BR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            {hasRecheck && " · ⏰ Revisão"}
-            {hasResolved && " · ✅ Curado"}
-          </p>
-          {bad.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {bad.slice(0, 3).map((f) => {
-                const ws = footWorstSeverity(f);
-                const topDisease = f.diseases
-                  ?.filter((d) => d.severity > 0)
-                  .sort((a, b) => b.severity - a.severity)[0];
-                const lesion = topDisease ? diseaseDefinition(topDisease.code) : undefined;
-                return (
-                  <span
-                    key={f.foot}
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-[10px] font-display uppercase",
-                      ws >= 3 ? "bg-danger text-danger-foreground" : "bg-warn text-warn-foreground",
-                    )}
-                  >
-                    {f.foot} {lesion?.name ?? ""}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div className="flex shrink-0 flex-col gap-1">
-          {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
-            const f = v.feet.find((x) => x.foot === k)!;
-            const ws = footWorstSeverity(f);
-            return (
-              <span
-                key={k}
-                className={cn(
-                  "h-5 w-4 rounded-sm",
-                  f.ok
-                    ? "bg-good/70"
-                    : ws >= 3
-                      ? "bg-danger"
-                      : ws >= 1
-                        ? "bg-warn"
-                        : "bg-danger/50",
-                )}
-              />
-            );
-          })}
-        </div>
-      </button>
-    </li>
-  );
-}
-
 /* ───────────── Filtros ───────────── */
 function FiltersScreen({
   current,
@@ -2450,14 +2238,16 @@ function FiltersScreen({
       {/* Status */}
       <section>
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Status
+          Situação atual
+        </p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Toque novamente na opção selecionada para voltar a todos.
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {(
             [
               ["all", "Todos", ""],
               ["problem", "Com Problema", "⚠️"],
-              ["ok", "Sem Problema", "✅"],
               ["recheck", "Revisão", "⏰"],
               ["taco", "Taco ativo", ""],
             ] as [Filters["status"], string, string][]
@@ -2465,7 +2255,12 @@ function FiltersScreen({
             <button
               key={val}
               type="button"
-              onClick={() => setF((p) => ({ ...p, status: val }))}
+              onClick={() =>
+                setF((previous) => ({
+                  ...previous,
+                  status: previous.status === val && val !== "all" ? "all" : val,
+                }))
+              }
               className={cn(
                 "tap rounded-xl border-2 px-3 py-2 font-display text-sm uppercase",
                 f.status === val
@@ -2489,7 +2284,12 @@ function FiltersScreen({
             <button
               key={s}
               type="button"
-              onClick={() => setF((p) => ({ ...p, minSeverity: s }))}
+              onClick={() =>
+                setF((previous) => ({
+                  ...previous,
+                  minSeverity: previous.minSeverity === s && s !== 0 ? 0 : s,
+                }))
+              }
               className={cn(
                 "tap rounded-xl border-2 px-2 py-3 font-display text-sm uppercase",
                 f.minSeverity === s
@@ -5303,212 +5103,6 @@ function WorkSummary({
       {cloneElement(icon, { className: "h-5 w-5 text-primary" })}
       <p className="mt-1 font-display text-2xl font-black">{value}</p>
       <p className="text-[9px] font-bold uppercase leading-tight text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-/* ───────────── Summary ───────────── */
-function SummaryScreen({ farm }: { farm: FarmConfig }) {
-  const today = todayISO();
-  const visits = visitsForDay(today);
-  const all = loadVisits().filter(visitIsFinalized);
-  const treatmentMetrics = curativeMetrics(today);
-  const tacoMetrics = tacoMetricsFromVisits(all, today);
-  const clinicalRules = diseaseCatalog(farm, false);
-
-  const buckets = { leve: 0, medio: 0, grave: 0 };
-  let badFeet = 0;
-  let recheckTotal = 0;
-  const lesionCount: Record<string, number> = {};
-
-  visits.forEach((v) =>
-    v.feet.forEach((f) => {
-      if (!f.ok) {
-        badFeet++;
-        if (f.recheck) recheckTotal++;
-        f.diseases?.forEach((d) => {
-          if (d.severity > 0) {
-            const b = severityBucket(d.severity);
-            if (b) buckets[b]++;
-            lesionCount[d.code] = (lesionCount[d.code] ?? 0) + 1;
-          }
-        });
-      }
-    }),
-  );
-
-  const topLesions = Object.entries(lesionCount).sort((a, b) => b[1] - a[1]);
-  const week = all.filter((v) => Date.now() - v.createdAt < 7 * 24 * 3600 * 1000);
-  const month = all.filter((v) => Date.now() - v.createdAt < 30 * 24 * 3600 * 1000);
-  const max = Math.max(buckets.leve, buckets.medio, buckets.grave, 1);
-
-  return (
-    <div className="space-y-4">
-      <section className="rounded-2xl bg-card p-5 stamp">
-        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Resumo do dia
-        </p>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          <Stat label="Animais vistos" value={visits.length} />
-          <Stat label="Pés c/ problema" value={badFeet} tone="danger" />
-          <Stat label="Precisam revisão" value={recheckTotal} tone="warn" />
-          <Stat
-            label="Sem problema"
-            value={visits.filter((v) => v.feet.every((f) => f.ok)).length}
-          />
-        </div>
-      </section>
-
-      <section className="rounded-2xl bg-card p-5">
-        <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Por gravidade (hoje)
-        </p>
-        <div className="space-y-2">
-          {(["leve", "medio", "grave"] as const).map((b) => (
-            <div key={b} className="flex items-center gap-3">
-              <span className="w-14 font-display text-xs uppercase">
-                {b === "medio" ? "Médio" : b === "leve" ? "Leve" : "Grave"}
-              </span>
-              <div className="relative h-7 flex-1 overflow-hidden rounded-lg bg-surface">
-                <div
-                  className={cn(
-                    "h-full rounded-lg transition-[width,background-color]",
-                    b === "leve" && "bg-good",
-                    b === "medio" && "bg-warn",
-                    b === "grave" && "bg-danger",
-                  )}
-                  style={{ width: `${(buckets[b] / max) * 100}%` }}
-                />
-              </div>
-              <span className="w-8 text-right font-display text-xl">{buckets[b]}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-2xl border-2 border-primary/20 bg-card p-5">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Box className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <div>
-            <p className="font-display text-sm font-black uppercase">Controle de tacos</p>
-            <p className="text-xs text-muted-foreground">Aplicação, manutenção e retirada</p>
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="Tacos ativos" value={tacoMetrics.active} />
-          <Stat label="Aplicados hoje" value={tacoMetrics.appliedToday} />
-          <Stat label="Total aplicado" value={tacoMetrics.applied} />
-          <Stat label="Total removido" value={tacoMetrics.removed} />
-        </div>
-      </section>
-
-      <section className="rounded-2xl border-2 border-primary/20 bg-card p-5">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Bandage className="h-5 w-5" />
-          </span>
-          <div>
-            <p className="font-display text-sm font-black uppercase">Acompanhamento de curativos</p>
-            <p className="text-xs text-muted-foreground">
-              Prazo entre o tratamento e a liberação do pé
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Stat label="Curativos abertos" value={treatmentMetrics.open} />
-          <Stat label="Atrasados" value={treatmentMetrics.overdue} tone="danger" />
-          <Stat label="Vencem hoje" value={treatmentMetrics.dueToday} tone="warn" />
-          <div className="rounded-xl bg-surface p-3 text-center">
-            <p className="font-display text-3xl leading-none">
-              {treatmentMetrics.averageDaysToRelease ?? "—"}
-            </p>
-            <p className="mt-1 text-[10px] uppercase text-muted-foreground">
-              Média até liberação (dias)
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 divide-y divide-border rounded-xl border border-border bg-surface px-3">
-          {clinicalRules
-            .filter((disease) => ["DD", "SU", "LB"].includes(disease.code))
-            .map((disease) => (
-              <ClinicalDeadline
-                key={disease.code}
-                label={disease.full}
-                days={disease.recheckDays}
-              />
-            ))}
-        </div>
-      </section>
-
-      {topLesions.length > 0 && (
-        <section className="rounded-2xl bg-card p-5">
-          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Lesões mais frequentes (hoje)
-          </p>
-          <ul className="space-y-2">
-            {topLesions.map(([code, n]) => {
-              const l = diseaseDefinition(code, farm);
-              return (
-                <li key={code} className="flex items-center gap-3 text-sm">
-                  <span className="text-xl">{l?.emoji}</span>
-                  <div className="flex-1">
-                    <span className="font-display font-black uppercase">{l?.name} </span>
-                    <span className="text-muted-foreground text-xs">{l?.full}</span>
-                  </div>
-                  <span className="font-display text-xl font-black">{n}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <section className="rounded-2xl bg-card p-4 text-center stamp">
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Últimos 7 dias
-          </p>
-          <p className="mt-1 font-display text-4xl">{week.length}</p>
-          <p className="text-xs text-muted-foreground">visitas</p>
-        </section>
-        <section className="rounded-2xl bg-card p-4 text-center stamp">
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Último mês
-          </p>
-          <p className="mt-1 font-display text-4xl">{month.length}</p>
-          <p className="text-xs text-muted-foreground">visitas</p>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: number; tone?: "warn" | "danger" }) {
-  return (
-    <div className="rounded-xl bg-surface p-3 text-center">
-      <p
-        className={cn(
-          "font-display text-4xl leading-none",
-          tone === "warn" && "text-warn-foreground",
-          tone === "danger" && "text-danger",
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-function ClinicalDeadline({ label, days }: { label: string; days: number }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-3 text-sm">
-      <span>{label}</span>
-      <strong className="whitespace-nowrap font-display text-primary">{days} dias</strong>
     </div>
   );
 }

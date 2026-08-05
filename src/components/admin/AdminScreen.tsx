@@ -173,7 +173,7 @@ export function AdminScreen({
   const today = todayISO();
   const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
   const [reportTo, setReportTo] = useState(today);
-  const [reportEmployeeId, setReportEmployeeId] = useState("all");
+  const [reportScope, setReportScope] = useState<"mine" | "team">("team");
   const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
   const [reportLote, setReportLote] = useState("all");
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -235,17 +235,18 @@ export function AdminScreen({
     () => new Map(overview.employees.map((employee) => [employee.id, employee.name])),
     [overview.employees],
   );
-  const reportEmployee = overview.employees.find((employee) => employee.id === reportEmployeeId);
   const reportFilters = {
     dateFrom: reportFrom,
     dateTo: reportTo,
-    employeeId: reportEmployee?.id,
-    employeeName: reportEmployee?.name,
+    employeeId: reportScope === "mine" ? context?.employee_id : undefined,
+    employeeName: reportScope === "mine" ? context?.employee_name : undefined,
     lote: reportLote === "all" ? undefined : reportLote,
     status: reportStatus,
   };
   const reportVisits = filterVisitsForReport(loadVisits(), reportFilters);
-  const reportAgenda = Array.from(agendaByDate(today, reportEmployee?.id).values()).flat();
+  const reportAgenda = Array.from(
+    agendaByDate(today, reportScope === "mine" ? context?.employee_id : undefined).values(),
+  ).flat();
   const reportMetrics = visitReportMetrics(reportVisits, reportAgenda);
   const currentAnimals = allAnimals();
   const currentHerdMetrics = {
@@ -449,9 +450,14 @@ export function AdminScreen({
         agenda: reportAgenda,
         farmName: context?.farm_name || loadFarm().farmName || "Fazenda",
         reportTitle:
-          reportEmployeeId === "all"
-            ? "Relatório geral de casqueamento"
-            : `Relatório de casqueamento · ${reportEmployee?.name ?? "Funcionário"}`,
+          reportScope === "team"
+            ? "Relatório de casqueamento da equipe"
+            : `Relatório de casqueamento · ${context?.employee_name ?? "Administrador"}`,
+        scopeLabel:
+          reportScope === "team"
+            ? "Administrador e funcionários da fazenda"
+            : `Somente ${context?.employee_name ?? "administrador"}`,
+        includeEmployeeBreakdown: reportScope === "team",
         filters: reportFilters,
       });
     } catch (caught) {
@@ -644,7 +650,7 @@ export function AdminScreen({
                 onClick={() => {
                   setReportFrom(`${today.slice(0, 7)}-01`);
                   setReportTo(today);
-                  setReportEmployeeId("all");
+                  setReportScope("team");
                   setReportStatus("all");
                   setReportLote("all");
                 }}
@@ -654,23 +660,49 @@ export function AdminScreen({
               </button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label>
-                <span className="text-[10px] font-black uppercase text-muted-foreground">
-                  Funcionário
-                </span>
-                <select
-                  value={reportEmployeeId}
-                  onChange={(event) => setReportEmployeeId(event.target.value)}
-                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-                >
-                  <option value="all">Toda a equipe</option>
-                  {farmEmployees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <fieldset className="sm:col-span-2">
+                <legend className="text-[10px] font-black uppercase text-muted-foreground">
+                  Quem entra no relatório
+                </legend>
+                <div className="mt-1 grid grid-cols-2 gap-2 rounded-lg bg-surface p-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setReportScope("mine")}
+                    aria-pressed={reportScope === "mine"}
+                    className={cn(
+                      "min-h-12 rounded-md px-3 text-left",
+                      reportScope === "mine"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-foreground",
+                    )}
+                  >
+                    <span className="block font-display text-xs font-black uppercase">
+                      Só o meu
+                    </span>
+                    <span className="block text-[10px] opacity-80">
+                      Atendimentos do administrador
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportScope("team")}
+                    aria-pressed={reportScope === "team"}
+                    className={cn(
+                      "min-h-12 rounded-md px-3 text-left",
+                      reportScope === "team"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-foreground",
+                    )}
+                  >
+                    <span className="block font-display text-xs font-black uppercase">
+                      Toda a equipe
+                    </span>
+                    <span className="block text-[10px] opacity-80">
+                      Administrador e funcionários
+                    </span>
+                  </button>
+                </div>
+              </fieldset>
               <label>
                 <span className="text-[10px] font-black uppercase text-muted-foreground">
                   Tipo de atendimento
@@ -901,10 +933,10 @@ export function AdminScreen({
             ) : (
               <Download className="h-5 w-5" />
             )}
-            Exportar este resultado em PDF
+            {reportScope === "team" ? "Baixar PDF da equipe" : "Baixar meu PDF"}
           </button>
 
-          {reportEmployeeId === "all" && (
+          {reportScope === "team" && (
             <section>
               <h3 className="font-display text-base font-black uppercase">
                 Produção por funcionário

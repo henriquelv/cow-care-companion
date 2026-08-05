@@ -8,6 +8,57 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - Home operacional, navegação enxuta e novo PDF
+
+### O que foi feito
+
+- Simplificada a tela inicial sem alterar o fluxo de registro ou o desenho dos cartões de animais.
+- Os cartões duplicados `Revisões abertas`, `Curativos abertos` e o aviso fixo de revisão foram reunidos em uma única seção `Agenda clínica`.
+- A agenda agora explica os números: animais com revisão marcada, revisões atrasadas, pés aguardando liberação e curativos vencidos ou com prazo no dia.
+- Removidos da home os atalhos `Resumo`, `Histórico` e os três pequenos indicadores, pois repetiam informações disponíveis em `Meu trabalho`, `Administração` e nas listas operacionais.
+- O histórico geral dos animais foi movido para `Menu > Histórico dos animais`, onde fica disponível para qualquer funcionário.
+- Removida a opção ambígua `OK` da lista inicial; animais sem problema continuam na lista de preventivos e podem ser encontrados em `Todos` ou pela busca.
+- Os filtros rápidos passaram a ser `Em tratamento`, `Com revisão`, `Sem visita` e `Todos`, com texto e contagem visíveis.
+- Tocar novamente em um filtro selecionado agora o desmarca e retorna para `Todos`.
+- A busca pelo brinco consulta todos os animais, mesmo quando um filtro rápido estiver selecionado.
+- Os filtros detalhados de situação e gravidade também podem ser desmarcados com um segundo toque.
+- Pés de animais sem visita deixaram de aparecer em verde; agora usam estado neutro para não sugerir exame que nunca aconteceu.
+- Atualizada a ajuda da tela inicial e da área `Meu trabalho` conforme o fluxo novo.
+- Removida a antiga tela `Resumo`, que duplicava métricas de funcionário e administrador.
+- Removidos cinco componentes internos sem nenhuma chamada real: `BigStat`, `CompactStat`, `ActionButton`, `FilterChip` e `VisitRow`.
+- O administrador agora escolhe explicitamente o escopo do relatório: `Só o meu` ou `Toda a equipe`.
+- O PDF foi refeito com primeira página de indicadores, escopo, período, tipo, lote, gravidades e produção por funcionário quando o relatório for da equipe.
+- O detalhamento do PDF ganhou cabeçalho próprio, paginação, rodapé, melhor largura de colunas e plano de revisão escrito com quantidade, intervalo e próxima data.
+- Adicionado teste para garantir a separação correta da produção por funcionário e teste real de download do PDF.
+- Nenhuma visita, animal ou configuração do Supabase foi alterada nesta rodada.
+- Atualizado o cache offline para `v21`.
+- Validação concluída com `52` testes unitários e `14` fluxos de navegador em celular e tablet.
+
+### Por que foi feito
+
+- Fazer a primeira tela responder a uma única pergunta: quais animais precisam de acompanhamento agora.
+- Evitar números repetidos, seleções difíceis de retirar e animais saudáveis ocupando a mesma prioridade de revisões e tratamentos.
+- Manter relatórios e prontuários acessíveis sem misturá-los ao trabalho de campo.
+- Entregar ao administrador um PDF utilizável tanto para conferir a própria produção quanto para acompanhar toda a equipe.
+
+### Como validar
+
+- Abrir a home e confirmar que existe apenas uma seção `Agenda clínica` para revisões e curativos.
+- Tocar em `Em tratamento` e tocar novamente; confirmar que `Todos` volta a ficar selecionado.
+- Buscar um animal saudável pelo brinco mesmo com `Em tratamento` selecionado.
+- Abrir o menu superior e acessar `Histórico dos animais`.
+- Conferir que um animal cadastrado sem visita mostra os quatro pés em estado neutro.
+- Entrar em `Administração > Desempenho` e alternar entre `Só o meu` e `Toda a equipe`.
+- Gerar os dois PDFs e conferir escopo, indicadores, produção por funcionário e páginas de detalhamento.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Validar a nova home com Romano e Sandro durante um dia real de atendimento.
+2. Receber a planilha real para implementar importação de animais com pré-visualização e validação por linha.
+3. Depois do piloto, decidir se `Histórico dos animais` também deve ganhar um atalho na barra inferior no lugar de alguma opção pouco usada.
+4. Avaliar notificações da agenda somente após confirmar os prazos e a rotina usados pela equipe.
+
 ## 2026-08-04 - Métricas confiáveis, fluxo clínico e administração clara
 
 ### O que foi feito
