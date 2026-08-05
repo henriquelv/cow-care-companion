@@ -1,13 +1,18 @@
 import {
-  FOOT_LABEL,
+  COMMENTS,
+  SEVERITY_LABEL,
   TREATMENTS,
+  ZONE_LABEL,
   diseaseDefinition,
+  footWorstSeverity,
   tacoLabel,
   footsWorstSeverity,
   visitBelongsToEmployee,
   visitHasTaco,
   visitIsFinalized,
   type AgendaItem,
+  type FootKey,
+  type Severity,
   type Visit,
 } from "@/lib/casco-store";
 
@@ -23,6 +28,7 @@ export type VisitReportStatus =
   | "taco";
 
 export interface VisitReportFilters {
+  farmId?: string;
   dateFrom?: string;
   dateTo?: string;
   employeeId?: string;
@@ -51,6 +57,17 @@ export interface EmployeeReportRow extends VisitReportMetrics {
   employeeName: string;
 }
 
+export type FootReportStatus = "unrecorded" | "normal" | "problem" | "resolved" | "taco";
+
+export interface FootReportCell {
+  foot: FootKey;
+  severity: Severity;
+  status: FootReportStatus;
+  text: string;
+}
+
+const REPORT_FOOT_ORDER: FootKey[] = ["FE", "FD", "TE", "TD"];
+
 function hasProblem(visit: Visit) {
   return visit.feet.some((foot) => !foot.ok && !foot.resolved && !foot.data_liberacao);
 }
@@ -62,6 +79,7 @@ function hasRecheck(visit: Visit) {
 export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilters) {
   return visits
     .filter(visitIsFinalized)
+    .filter((visit) => !filters.farmId || !visit.farm_id || visit.farm_id === filters.farmId)
     .filter(
       (visit) =>
         !filters.employeeId ||
@@ -136,55 +154,76 @@ export function employeeReportBreakdown(visits: Visit[]): EmployeeReportRow[] {
     .sort((left, right) => left.employeeName.localeCompare(right.employeeName, "pt-BR"));
 }
 
-function diagnosisSummary(visit: Visit) {
-  if (!hasProblem(visit)) return visit.preventivo ? "Casco normal / preventivo" : "Casco normal";
-  const diagnoses = visit.feet
-    .filter((foot) => !foot.ok)
-    .flatMap((foot) =>
-      (foot.diseases ?? [])
-        .filter((disease) => disease.severity > 0)
-        .map(
-          (disease) =>
-            `${FOOT_LABEL[foot.foot]}: ${diseaseDefinition(disease.code)?.full ?? disease.code} G${disease.severity}`,
-        ),
-    )
-    .join("; ");
-  return (
-    diagnoses ||
-    (visitHasTaco(visit)
-      ? "Acompanhamento de taco, sem lesão ativa"
-      : "Problema sem lesão informada")
-  );
+function formatShortDate(value?: string) {
+  if (!value) return "";
+  return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
 }
 
-function treatmentSummary(visit: Visit) {
-  const treatments = Array.from(
-    new Set(
-      visit.feet.flatMap((foot) =>
-        (foot.treatments ?? [])
-          .map((code) => TREATMENTS.find((treatment) => treatment.code === code)?.label)
-          .filter((label): label is string => Boolean(label)),
-      ),
-    ),
-  );
-  const tacos = visit.feet
-    .filter((foot) => foot.taco)
-    .map((foot) => `${FOOT_LABEL[foot.foot]}: ${tacoLabel(foot.taco)}`);
-  return [...treatments, ...tacos].join(", ");
-}
+export function visitFootReportCells(visit: Visit): FootReportCell[] {
+  return REPORT_FOOT_ORDER.map((footKey) => {
+    const foot = visit.feet.find((entry) => entry.foot === footKey);
+    if (!foot) {
+      return { foot: footKey, severity: 0, status: "unrecorded", text: "SEM REGISTRO" };
+    }
 
-function reviewSummary(visit: Visit) {
-  const plans = visit.feet.filter((foot) => foot.recheck && foot.recheckDate);
-  if (!plans.length) return "-";
-  return plans
-    .map((foot) => {
-      const date = new Date(`${foot.recheckDate}T12:00:00`).toLocaleDateString("pt-BR");
+    const severity = footWorstSeverity(foot);
+    const activeDisease = !foot.resolved && !foot.data_liberacao && !foot.ok && severity > 0;
+    const status: FootReportStatus =
+      foot.resolved || Boolean(foot.data_liberacao)
+        ? "resolved"
+        : activeDisease
+          ? "problem"
+          : foot.taco
+            ? "taco"
+            : "normal";
+    const lines: string[] = [];
+
+    if (status === "normal") {
+      lines.push(visit.preventivo ? "CASCO NORMAL · PREVENTIVO" : "CASCO NORMAL");
+    } else if (status === "resolved") {
+      lines.push("CURADO / LIBERADO");
+    } else if (status === "taco") {
+      lines.push("SEM LESÃO ATIVA");
+    }
+
+    for (const disease of foot.diseases ?? []) {
+      if (disease.severity <= 0) continue;
+      const definition = diseaseDefinition(disease.code);
+      lines.push(
+        `${definition?.full ?? disease.code} · G${disease.severity} ${SEVERITY_LABEL[disease.severity]}`,
+      );
+    }
+
+    const zones = foot.zones ?? [];
+    if (zones.length > 0) {
+      lines.push(`Região: ${zones.map((zone) => ZONE_LABEL[zone]).join(", ")}`);
+    }
+
+    const treatments = (foot.treatments ?? [])
+      .map((code) => TREATMENTS.find((treatment) => treatment.code === code)?.label)
+      .filter((label): label is string => Boolean(label));
+    if (treatments.length > 0) lines.push(`Trat.: ${treatments.join(", ")}`);
+    if (foot.taco) lines.push(`Taco: ${tacoLabel(foot.taco)}`);
+
+    const comments = (foot.comments ?? [])
+      .map((code) => COMMENTS.find((comment) => comment.code === code)?.label)
+      .filter((label): label is string => Boolean(label));
+    if (comments.length > 0) lines.push(`Obs.: ${comments.join(", ")}`);
+    if (foot.nota?.trim()) lines.push(`Nota: ${foot.nota.trim()}`);
+
+    if (foot.recheck && foot.recheckDate) {
       const count = foot.revisoes_necessarias ?? 1;
-      return foot.intervalo_revisao_dias
-        ? `${count} revisão(ões) a cada ${foot.intervalo_revisao_dias} dias · próxima ${date} (${FOOT_LABEL[foot.foot]})`
-        : `Revisão em ${date} (${FOOT_LABEL[foot.foot]})`;
-    })
-    .join("; ");
+      const interval = foot.intervalo_revisao_dias;
+      lines.push(
+        interval
+          ? `Revisão: ${count}x a cada ${interval} dias · próxima ${formatShortDate(foot.recheckDate)}`
+          : `Revisão: ${formatShortDate(foot.recheckDate)}`,
+      );
+    }
+    if (foot.data_liberacao) lines.push(`Liberação: ${formatShortDate(foot.data_liberacao)}`);
+
+    return { foot: footKey, severity, status, text: lines.join("\n") || "SEM INFORMAÇÃO" };
+  });
 }
 
 function reportStatusLabel(status?: VisitReportStatus) {
@@ -218,6 +257,37 @@ export async function exportVisitsPdf(input: {
   const visits = filterVisitsForReport(input.visits, input.filters ?? {});
   const metrics = visitReportMetrics(visits, input.agenda ?? []);
   const employees = input.includeEmployeeBreakdown ? employeeReportBreakdown(visits) : [];
+  const detailedVisits = [...visits]
+    .sort(
+      (left, right) =>
+        left.tag.localeCompare(right.tag, "pt-BR", { numeric: true }) ||
+        right.createdAt - left.createdAt,
+    )
+    .map((visit) => ({ visit, feet: visitFootReportCells(visit) }));
+  const feetEvaluated = detailedVisits.reduce(
+    (total, detail) => total + detail.feet.filter((foot) => foot.status !== "unrecorded").length,
+    0,
+  );
+  const feetWithProblem = detailedVisits.reduce(
+    (total, detail) => total + detail.feet.filter((foot) => foot.status === "problem").length,
+    0,
+  );
+  const feetWithoutActiveLesion = detailedVisits.reduce(
+    (total, detail) =>
+      total +
+      detail.feet.filter(
+        (foot) => foot.status === "normal" || foot.status === "resolved" || foot.status === "taco",
+      ).length,
+    0,
+  );
+  const feetBySeverity = (severity: Severity) =>
+    detailedVisits.reduce(
+      (total, detail) =>
+        total +
+        detail.feet.filter((foot) => foot.status === "problem" && foot.severity === severity)
+          .length,
+      0,
+    );
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const generatedAt = new Date();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -257,8 +327,9 @@ export async function exportVisitsPdf(input: {
   const metricCards = [
     { label: "Atendimentos", value: metrics.visits, color: [31, 91, 48] as const },
     { label: "Animais únicos", value: metrics.animals, color: [31, 91, 48] as const },
+    { label: "Cascos avaliados", value: feetEvaluated, color: [52, 120, 67] as const },
+    { label: "Cascos com lesão", value: feetWithProblem, color: [174, 109, 20] as const },
     { label: "Preventivos", value: metrics.preventive, color: [52, 120, 67] as const },
-    { label: "Sem lesão", value: metrics.withoutProblem, color: [52, 120, 67] as const },
     { label: "Com problema", value: metrics.withProblem, color: [174, 109, 20] as const },
     {
       label: "Revisões na agenda",
@@ -266,7 +337,6 @@ export async function exportVisitsPdf(input: {
       color: [174, 109, 20] as const,
     },
     { label: "Visitas com taco", value: metrics.withTaco, color: [73, 86, 76] as const },
-    { label: "Tacos colocados", value: metrics.tacosApplied, color: [73, 86, 76] as const },
   ];
   const cardGap = 4;
   const cardWidth = (pageWidth - 24 - cardGap * 3) / 4;
@@ -287,17 +357,27 @@ export async function exportVisitsPdf(input: {
     doc.text(card.label.toUpperCase(), x + 4, y + 12.5, { maxWidth: cardWidth - 8 });
   });
 
-  doc.setFillColor(252, 248, 237);
-  doc.setDrawColor(225, 206, 160);
-  doc.roundedRect(12, 88, pageWidth - 24, 13, 2, 2, "FD");
-  doc.setTextColor(80, 65, 34);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text(
-    `GRAVIDADE DAS LESÕES     G1 Leves: ${metrics.light}     G2 Moderados: ${metrics.moderate}     G3 Graves: ${metrics.severe}`,
-    17,
-    96,
-  );
+  const legend = [
+    {
+      label: "Cascos sem lesão / curados",
+      value: feetWithoutActiveLesion,
+      fill: [232, 244, 234] as const,
+    },
+    { label: "Cascos G1 · Leve", value: feetBySeverity(1), fill: [224, 242, 249] as const },
+    { label: "Cascos G2 · Moderado", value: feetBySeverity(2), fill: [255, 246, 196] as const },
+    { label: "Cascos G3 · Grave", value: feetBySeverity(3), fill: [250, 224, 224] as const },
+  ];
+  const legendWidth = (pageWidth - 24) / legend.length;
+  legend.forEach((item, index) => {
+    const x = 12 + index * legendWidth;
+    doc.setFillColor(item.fill[0], item.fill[1], item.fill[2]);
+    doc.setDrawColor(205, 212, 206);
+    doc.rect(x, 88, legendWidth, 13, "FD");
+    doc.setTextColor(53, 61, 54);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text(`${item.label}: ${item.value}`, x + 4, 96);
+  });
 
   if (input.includeEmployeeBreakdown) {
     doc.setTextColor(35, 45, 37);
@@ -329,7 +409,7 @@ export async function exportVisitsPdf(input: {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.text(
-      "Os indicadores acima e o detalhamento consideram somente os atendimentos do administrador.",
+      "Os indicadores e o detalhamento consideram somente os atendimentos do responsável indicado no escopo.",
       12,
       113,
     );
@@ -337,42 +417,100 @@ export async function exportVisitsPdf(input: {
 
   if (visits.length) {
     doc.addPage();
-    doc.setFillColor(31, 91, 48);
-    doc.rect(0, 0, pageWidth, 16, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("Detalhamento dos atendimentos", 12, 10);
     autoTable(doc, {
-      startY: 21,
-      margin: { left: 10, right: 10, bottom: 13 },
+      startY: 23,
+      margin: { top: 23, left: 8, right: 8, bottom: 13 },
       head: [
-        ["Data e hora", "Brinco", "Funcionário", "Lote", "Diagnóstico", "Tratamento", "Revisão"],
+        [
+          "Animal",
+          "Visita",
+          "FE\nFrente esq.",
+          "FD\nFrente dir.",
+          "TE\nTrás esq.",
+          "TD\nTrás dir.",
+          "Situação",
+        ],
       ],
-      body: visits.map((visit) => [
-        new Date(visit.createdAt).toLocaleString("pt-BR", {
-          dateStyle: "short",
-          timeStyle: "short",
-        }),
-        visit.tag,
-        visit.employee_name ?? visit.visitante_nome ?? "-",
-        visit.lote ?? "-",
-        diagnosisSummary(visit),
-        treatmentSummary(visit) || "-",
-        reviewSummary(visit),
-      ]),
+      body: detailedVisits.map(({ visit, feet }) => {
+        const reviewFeet = feet.filter((foot) => foot.text.includes("Revisão:"));
+        const situation = [
+          visit.preventivo ? "CASQUEAMENTO PREVENTIVO" : "ATENDIMENTO CLÍNICO",
+          reviewFeet.length > 0
+            ? `Revisão em ${reviewFeet.map((foot) => foot.foot).join(", ")}`
+            : "Sem revisão marcada",
+          visit.correction_of_id ? "Correção auditável" : "",
+          visit.correction_reason ? `Motivo: ${visit.correction_reason}` : "",
+        ].filter(Boolean);
+        return [
+          `${visit.tag}\n${visit.sex === "vaca" ? "Vaca" : "Touro"}`,
+          `${new Date(visit.createdAt).toLocaleString("pt-BR", {
+            dateStyle: "short",
+            timeStyle: "short",
+          })}\n${visit.employee_name ?? visit.visitante_nome ?? "Sem responsável"}\nLote: ${visit.lote ?? "-"}`,
+          ...feet.map((foot) => foot.text),
+          situation.join("\n"),
+        ];
+      }),
       theme: "grid",
-      styles: { font: "helvetica", fontSize: 7.2, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [244, 247, 244] },
+      rowPageBreak: "avoid",
+      showHead: "everyPage",
+      styles: {
+        font: "helvetica",
+        fontSize: 6.4,
+        cellPadding: 1.7,
+        overflow: "linebreak",
+        valign: "top",
+        lineColor: [190, 200, 192],
+      },
+      headStyles: {
+        fillColor: [31, 91, 48],
+        textColor: 255,
+        fontStyle: "bold",
+        fontSize: 7.3,
+        valign: "middle",
+        halign: "center",
+      },
       columnStyles: {
-        0: { cellWidth: 27 },
-        1: { cellWidth: 17, fontStyle: "bold" },
-        2: { cellWidth: 27 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 67 },
-        5: { cellWidth: 51 },
-        6: { cellWidth: 63 },
+        0: { cellWidth: 20, fontStyle: "bold", fontSize: 7.5, halign: "center" },
+        1: { cellWidth: 34 },
+        2: { cellWidth: 48 },
+        3: { cellWidth: 48 },
+        4: { cellWidth: 48 },
+        5: { cellWidth: 48 },
+        6: { cellWidth: 35 },
+      },
+      didParseCell: (data) => {
+        if (data.section !== "body" || data.column.index < 2 || data.column.index > 5) return;
+        const foot = detailedVisits[data.row.index]?.feet[data.column.index - 2];
+        if (!foot) return;
+        const fillByStatus: Record<FootReportStatus, [number, number, number]> = {
+          unrecorded: [242, 242, 242],
+          normal: [232, 244, 234],
+          resolved: [226, 243, 230],
+          taco: [232, 239, 248],
+          problem:
+            foot.severity >= 3
+              ? [250, 224, 224]
+              : foot.severity === 2
+                ? [255, 246, 196]
+                : [224, 242, 249],
+        };
+        data.cell.styles.fillColor = fillByStatus[foot.status];
+        if (foot.status === "problem" && foot.severity >= 3) {
+          data.cell.styles.textColor = [145, 30, 30];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+      didDrawPage: () => {
+        doc.setFillColor(31, 91, 48);
+        doc.rect(0, 0, pageWidth, 16, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text("Detalhamento por animal, visita e casco", 8, 9.5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.text(`${input.farmName} · ${scope}`, pageWidth - 8, 9.5, { align: "right" });
       },
     });
   } else {

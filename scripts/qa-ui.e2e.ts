@@ -55,15 +55,73 @@ test("Sandro entra na StarMilk no tablet", async ({ page }) => {
   await expect(page.getByText("StarMilk", { exact: true }).first()).toBeVisible();
 });
 
-test("funcionário gera o próprio PDF com o novo resumo", async ({ page }) => {
+test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("PDF-100");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /FE Frente Esq/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /^Colocar taco/i }).click();
+  await page.getByRole("button", { name: "Lado esquerdo do casco Frente Esq." }).click();
+  await page.getByRole("button", { name: /Spray.*Produto/i }).click();
+  await page.getByRole("button", { name: /^Confirmar$/i }).click();
+  await page.getByRole("button", { name: "Sim, agendar" }).click();
+  await page.getByLabel("Intervalo personalizado em dias").fill("3");
+  await page.getByLabel("Quantidade de revisões necessárias").fill("3");
+  await page.getByRole("button", { name: /Ver resumo/i }).click();
+  await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exportar PDF" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
+  await download.saveAs(testInfo.outputPath("relatorio-funcionario.pdf"));
+});
+
+test("administrador escolhe entre relatório próprio e de toda a equipe", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Administração" }).click();
+  const localMode = page.getByRole("heading", { name: "Modo local" });
+  const adminPin = page.getByLabel("PIN do administrador");
+  const reportsTitle = page.getByRole("heading", { name: "Desempenho da fazenda" });
+  await expect(localMode.or(adminPin).or(reportsTitle)).toBeVisible();
+  if (await localMode.isVisible()) {
+    test.skip(true, "Relatórios administrativos exigem o servidor configurado.");
+  }
+  if (await adminPin.isVisible().catch(() => false)) {
+    await adminPin.fill("1234");
+    await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  }
+
+  const teamScope = page.getByRole("button", { name: /Toda a equipe/i });
+  const mineScope = page.getByRole("button", { name: /Só o meu/i });
+  await expect(teamScope).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Baixar PDF da equipe" })).toBeVisible();
+
+  const teamDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Baixar PDF da equipe" }).click();
+  const teamDownload = await teamDownloadPromise;
+  expect(teamDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
+  await teamDownload.saveAs(testInfo.outputPath("relatorio-equipe.pdf"));
+
+  await mineScope.click();
+  await expect(mineScope).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Inclui somente os seus atendimentos.")).toBeVisible();
+  const mineDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Baixar meu PDF" }).click();
+  const mineDownload = await mineDownloadPromise;
+  expect(mineDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
 });
 
 test("Sandro gerencia doenças e prazos da fazenda", async ({ page }) => {

@@ -236,6 +236,7 @@ export function AdminScreen({
     [overview.employees],
   );
   const reportFilters = {
+    farmId: context?.farm_id,
     dateFrom: reportFrom,
     dateTo: reportTo,
     employeeId: reportScope === "mine" ? context?.employee_id : undefined,
@@ -935,6 +936,12 @@ export function AdminScreen({
             )}
             {reportScope === "team" ? "Baixar PDF da equipe" : "Baixar meu PDF"}
           </button>
+          <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
+            O PDF detalha cada atendimento e mostra separadamente os cascos FE, FD, TE e TD.
+            {reportScope === "team"
+              ? " Inclui todos os funcionários desta fazenda."
+              : " Inclui somente os seus atendimentos."}
+          </p>
 
           {reportScope === "team" && (
             <section>

@@ -4825,6 +4825,7 @@ function EmployeeWorkScreen() {
         farmName: context.farm_name,
         reportTitle: `Relatório de casqueamento · ${context.employee_name}`,
         filters: {
+          farmId: context.farm_id,
           dateFrom: reportFrom,
           dateTo: reportTo,
           status: reportStatus,
@@ -4921,7 +4922,9 @@ function EmployeeWorkScreen() {
             <h2 id="meu-relatorio" className="font-display text-lg font-black uppercase">
               Meu relatório
             </h2>
-            <p className="text-xs text-muted-foreground">Somente os seus atendimentos</p>
+            <p className="text-xs text-muted-foreground">
+              Somente os seus atendimentos, detalhados nos quatro cascos
+            </p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

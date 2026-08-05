@@ -8,6 +8,48 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-04 - PDF clínico detalhado por visita e quatro cascos
+
+### O que foi feito
+
+- Refeito o detalhamento do PDF com base no modelo de relatório fornecido para a Fazenda Nossa Senhora de Fátima.
+- Cada linha agora representa uma visita finalizada e mostra obrigatoriamente os quatro cascos em colunas fixas: `FE`, `FD`, `TE` e `TD`.
+- Cada casco detalha doença por extenso, gravidade de `G1` a `G3`, região, tratamento, taco e lado, observações, nota, liberação e plano de revisões quando existirem.
+- Cascos normais, curados e ausentes em visitas legadas recebem estados explícitos em vez de células vazias.
+- As linhas são agrupadas por brinco e ordenadas da visita mais recente para a mais antiga dentro de cada animal.
+- A identificação da visita inclui data e hora imutáveis do registro, funcionário responsável, lote e sexo do animal.
+- A primeira página ganhou indicadores de atendimentos, animais únicos, cascos avaliados, cascos lesionados, preventivos, revisões e tacos.
+- A faixa clínica agora conta cascos por situação e gravidade, evitando confundir uma visita com problema em um pé com os outros três cascos normais.
+- O funcionário continua podendo gerar apenas o próprio relatório em `Meu trabalho`.
+- O administrador escolhe explicitamente `Só o meu` ou `Toda a equipe`; no segundo caso, o PDF inclui o consolidado e a produção separada por funcionário da fazenda atual.
+- Adicionada defesa adicional por `farm_id` no gerador do relatório, mesmo com o armazenamento local já isolado por fazenda.
+- Adicionados testes para quatro cascos, dados legados incompletos, isolamento por fazenda, relatório individual e consolidação da equipe.
+- O PDF foi validado visualmente com uma visita contendo Dermatite Digital G2, spray, taco e três revisões a cada três dias.
+- Validação concluída com `56` testes unitários e `14` fluxos de navegador em celular e tablet.
+- Atualizado o cache offline para `v23`.
+
+### Por que foi feito
+
+- Entregar um documento clínico útil para conferência, impressão e apresentação ao cliente.
+- Permitir acompanhar o histórico de cada animal sem perder a situação de nenhum dos quatro cascos.
+- Garantir que produção individual e produção da equipe sejam relatórios distintos, com permissões claras.
+- Evitar mistura de atendimentos entre funcionários, fazendas ou empresas.
+
+### Como validar
+
+- Entrar como funcionário, abrir `Meu trabalho`, gerar o PDF e confirmar que aparecem somente atendimentos desse funcionário.
+- Entrar como administrador, abrir `Administração > Desempenho`, selecionar `Só o meu` e gerar o PDF individual.
+- Selecionar `Toda a equipe` e confirmar a produção por funcionário e todas as visitas da fazenda atual.
+- Conferir no detalhamento que cada visita possui as colunas `FE`, `FD`, `TE` e `TD`, inclusive para cascos normais.
+- Conferir uma visita com problema e validar doença, gravidade, região, tratamento, taco, revisão, data, hora e responsável.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel` e `npm run test:e2e`.
+
+### Próximos passos
+
+1. Validar com o cliente se deseja incluir assinatura do responsável e logotipo no cabeçalho.
+2. Confirmar se o relatório impresso deve separar cada lote em uma nova página.
+3. Receber a planilha real de animais para implementar a importação com pré-visualização e validação por linha.
+
 ## 2026-08-04 - Bloco legado removido dos novos tratamentos
 
 ### O que foi feito

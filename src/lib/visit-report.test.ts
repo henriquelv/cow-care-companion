@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { employeeReportBreakdown, filterVisitsForReport, visitReportMetrics } from "./visit-report";
+import {
+  employeeReportBreakdown,
+  filterVisitsForReport,
+  visitFootReportCells,
+  visitReportMetrics,
+} from "./visit-report";
 import type { Visit } from "./casco-store";
 
 function visit(overrides: Partial<Visit>): Visit {
@@ -51,6 +56,24 @@ describe("visit reports", () => {
     ).toEqual(["normal"]);
   });
 
+  it("permite ao administrador consolidar toda a equipe da fazenda", () => {
+    const companyVisits = [
+      visits[0],
+      visits[1],
+      visit({ id: "other-farm", tag: "900", farm_id: "farm-2" }),
+    ].map((item, index) => (index < 2 ? { ...item, farm_id: "farm-1" } : item));
+
+    expect(
+      filterVisitsForReport(companyVisits, { farmId: "farm-1" }).map((item) => item.id),
+    ).toEqual(["normal", "problem"]);
+    expect(
+      employeeReportBreakdown(filterVisitsForReport(companyVisits, { farmId: "farm-1" })),
+    ).toMatchObject([
+      { employeeName: "Patrick", visits: 1 },
+      { employeeName: "Romano", visits: 1 },
+    ]);
+  });
+
   it("filtra preventivos e problemas e calcula métricas", () => {
     expect(filterVisitsForReport(visits, { status: "preventive" })).toHaveLength(1);
     expect(filterVisitsForReport(visits, { status: "problem" })).toHaveLength(1);
@@ -75,6 +98,56 @@ describe("visit reports", () => {
       { employeeName: "Patrick", visits: 1, animals: 1, withProblem: 1 },
       { employeeName: "Romano", visits: 1, animals: 1, preventive: 1 },
     ]);
+  });
+
+  it("gera uma coluna para cada um dos quatro cascos em toda visita", () => {
+    const cells = visitFootReportCells(
+      visit({
+        preventivo: false,
+        feet: [
+          {
+            foot: "FE",
+            ok: false,
+            zones: [0],
+            diseases: [{ code: "DD", severity: 2 }],
+            treatments: ["SPRAY"],
+            recheck: true,
+            recheckDate: "2026-07-18",
+            intervalo_revisao_dias: 3,
+            revisoes_necessarias: 3,
+          },
+          { foot: "FD", ok: true },
+          {
+            foot: "TE",
+            ok: true,
+            resolved: true,
+            diseases: [{ code: "SU", severity: 2 }],
+          },
+          { foot: "TD", ok: true, taco: { action: "apply", side: "right" } },
+        ],
+      }),
+    );
+
+    expect(cells.map((cell) => cell.foot)).toEqual(["FE", "FD", "TE", "TD"]);
+    expect(cells[0]).toMatchObject({ status: "problem", severity: 2 });
+    expect(cells[0].text).toContain("Dermatite Digital");
+    expect(cells[0].text).toContain("G2 Médio");
+    expect(cells[0].text).toContain("Spray");
+    expect(cells[0].text).toContain("3x a cada 3 dias");
+    expect(cells[1]).toMatchObject({ status: "normal", text: "CASCO NORMAL" });
+    expect(cells[2].text).toContain("CURADO / LIBERADO");
+    expect(cells[3].text).toContain("Taco: Colocar taco · Lado direito");
+  });
+
+  it("identifica casco sem registro em atendimento legado incompleto", () => {
+    const cells = visitFootReportCells(
+      visit({ feet: [{ foot: "FE", ok: true }], preventivo: true }),
+    );
+
+    expect(cells).toHaveLength(4);
+    expect(cells[0]).toMatchObject({ status: "normal", text: "CASCO NORMAL · PREVENTIVO" });
+    expect(cells.slice(1).every((cell) => cell.status === "unrecorded")).toBe(true);
+    expect(cells.slice(1).every((cell) => cell.text === "SEM REGISTRO")).toBe(true);
   });
 
   it("filtra e contabiliza atendimentos com taco", () => {
