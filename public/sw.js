@@ -1,4 +1,4 @@
-const CACHE_NAME = "caderninho-casco-v26";
+const CACHE_NAME = "caderninho-casco-v27";
 const CORE_ASSETS = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 async function cacheAppShell() {

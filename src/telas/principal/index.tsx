@@ -93,6 +93,7 @@ import {
   allAnimals,
   footWorstSeverity,
   footsWorstSeverity,
+  visitHasActiveProblem,
   type DiseaseEntry,
   type DiseaseDefinition,
   type FarmConfig,
@@ -3001,6 +3002,8 @@ function RegisterScreen({
   const currentExistingTaco = currentFoot
     ? animalSnapshot.activeTacos.find((taco) => taco.foot === currentFoot)
     : undefined;
+  const hasResolvedFoot = visit.feet.some((foot) => foot.resolved || foot.data_liberacao);
+  const canReleaseToPreventive = hasResolvedFoot && !visitHasActiveProblem(visit);
 
   function updateVisit(partial: Partial<Visit>) {
     setVisit((v) => ({ ...v, ...partial }));
@@ -3481,8 +3484,8 @@ function RegisterScreen({
             <section className="rounded-lg border-2 border-good/60 bg-good/5 p-4">
               <p className="font-display text-base font-black uppercase">Confirmar cura?</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                O problema será encerrado. O animal poderá voltar ao casqueamento preventivo e a
-                revisão aberta deste casco será cancelada.
+                O problema será encerrado e a revisão aberta deste casco será cancelada. No resumo
+                final, escolha se o animal volta ao preventivo ou continua em acompanhamento.
               </p>
               {currentExistingTaco ? (
                 <p className="mt-2 rounded-lg bg-warn/10 p-2 text-xs font-bold text-warn-foreground">
@@ -3760,8 +3763,8 @@ function RegisterScreen({
                 Problema encerrado neste casco
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Esta continua sendo uma visita clínica. O animal volta automaticamente à lista
-                preventiva quando não houver outra doença ou taco ativo.
+                No resumo final, escolha se o animal será liberado para preventivo ou continuará em
+                acompanhamento.
               </p>
             </section>
           )}
@@ -4203,6 +4206,63 @@ function RegisterScreen({
                 Casqueamento preventivo, sem lesão identificada
               </p>
             </div>
+          )}
+          {hasResolvedFoot && (
+            <section className="rounded-2xl border-2 border-good/40 bg-good/5 p-4">
+              <p className="font-display text-base font-black uppercase text-good">
+                Destino do animal após a cura
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {canReleaseToPreventive
+                  ? "Escolha se esta visita também libera o animal para o casqueamento preventivo."
+                  : "Ainda existe doença, taco ou outro problema ativo. Finalize esse atendimento antes de liberar para preventivo."}
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={!canReleaseToPreventive}
+                  onClick={() =>
+                    setVisit((current) => ({
+                      ...current,
+                      preventivo: true,
+                      feet: current.feet.map((foot) => ({
+                        ...foot,
+                        recheck: false,
+                        recheckDate: undefined,
+                        intervalo_revisao_dias: undefined,
+                        revisoes_necessarias: undefined,
+                      })),
+                    }))
+                  }
+                  className={cn(
+                    "min-h-16 rounded-xl border-2 px-4 text-left font-display text-sm font-black uppercase",
+                    !canReleaseToPreventive
+                      ? "border-border bg-muted text-muted-foreground opacity-65"
+                      : visit.preventivo
+                        ? "border-good bg-good text-good-foreground"
+                        : "border-good/50 bg-card text-good",
+                  )}
+                >
+                  Liberar para preventivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateVisit({ preventivo: false })}
+                  className={cn(
+                    "min-h-16 rounded-xl border-2 px-4 text-left font-display text-sm font-black uppercase",
+                    !visit.preventivo
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-foreground",
+                  )}
+                >
+                  Manter acompanhamento
+                </button>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Liberar para preventivo encerra as revisões abertas e reinicia o prazo preventivo a
+                partir desta visita.
+              </p>
+            </section>
           )}
           {visit.preventivo && (
             <section className="rounded-2xl border-2 border-primary/35 bg-primary/5 p-4">

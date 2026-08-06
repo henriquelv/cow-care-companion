@@ -294,7 +294,7 @@ test("taco existente é reconhecido e pré-selecionado na próxima visita", asyn
   );
 });
 
-test("problema curado é encerrado sem virar preventivo", async ({ page }) => {
+test("problema curado pode ser liberado para preventivo", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
 
@@ -321,6 +321,11 @@ test("problema curado é encerrado sem virar preventivo", async ({ page }) => {
   await expect(page.getByText(/Precisa agendar revisão/i)).toBeVisible();
   await page.getByRole("button", { name: /Ver resumo/i }).click();
   await expect(page.getByText(/Marcado como CURADO/i)).toBeVisible();
+  await expect(page.getByText(/Destino do animal após a cura/i)).toBeVisible();
+  await page.getByRole("button", { name: /Liberar para preventivo/i }).click();
+  await expect(
+    page.locator("#conteudo-principal").getByText("Preventivo", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
 });
 

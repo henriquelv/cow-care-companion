@@ -1837,3 +1837,34 @@ Critério de sucesso:
 - Adicionar exportação CSV/XLSX das métricas para análises externas sem perder os filtros aplicados.
 - Validar com o responsável técnico se uma doença removida individualmente na revisita deve ser registrada como cura específica ou se a liberação continuará sendo feita por casco inteiro.
 - Acompanhar em uso real se o ranking deve contar diagnósticos por visita, novos casos clínicos ou ambos em indicadores separados.
+
+# 2026-08-06 - Liberação para preventivo após a cura
+
+## O que foi feito
+
+- Mantido o botão “O problema não existe mais” na etapa de lesões, conforme o fluxo usado em campo.
+- Restaurada no resumo final a decisão explícita entre “Liberar para preventivo” e “Manter acompanhamento”.
+- A liberação só fica disponível depois que todos os cascos foram conferidos e não existe doença, taco ou outro problema ativo no animal.
+- Ao liberar, o app encerra revisões abertas e considera esta visita como o novo marco para o prazo do próximo preventivo.
+- Quando ainda existe algum problema ativo, o botão fica bloqueado e explica por que o animal não pode ser liberado.
+- Cache offline atualizado para `v27`.
+
+## Por que foi feito
+
+- Preservar a decisão operacional de devolver um animal curado ao ciclo preventivo.
+- Evitar que a liberação feita durante a avaliação de um único casco esconda uma doença existente em outro pé.
+- Deixar claro o efeito de cada escolha, sem depender de comportamento subentendido.
+
+## Como validar
+
+- Abrir uma revisita com diagnóstico anterior e tocar em “O problema não existe mais”.
+- Confirmar a cura, avançar até o resumo e escolher “Liberar para preventivo”.
+- Conferir a identificação “Preventivo” no resumo e salvar a visita.
+- Repetir com outro casco ainda doente e confirmar que a liberação fica bloqueada.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e o cenário Playwright de cura.
+- Resultado local: 64 testes unitários, lint, typecheck, build e o fluxo mobile de cura/liberação aprovados.
+
+## Próximos passos
+
+- Validar em campo se “Manter acompanhamento” deve conservar automaticamente a última periodicidade de revisão ou continuar exigindo uma escolha nova.
+- Confirmar com o responsável técnico se uma cura parcial deve permitir encerrar apenas uma doença, mantendo outra doença ativa no mesmo casco.

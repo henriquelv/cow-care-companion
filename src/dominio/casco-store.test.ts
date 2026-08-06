@@ -283,6 +283,28 @@ describe("casco-store domain rules", () => {
     expect(snapshot.hasActiveProblem).toBe(false);
   });
 
+  it("permite liberar para preventivo quando o último problema foi curado", () => {
+    addVisit(
+      visit({
+        id: "cura-preventiva",
+        tag: "506",
+        preventivo: true,
+        feet: [
+          foot({
+            foot: "FE",
+            ok: false,
+            resolved: true,
+            data_liberacao: "2026-05-22",
+            diseases: [],
+            recheck: false,
+          }),
+        ],
+      }),
+    );
+
+    expect(loadVisits()[0].preventivo).toBe(true);
+  });
+
   it("mantém a data original do taco até a retirada", () => {
     const applied = visit({
       id: "taco-aplicado",
