@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   employeeReportBreakdown,
   filterVisitsForReport,
+  monthlyComparisonFromVisits,
+  operationalBreakdownFromVisits,
   visitFootReportCells,
   visitReportMetrics,
 } from "./visit-report";
@@ -168,6 +170,68 @@ describe("visit reports", () => {
     expect(visitReportMetrics([...visits, withTaco])).toMatchObject({
       withTaco: 1,
       tacosApplied: 1,
+    });
+  });
+
+  it("detalha doenças, pés e animais sem confundir diagnósticos com visitas", () => {
+    const multipleDiseases = visit({
+      id: "multiple-diseases",
+      tag: "500",
+      feet: [
+        {
+          foot: "FE",
+          ok: false,
+          diseases: [
+            { code: "DD", severity: 2 },
+            { code: "SU", severity: 3 },
+          ],
+        },
+        {
+          foot: "TD",
+          ok: false,
+          diseases: [{ code: "LOCOMOTION", severity: 1 }],
+        },
+      ],
+    });
+
+    const breakdown = operationalBreakdownFromVisits([multipleDiseases]);
+    expect(breakdown.diagnoses).toBe(3);
+    expect(breakdown.problemFeet).toBe(2);
+    expect(breakdown.diseases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "DD", records: 1, animals: 1 }),
+        expect.objectContaining({ code: "SU", records: 1, animals: 1 }),
+        expect.objectContaining({ code: "LOCOMOTION", records: 1, animals: 1 }),
+      ]),
+    );
+    expect(breakdown.feet.find((row) => row.foot === "FE")).toMatchObject({ records: 1 });
+    expect(breakdown.feet.find((row) => row.foot === "TD")).toMatchObject({ records: 1 });
+    expect(breakdown.animals[0]).toMatchObject({ tag: "500", visits: 1, problemVisits: 1 });
+  });
+
+  it("compara o mês atual com o mês anterior", () => {
+    const june = visit({
+      id: "june",
+      tag: "600",
+      date: "2026-06-10",
+      createdAt: new Date("2026-06-10T10:00:00-03:00").getTime(),
+      preventivo: true,
+    });
+    const comparison = monthlyComparisonFromVisits([...visits, june], "2026-07-20");
+
+    expect(comparison.current).toMatchObject({
+      prefix: "2026-07",
+      visits: 2,
+      animals: 2,
+      preventive: 1,
+      withProblem: 1,
+      diagnoses: 1,
+    });
+    expect(comparison.previous).toMatchObject({
+      prefix: "2026-06",
+      visits: 1,
+      animals: 1,
+      preventive: 1,
     });
   });
 });

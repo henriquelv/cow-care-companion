@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Scissors } from "lucide-react";
-import { preventiveList, type PreventiveAnimal } from "@/dominio/casco-store";
+import { AlertTriangle, Scissors } from "lucide-react";
+import { preventiveList } from "@/dominio/casco-store";
 import { cn } from "@/dominio/utils";
 
 const DIAS_FILTROS = [
@@ -15,23 +15,11 @@ const DIAS_FILTROS = [
 export function PreventiveScreen({
   diasThreshold,
   onNew,
-  onQuickPreventive,
 }: {
   diasThreshold: number;
   onNew: (tag: string) => void;
-  onQuickPreventive: (animal: PreventiveAnimal) => void;
 }) {
   const [filtroMin, setFiltroMin] = useState<number | null>(null);
-  const [registrando, setRegistrando] = useState<string | null>(null);
-
-  function handleQuickPreventive(animal: PreventiveAnimal) {
-    if (registrando) return;
-    setRegistrando(animal.tag);
-    setTimeout(() => {
-      onQuickPreventive(animal);
-      setRegistrando(null);
-    }, 120);
-  }
 
   const todos = useMemo(() => preventiveList(0), []);
 
@@ -66,6 +54,10 @@ export function PreventiveScreen({
             </p>
           </div>
         )}
+        <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          Abra o atendimento e avalie os quatro cascos. A visita só será preventiva quando nenhum
+          problema for registrado.
+        </p>
       </div>
 
       <section>
@@ -115,8 +107,6 @@ export function PreventiveScreen({
               !nuncaFoiCasqueado &&
               diasThreshold > 0 &&
               animal.diasSemCasqueamento >= diasThreshold;
-            const isSaving = registrando === animal.tag;
-
             return (
               <li key={animal.tag}>
                 <div
@@ -127,7 +117,6 @@ export function PreventiveScreen({
                       : vencido
                         ? "border-warn/50 bg-warn/5"
                         : "border-border",
-                    registrando !== null && !isSaving && "opacity-60",
                   )}
                 >
                   <div className="w-16 shrink-0 text-center">
@@ -173,36 +162,16 @@ export function PreventiveScreen({
                     )}
                   </div>
 
-                  <div className="grid shrink-0 grid-cols-2 gap-2 sm:w-48 sm:grid-cols-1">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickPreventive(animal)}
-                      disabled={registrando !== null}
-                      aria-label={`Registrar casqueamento preventivo do brinco ${animal.tag}`}
-                      className="tap min-h-16 rounded-xl border-2 border-primary bg-primary px-3 py-2 font-display text-xs font-black uppercase leading-tight text-primary-foreground transition-transform active:scale-[0.98]"
-                    >
-                      {isSaving ? (
-                        <span className="flex min-w-0 items-center justify-center gap-2">
-                          <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                          Salvando
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-center gap-2">
-                          <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-                          Registrar preventivo
-                        </span>
-                      )}
-                    </button>
+                  <div className="shrink-0 sm:w-48">
                     <button
                       type="button"
                       onClick={() => onNew(animal.tag)}
-                      disabled={registrando !== null}
-                      aria-label={`Avaliar os cascos do brinco ${animal.tag}`}
-                      className="tap min-h-16 rounded-xl border-2 border-border bg-surface px-3 py-2 font-display text-xs font-black uppercase leading-tight text-foreground transition-transform active:scale-[0.98]"
+                      aria-label={`Iniciar avaliação preventiva do brinco ${animal.tag}`}
+                      className="tap min-h-16 w-full rounded-xl border-2 border-primary bg-primary px-3 py-2 font-display text-xs font-black uppercase leading-tight text-primary-foreground transition-transform active:scale-[0.98]"
                     >
                       <span className="flex min-w-0 items-center justify-center gap-2">
-                        <Scissors className="h-5 w-5 text-primary" aria-hidden="true" />
-                        Avaliar cascos
+                        <Scissors className="h-5 w-5" aria-hidden="true" />
+                        Iniciar avaliação
                       </span>
                     </button>
                   </div>

@@ -1784,3 +1784,54 @@ Critério de sucesso:
 - Carregar o gerador de PDF somente quando o usuário solicitar uma exportação; o build atual aponta o pacote de PDF com aproximadamente 621 kB antes de gzip.
 - Avaliar a separação futura de testes de interface em `testes/interface` e scripts operacionais em `ferramentas`, atualizando Playwright e os comandos npm juntos.
 - Revisar as anotações antigas depois de confirmar que todos os requisitos foram incorporados e então arquivar ou remover o que não tiver mais valor.
+
+# 2026-08-06 - Preventivo com avaliação clínica, múltiplas doenças e comparativos
+
+## O que foi feito
+
+- Removida da etapa clínica a opção de transformar uma visita de doença em casqueamento preventivo.
+- Quando um problema é marcado como curado, a visita continua sendo clínica; o animal volta automaticamente à fila preventiva apenas quando não possuir outra doença ou taco ativo.
+- A lista de preventivos não salva mais uma visita imediatamente. O botão “Iniciar avaliação” abre o fluxo completo para conferir os quatro cascos.
+- Na conferência de um preventivo foi adicionada a ação explícita “Registrar doença encontrada”. Ao usá-la, o funcionário escolhe os pés, diagnósticos, graus e tratamentos normalmente.
+- Qualquer doença, taco ou outro problema força a visita a deixar de ser preventiva, tanto na interface quanto na validação final e no salvamento.
+- Removida a limitação de uma lesão por casco. Agora cada casco aceita várias doenças, cada uma com seu próprio grau de 1 a 3.
+- O histórico clínico passou a acompanhar episódios por combinação de casco e doença, preservando simultaneamente doenças diferentes no mesmo casco e em cascos distintos.
+- Registros antigos com diagnósticos repetidos são consolidados pelo código da doença e pela maior gravidade, sem descartar doenças diferentes.
+- O resumo final mostra todas as doenças de cada casco e informa que a visita só entra no histórico e nas métricas após “Salvar visita concluída”.
+- A barra de progresso ganhou o nome da etapa atual: identificação, resultado da avaliação, lesões, tratamento, revisão ou conferência final.
+- Removidos os diálogos nativos de confirmação/alerta do navegador. A troca de acesso e os erros de backup agora usam mensagens e janelas do próprio aplicativo.
+- “Meu trabalho” ganhou comparação entre o mês atual e o anterior para atendimentos, animais únicos, preventivos, problemas e diagnósticos.
+- Funcionário e administrador ganharam detalhamento filtrável por doenças, pés e animais, com explicação da unidade usada em cada contagem.
+- O administrador pode analisar toda a equipe, somente os próprios atendimentos ou escolher um funcionário específico; período, lote e tipo continuam aplicados aos números, detalhes e PDF.
+- Removido o antigo criador de preventivo rápido, que deixou de ter chamada após o novo fluxo seguro.
+- A fila de sincronização agora rejeita implicitamente registros sem `farm_id`: uma visita em modo local continua salva no aparelho, mas nunca cria uma pendência remota sem fazenda e não pode contaminar outra conta.
+- Cache offline atualizado para `v26`.
+
+## Por que foi feito
+
+- Permitir que um casqueamento iniciado como preventivo registre corretamente uma doença descoberta durante a avaliação.
+- Evitar que visitas com lesão apareçam incorretamente nas métricas de preventivo.
+- Representar casos reais em que o mesmo casco possui mais de uma doença e o animal possui diagnósticos diferentes em pés distintos.
+- Retirar escolhas clínicas subentendidas e deixar visível o que acontecerá antes de cada ação.
+- Separar claramente visita, animal único, casco afetado e diagnóstico para impedir interpretações erradas nos painéis.
+
+## Como validar
+
+- Iniciar um animal pela lista Preventivo e confirmar que o app abre a avaliação em vez de salvar diretamente.
+- Marcar “Todos os cascos estão normais”, abrir “Registrar doença encontrada” e registrar duas doenças em um casco e outra doença em outro casco.
+- Conferir no resumo que as três doenças aparecem e que a visita não possui a identificação “Preventivo”.
+- Salvar uma visita preventiva realmente normal e confirmar que nenhum diálogo externo do navegador aparece.
+- Reabrir um animal com várias doenças e confirmar que todos os diagnósticos ativos são pré-selecionados no casco correto.
+- Marcar um problema como curado e confirmar que não existe botão para classificar a mesma visita como preventiva.
+- Abrir “Meu trabalho” e conferir o comparativo mensal e as abas Doenças, Pés e Animais.
+- No painel administrativo, alternar entre equipe, administrador e um funcionário específico e conferir que os mesmos filtros afetam comparativos e detalhamentos.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run test:e2e`.
+- Resultado local: 63 testes unitários, lint, typecheck e build aprovados; 15 fluxos Playwright aprovados e 1 fluxo administrativo ignorado de forma prevista no modo local.
+- A suíte completa também confirmou que as operações IndexedDB abrem e encerram normalmente depois da proteção contra itens sem fazenda no outbox.
+
+## Próximos passos
+
+- Levar o comparativo mensal e os rankings de doença, pé e animal também para uma página opcional do PDF gerencial.
+- Adicionar exportação CSV/XLSX das métricas para análises externas sem perder os filtros aplicados.
+- Validar com o responsável técnico se uma doença removida individualmente na revisita deve ser registrada como cura específica ou se a liberação continuará sendo feita por casco inteiro.
+- Acompanhar em uso real se o ranking deve contar diagnósticos por visita, novos casos clínicos ou ambos em indicadores separados.

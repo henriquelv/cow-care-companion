@@ -65,7 +65,7 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
-  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /^Colocar taco/i }).click();
   await page.getByRole("button", { name: "Lado esquerdo do casco Frente Esq." }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();
@@ -78,6 +78,12 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
   await expect(page.getByText("Este é o seu relatório individual")).toBeVisible();
   await expect(page.getByRole("button", { name: "Abrir relatório da equipe" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Comparativo mensal" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Detalhes do trabalho" })).toBeVisible();
+  await page.getByRole("tab", { name: "Pés" }).click();
+  await expect(page.getByText(/casco\(s\) com doença ou ação de taco/i)).toBeVisible();
+  await page.getByRole("tab", { name: "Animais" }).click();
+  await expect(page.getByText(/Brinco 100/i)).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exportar PDF" }).click();
@@ -166,29 +172,68 @@ test("Romano consulta a agenda antes de escolher a fazenda", async ({ page }) =>
 });
 
 test("Romano registra casco normal como preventivo com auditoria automática", async ({ page }) => {
+  const unexpectedDialogs: string[] = [];
+  page.on("dialog", async (dialog) => {
+    unexpectedDialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await page.getByRole("button", { name: "Nova visita", exact: true }).click();
   await page.getByLabel("Número do brinco").fill("9876");
   await page.getByRole("button", { name: /Continuar/i }).click();
-  await page.getByRole("button", { name: /^Casqueamento preventivo Todos/i }).click();
+  await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
   await expect(page.getByText("Horario (definido pelo app)")).toBeVisible();
   await expect(page.getByText("Romano", { exact: true })).toBeVisible();
   await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Encontrou alguma doença durante o preventivo/i)).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
+  expect(unexpectedDialogs).toEqual([]);
   await expect(page.getByText(/Animal 9876 cadastrado automaticamente/i)).toBeVisible();
   await page.getByRole("button", { name: /^Todos/ }).click();
   await expect(page.getByText("9876", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Preventivo" }).click();
   await expect(
-    page.getByRole("button", { name: "Registrar casqueamento preventivo do brinco 9876" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Avaliar os cascos do brinco 9876" }),
+    page.getByRole("button", { name: "Iniciar avaliação preventiva do brinco 9876" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Calendário" }).click();
   await page.getByRole("button", { name: /Abrir primeiro compromisso da agenda/i }).click();
   await expect(page.getByText("Casqueamento preventivo", { exact: true })).toBeVisible();
+});
+
+test("preventivo vira atendimento clínico com várias doenças", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("9101");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
+  await page.getByRole("button", { name: /Registrar doença encontrada/i }).click();
+  await page.getByRole("button", { name: /FE Frente Esq/i }).click();
+  await page.getByRole("button", { name: /TD Trás Dir/i }).click();
+  await page.getByRole("button", { name: /Continuar com 2 pé/i }).click();
+
+  await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await page.getByRole("button", { name: "Úlcera de Sola: grau 1" }).click();
+  await expect(page.getByText(/2 lesão\(ões\) neste casco/i)).toBeVisible();
+  await page.getByRole("button", { name: /Confirmar 2 lesão/i }).click();
+  await page.getByRole("button", { name: /Spray.*Produto/i }).click();
+  await page.getByRole("button", { name: /^Confirmar$/i }).click();
+  await page.getByRole("button", { name: /Próximo pé/i }).click();
+
+  await page.getByRole("button", { name: "Problema de Locomoção: grau 3" }).click();
+  await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
+  await page.getByRole("button", { name: /^Confirmar$/i }).click();
+  await page.getByRole("button", { name: /Ver resumo/i }).click();
+
+  await expect(page.getByText("Derm. Digital", { exact: true })).toBeVisible();
+  await expect(page.getByText("Úlcera Sola", { exact: true })).toBeVisible();
+  await expect(page.getByText("Locomoção", { exact: true })).toBeVisible();
+  await expect(
+    page.locator("#conteudo-principal").getByText("Preventivo", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: /Salvar visita concluída/i }).click();
+  await expect(page.getByText(/Animal 9101 cadastrado automaticamente/i)).toBeVisible();
 });
 
 test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async ({ page }) => {
@@ -227,7 +272,7 @@ test("taco existente é reconhecido e pré-selecionado na próxima visita", asyn
   await page.getByRole("button", { name: /TD.*Trás Dir/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
-  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /^Colocar taco/i }).click();
   await page.getByRole("button", { name: "Lado direito do casco Trás Dir." }).click();
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
@@ -242,14 +287,14 @@ test("taco existente é reconhecido e pré-selecionado na próxima visita", asyn
   await page.getByRole("button", { name: /Continuar/i }).click();
   await expect(page.getByText(/Pé\(s\) em acompanhamento já marcados/i)).toBeVisible();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
-  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await expect(page.getByText("Taco já colocado")).toBeVisible();
   await expect(page.getByRole("button", { name: /Deixar taco colocado/i })).toHaveClass(
     /bg-primary/,
   );
 });
 
-test("problema curado pode ser liberado sem criar revisão", async ({ page }) => {
+test("problema curado é encerrado sem virar preventivo", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
 
@@ -259,7 +304,7 @@ test("problema curado pode ser liberado sem criar revisão", async ({ page }) =>
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
   await page.getByRole("button", { name: "Dermatite Digital: grau 1" }).click();
-  await page.getByRole("button", { name: /Confirmar lesão/i }).click();
+  await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
   await expect(page.getByText(/Nenhuma revisão será criada/i)).toBeVisible();
@@ -272,10 +317,8 @@ test("problema curado pode ser liberado sem criar revisão", async ({ page }) =>
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
   await page.getByRole("button", { name: /O problema não existe mais/i }).click();
   await page.getByRole("button", { name: /Sim, está curado/i }).click();
-  await expect(page.getByRole("button", { name: /Liberado para preventivo/i })).toHaveClass(
-    /bg-good/,
-  );
-  await expect(page.getByText(/Precisa agendar revisão/i)).toHaveCount(0);
+  await expect(page.getByText(/Problema encerrado neste casco/i)).toBeVisible();
+  await expect(page.getByText(/Precisa agendar revisão/i)).toBeVisible();
   await page.getByRole("button", { name: /Ver resumo/i }).click();
   await expect(page.getByText(/Marcado como CURADO/i)).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();

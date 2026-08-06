@@ -49,9 +49,15 @@ import {
 import {
   exportVisitsPdf,
   filterVisitsForReport,
+  monthlyComparisonFromVisits,
+  operationalBreakdownFromVisits,
   visitReportMetrics,
   type VisitReportStatus,
 } from "@/dominio/visit-report";
+import {
+  MonthlyComparisonPanel,
+  OperationalBreakdownPanel,
+} from "@/componentes/metricas/OperationalAnalysis";
 
 type AdminTab = "reports" | "data" | "farms" | "employees" | "devices" | "licenses" | "audit";
 
@@ -177,6 +183,7 @@ export function AdminScreen({
   const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
   const [reportTo, setReportTo] = useState(today);
   const [reportScope, setReportScope] = useState<"mine" | "team">("team");
+  const [reportEmployeeId, setReportEmployeeId] = useState("all");
   const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
   const [reportLote, setReportLote] = useState("all");
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -243,12 +250,20 @@ export function AdminScreen({
   );
   const activeDeviceCount = managedDevices.filter((device) => device.status === "active").length;
   const blockedDeviceCount = managedDevices.length - activeDeviceCount;
+  const farmEmployees = overview.employees.filter(
+    (employee) => !context?.farm_id || employee.farm_ids.includes(context.farm_id),
+  );
+  const selectedReportEmployee = farmEmployees.find((employee) => employee.id === reportEmployeeId);
+  const scopedEmployeeId =
+    reportScope === "mine" ? context?.employee_id : selectedReportEmployee?.id;
+  const scopedEmployeeName =
+    reportScope === "mine" ? context?.employee_name : selectedReportEmployee?.name;
   const reportFilters = {
     farmId: context?.farm_id,
     dateFrom: reportFrom,
     dateTo: reportTo,
-    employeeId: reportScope === "mine" ? context?.employee_id : undefined,
-    employeeName: reportScope === "mine" ? context?.employee_name : undefined,
+    employeeId: scopedEmployeeId,
+    employeeName: scopedEmployeeName,
     lote: reportLote === "all" ? undefined : reportLote,
     status: reportStatus,
   };
@@ -268,11 +283,34 @@ export function AdminScreen({
     lote: reportLote === "all" ? undefined : reportLote,
     status: reportStatus,
   });
-  const reportVisits = reportScope === "team" ? teamReportVisits : mineReportVisits;
-  const reportAgenda = Array.from(
-    agendaByDate(today, reportScope === "mine" ? context?.employee_id : undefined).values(),
-  ).flat();
+  const employeeReportVisits = selectedReportEmployee
+    ? filterVisitsForReport(loadVisits(), {
+        farmId: context?.farm_id,
+        dateFrom: reportFrom,
+        dateTo: reportTo,
+        employeeId: selectedReportEmployee.id,
+        employeeName: selectedReportEmployee.name,
+        lote: reportLote === "all" ? undefined : reportLote,
+        status: reportStatus,
+      })
+    : [];
+  const reportVisits =
+    reportScope === "mine"
+      ? mineReportVisits
+      : selectedReportEmployee
+        ? employeeReportVisits
+        : teamReportVisits;
+  const reportAgenda = Array.from(agendaByDate(today, scopedEmployeeId).values()).flat();
   const reportMetrics = visitReportMetrics(reportVisits, reportAgenda);
+  const comparisonVisits = filterVisitsForReport(loadVisits(), {
+    farmId: context?.farm_id,
+    employeeId: scopedEmployeeId,
+    employeeName: scopedEmployeeName,
+    lote: reportLote === "all" ? undefined : reportLote,
+    status: reportStatus,
+  });
+  const monthComparison = monthlyComparisonFromVisits(comparisonVisits, reportTo || today);
+  const operationalBreakdown = operationalBreakdownFromVisits(reportVisits);
   const currentAnimals = allAnimals();
   const currentHerdMetrics = {
     registered: currentAnimals.length,
@@ -286,9 +324,6 @@ export function AdminScreen({
     withTaco: currentAnimals.filter((animal) => animal.hasTaco).length,
     withRecheck: currentAnimals.filter((animal) => animal.hasRecheck).length,
   };
-  const farmEmployees = overview.employees.filter(
-    (employee) => !context?.farm_id || employee.farm_ids.includes(context.farm_id),
-  );
   const employeeMetricRows = farmEmployees.map((employee) => {
     const visits = filterVisitsForReport(loadVisits(), {
       dateFrom: reportFrom,
@@ -479,14 +514,18 @@ export function AdminScreen({
         agenda: reportAgenda,
         farmName: context?.farm_name || loadFarm().farmName || "Fazenda",
         reportTitle:
-          reportScope === "team"
-            ? "Relatório de casqueamento da equipe"
-            : `Relatório de casqueamento · ${context?.employee_name ?? "Administrador"}`,
+          reportScope === "mine"
+            ? `Relatório de casqueamento · ${context?.employee_name ?? "Administrador"}`
+            : selectedReportEmployee
+              ? `Relatório de casqueamento · ${selectedReportEmployee.name}`
+              : "Relatório de casqueamento da equipe",
         scopeLabel:
-          reportScope === "team"
-            ? "Administrador e funcionários da fazenda"
-            : `Somente ${context?.employee_name ?? "administrador"}`,
-        includeEmployeeBreakdown: reportScope === "team",
+          reportScope === "mine"
+            ? `Somente ${context?.employee_name ?? "administrador"}`
+            : selectedReportEmployee
+              ? `Somente ${selectedReportEmployee.name}`
+              : "Administrador e funcionários da fazenda",
+        includeEmployeeBreakdown: reportScope === "team" && !selectedReportEmployee,
         filters: reportFilters,
       });
     } catch (caught) {
@@ -680,6 +719,7 @@ export function AdminScreen({
                   setReportFrom(`${today.slice(0, 7)}-01`);
                   setReportTo(today);
                   setReportScope("team");
+                  setReportEmployeeId("all");
                   setReportStatus("all");
                   setReportLote("all");
                 }}
@@ -733,10 +773,35 @@ export function AdminScreen({
                 </div>
                 <p className="mt-2 rounded-lg bg-background px-3 py-2 text-xs font-semibold text-foreground">
                   {reportScope === "team"
-                    ? `Mostrando as ${teamReportVisits.length} visita(s) da equipe neste período.`
+                    ? selectedReportEmployee
+                      ? `Mostrando ${employeeReportVisits.length} visita(s) de ${selectedReportEmployee.name} neste período.`
+                      : `Mostrando as ${teamReportVisits.length} visita(s) da equipe neste período.`
                     : `Mostrando ${mineReportVisits.length} visita(s) suas. Existem ${teamReportVisits.length} visita(s) da equipe neste período.`}
                 </p>
               </fieldset>
+              {reportScope === "team" && (
+                <label className="sm:col-span-2">
+                  <span className="text-[10px] font-black uppercase text-muted-foreground">
+                    Funcionário analisado
+                  </span>
+                  <select
+                    value={reportEmployeeId}
+                    onChange={(event) => setReportEmployeeId(event.target.value)}
+                    className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
+                  >
+                    <option value="all">Toda a equipe reunida</option>
+                    {farmEmployees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-[11px] text-muted-foreground">
+                    Escolha uma pessoa para aplicar os mesmos comparativos, doenças, pés e animais
+                    somente aos atendimentos dela.
+                  </span>
+                </label>
+              )}
               <label>
                 <span className="text-[10px] font-black uppercase text-muted-foreground">
                   Tipo de atendimento
@@ -892,6 +957,13 @@ export function AdminScreen({
             </div>
           </section>
 
+          <MonthlyComparisonPanel comparison={monthComparison} />
+
+          <OperationalBreakdownPanel
+            breakdown={operationalBreakdown}
+            periodLabel={`período de ${new Date(`${reportFrom}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${reportTo}T12:00:00`).toLocaleDateString("pt-BR")}`}
+          />
+
           <section aria-labelledby="herd-title">
             <div className="flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" aria-hidden="true" />
@@ -967,16 +1039,22 @@ export function AdminScreen({
             ) : (
               <Download className="h-5 w-5" />
             )}
-            {reportScope === "team" ? "Baixar PDF da equipe" : "Baixar meu PDF"}
+            {reportScope === "mine"
+              ? "Baixar meu PDF"
+              : selectedReportEmployee
+                ? `Baixar PDF de ${selectedReportEmployee.name}`
+                : "Baixar PDF da equipe"}
           </button>
           <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
             O PDF detalha cada atendimento e mostra separadamente os cascos FE, FD, TE e TD.
-            {reportScope === "team"
-              ? " Inclui todos os funcionários desta fazenda."
-              : " Inclui somente os seus atendimentos."}
+            {reportScope === "mine"
+              ? " Inclui somente os seus atendimentos."
+              : selectedReportEmployee
+                ? ` Inclui somente os atendimentos de ${selectedReportEmployee.name}.`
+                : " Inclui todos os funcionários desta fazenda."}
           </p>
 
-          {reportScope === "team" && (
+          {reportScope === "team" && !selectedReportEmployee && (
             <section>
               <h3 className="font-display text-base font-black uppercase">
                 Produção por funcionário

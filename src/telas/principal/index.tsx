@@ -66,7 +66,6 @@ import {
   QUICK_RECHECK_OPTIONS,
   addVisit,
   animalClinicalSnapshotFromVisits,
-  createPreventiveVisit,
   dateAfterDays,
   exportBackupJson,
   importBackupJson,
@@ -112,10 +111,16 @@ import {
 import {
   exportVisitsPdf,
   filterVisitsForReport,
+  monthlyComparisonFromVisits,
+  operationalBreakdownFromVisits,
   type VisitReportStatus,
 } from "@/dominio/visit-report";
 import { DiseasePicker } from "@/componentes/casco/DiseasePicker";
 import { HelpModal } from "@/componentes/casco/Tutorial";
+import {
+  MonthlyComparisonPanel,
+  OperationalBreakdownPanel,
+} from "@/componentes/metricas/OperationalAnalysis";
 import { cn } from "@/dominio/utils";
 import {
   activationService,
@@ -216,6 +221,7 @@ export function Index() {
   const [screen, setScreen] = useState<Screen>({ name: "today" });
   const [tick, setTick] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
   const [toast, setToast] = useState<string | null>(null);
   const [activationMessage, setActivationMessage] = useState("");
@@ -379,13 +385,7 @@ export function Index() {
         onHelp={() => setShowHelp(true)}
         syncInfo={syncInfo}
         onSync={runSync}
-        onDeactivate={() => {
-          if (!confirm("Trocar a fazenda deste aparelho e voltar para a seleção?")) return;
-          farmContextService.clearContext();
-          adminService.clear();
-          setActivationMessage("");
-          setActivated(false);
-        }}
+        onDeactivate={() => setShowDeactivateConfirm(true)}
       />
 
       <AppStatusStrip />
@@ -507,19 +507,6 @@ export function Index() {
           <PreventiveScreen
             diasThreshold={farm.dias_para_preventivo}
             onNew={(tag) => setScreen({ name: "register", tag })}
-            onQuickPreventive={(animal) => {
-              addVisit(
-                createPreventiveVisit({
-                  tag: animal.tag,
-                  sex: animal.sex,
-                  lote: animal.lote,
-                  visitante_nome: farm.worker || undefined,
-                }),
-              );
-              void runSync();
-              refresh();
-              showToast(`Preventivo OK registrado: ${animal.tag}`);
-            }}
           />
         )}
       </main>
@@ -572,6 +559,51 @@ export function Index() {
       </nav>
 
       {showHelp && <HelpModal screen={helpScreen} onClose={() => setShowHelp(false)} />}
+
+      {showDeactivateConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="trocar-fazenda-title"
+          onClick={() => setShowDeactivateConfirm(false)}
+        >
+          <section
+            className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="trocar-fazenda-title" className="font-display text-xl font-black uppercase">
+              Trocar empresa ou fazenda?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Você voltará para a identificação inicial. As visitas já salvas neste aparelho não
+              serão apagadas.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeactivateConfirm(false)}
+                className="min-h-12 rounded-xl border-2 border-border bg-card px-3 font-display text-sm font-black uppercase"
+              >
+                Continuar aqui
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  farmContextService.clearContext();
+                  adminService.clear();
+                  setActivationMessage("");
+                  setShowDeactivateConfirm(false);
+                  setActivated(false);
+                }}
+                className="min-h-12 rounded-xl bg-primary px-3 font-display text-sm font-black uppercase text-primary-foreground"
+              >
+                Trocar acesso
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -2985,7 +3017,7 @@ function RegisterScreen({
   function confirmFeet(selected: FootKey[]) {
     setBadFeet(selected);
     const updated = visit.feet.map((foot) => {
-      const activeDisease = animalSnapshot.activeDiseases.find(
+      const activeDiseases = animalSnapshot.activeDiseases.filter(
         (disease) => disease.foot === foot.foot,
       );
       const activeTaco = animalSnapshot.activeTacos.find((taco) => taco.foot === foot.foot);
@@ -2998,9 +3030,10 @@ function RegisterScreen({
             diseases:
               (foot.diseases ?? []).length > 0
                 ? foot.diseases
-                : activeDisease
-                  ? [{ code: activeDisease.code, severity: activeDisease.severity }]
-                  : [],
+                : activeDiseases.map((disease) => ({
+                    code: disease.code,
+                    severity: disease.severity,
+                  })),
             taco:
               foot.taco ??
               (activeTaco ? { action: "maintain" as const, side: activeTaco.side } : undefined),
@@ -3150,6 +3183,18 @@ function RegisterScreen({
   const footStepLabel = currentFoot
     ? FOOT_LABEL[currentFoot] + " · Pé " + (footIdx + 1) + " de " + badFeet.length
     : "";
+  const currentStepLabel =
+    step === "worker"
+      ? "Identificação do animal"
+      : step === "feet"
+        ? "Resultado da avaliação"
+        : step === "disease"
+          ? "Lesões encontradas"
+          : step === "treatment"
+            ? "Tratamento realizado"
+            : step === "notes"
+              ? "Revisão e foto"
+              : "Conferência final";
   const validationIssues = validateVisitClinicalData(visit);
 
   return (
@@ -3170,6 +3215,9 @@ function RegisterScreen({
               style={{ width: progress + "%" }}
             />
           </div>
+          <p className="mt-1 text-center text-[10px] font-black uppercase text-muted-foreground">
+            {currentStepLabel}
+          </p>
         </div>
         <button
           onClick={onCancel}
@@ -3400,14 +3448,14 @@ function RegisterScreen({
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               {footStepLabel}
             </p>
-            <h2 className="font-display text-2xl font-black uppercase">Lesão e gravidade</h2>
+            <h2 className="font-display text-2xl font-black uppercase">Lesões e gravidade</h2>
           </div>
           <section className="rounded-2xl border-2 border-primary/25 bg-primary/10 p-4">
             <p className="font-display text-base font-black uppercase text-primary">
               {FOOT_LABEL[currentFoot]}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selecione a lesão e o grau. Só é permitida uma lesão por casco.
+              Marque todas as lesões encontradas neste casco e informe o grau de cada uma.
             </p>
           </section>
           {animalSnapshot.activeDiseases.some((disease) => disease.foot === currentFoot) && (
@@ -3416,7 +3464,7 @@ function RegisterScreen({
                 Diagnóstico anterior pré-selecionado
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Confirme a lesão abaixo, troque o diagnóstico ou informe que o problema acabou.
+                Confirme os diagnósticos abaixo, ajuste os graus ou informe que o problema acabou.
               </p>
             </div>
           )}
@@ -3465,7 +3513,6 @@ function RegisterScreen({
                         ? { action: "remove", side: currentExistingTaco.side }
                         : currentFootEntry.taco,
                     });
-                    updateVisit({ preventivo: true });
                     setCurePromptFoot(null);
                     setStep(currentExistingTaco ? "treatment" : "notes");
                   }}
@@ -3490,7 +3537,10 @@ function RegisterScreen({
               onClick={() => setStep("treatment")}
               className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
             >
-              Confirmar lesão <ChevronRight className="h-6 w-6" />
+              Confirmar{" "}
+              {currentFootEntry.diseases?.filter((disease) => disease.severity > 0).length}{" "}
+              lesão(ões)
+              <ChevronRight className="h-6 w-6" />
             </button>
           ) : (
             <button
@@ -3706,44 +3756,13 @@ function RegisterScreen({
           )}
           {currentFootEntry.resolved && (
             <section className="rounded-lg border-2 border-good/40 bg-good/5 p-4">
-              <p className="font-display text-sm font-black uppercase">Situação após esta visita</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Escolha se o animal está liberado ou ainda precisa de acompanhamento.
+              <p className="font-display text-sm font-black uppercase text-good">
+                Problema encerrado neste casco
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateVisit({ preventivo: true });
-                    updateCurrentFoot({
-                      recheck: false,
-                      recheckDate: undefined,
-                      intervalo_revisao_dias: undefined,
-                      revisoes_necessarias: undefined,
-                    });
-                  }}
-                  className={cn(
-                    "min-h-14 rounded-lg border-2 px-3 font-display text-xs font-black uppercase",
-                    visit.preventivo
-                      ? "border-good bg-good text-good-foreground"
-                      : "border-border bg-card text-muted-foreground",
-                  )}
-                >
-                  Liberado para preventivo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateVisit({ preventivo: false })}
-                  className={cn(
-                    "min-h-14 rounded-lg border-2 px-3 font-display text-xs font-black uppercase",
-                    !visit.preventivo
-                      ? "border-warn bg-warn/15 text-warn-foreground"
-                      : "border-border bg-card text-muted-foreground",
-                  )}
-                >
-                  Continuar acompanhamento
-                </button>
-              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Esta continua sendo uma visita clínica. O animal volta automaticamente à lista
+                preventiva quando não houver outra doença ou taco ativo.
+              </p>
             </section>
           )}
 
@@ -4185,6 +4204,28 @@ function RegisterScreen({
               </p>
             </div>
           )}
+          {visit.preventivo && (
+            <section className="rounded-2xl border-2 border-primary/35 bg-primary/5 p-4">
+              <p className="font-display text-base font-black uppercase text-primary">
+                Encontrou alguma doença durante o preventivo?
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Registre agora. A visita deixará de ser preventiva e será salva como atendimento com
+                problema.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  updateVisit({ preventivo: false });
+                  setStep("feet");
+                }}
+                className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl border-2 border-primary bg-card px-4 font-display text-sm font-black uppercase text-primary"
+              >
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                Registrar doença encontrada
+              </button>
+            </section>
+          )}
           {validationIssues.length > 0 && (
             <div role="alert" className="rounded-2xl border-2 border-danger/50 bg-danger/5 p-4">
               <div className="flex items-start gap-3">
@@ -4223,8 +4264,11 @@ function RegisterScreen({
                 : "bg-muted text-muted-foreground",
             )}
           >
-            <Save className="h-7 w-7" /> Salvar Visita
+            <Save className="h-7 w-7" /> Salvar visita concluída
           </button>
+          <p className="text-center text-xs leading-relaxed text-muted-foreground">
+            A visita só entra no histórico e nas métricas depois deste botão.
+          </p>
         </div>
       )}
     </div>
@@ -4258,9 +4302,9 @@ function FeetStep({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-display text-2xl font-black uppercase">Tipo de atendimento</h2>
+        <h2 className="font-display text-2xl font-black uppercase">Resultado da avaliação</h2>
         <p className="text-sm text-muted-foreground">
-          Escolha preventivo ou informe os pés que precisam de atendimento
+          Observe os quatro cascos antes de escolher uma opção.
         </p>
       </div>
       <button
@@ -4279,12 +4323,12 @@ function FeetStep({
         </span>
         <span className="min-w-0">
           <span className="block font-display text-lg font-black uppercase">
-            Casqueamento preventivo
+            Todos os cascos estão normais
           </span>
           <span className="block text-xs text-muted-foreground">
             {hasActiveProblem
               ? "Há problema ou taco ativo. Registre a evolução antes de liberar."
-              : "Todos os cascos estão normais, sem lesão"}
+              : "Concluir esta visita como casqueamento preventivo"}
           </span>
         </span>
       </button>
@@ -4297,7 +4341,7 @@ function FeetStep({
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-border" />
         <span className="text-[10px] font-bold uppercase text-muted-foreground">
-          Registrar problema
+          Encontrei um problema
         </span>
         <span className="h-px flex-1 bg-border" />
       </div>
@@ -4802,6 +4846,22 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
       }),
     [context?.farm_id, reportFrom, reportStatus, reportTo],
   );
+  const employeeVisits = useMemo(
+    () =>
+      filterVisitsForReport(loadVisits(), {
+        employeeId: context?.employee_id,
+        employeeName: context?.employee_name,
+      }),
+    [context?.employee_id, context?.employee_name],
+  );
+  const monthComparison = useMemo(
+    () => monthlyComparisonFromVisits(employeeVisits, today),
+    [employeeVisits, today],
+  );
+  const operationalBreakdown = useMemo(
+    () => operationalBreakdownFromVisits(reportVisits),
+    [reportVisits],
+  );
   const monthLabel = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", {
     month: "long",
   });
@@ -4938,6 +4998,8 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
         </div>
       </section>
 
+      <MonthlyComparisonPanel comparison={monthComparison} />
+
       <section className="border-t border-border pt-5" aria-labelledby="meu-relatorio">
         <div className="mb-4 flex items-center gap-3">
           <FileText className="h-6 w-6 text-primary" aria-hidden="true" />
@@ -5025,6 +5087,11 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
           </button>
         </div>
       </section>
+
+      <OperationalBreakdownPanel
+        breakdown={operationalBreakdown}
+        periodLabel={`período de ${new Date(`${reportFrom}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${reportTo}T12:00:00`).toLocaleDateString("pt-BR")}`}
+      />
 
       <section className="border-t border-border pt-5" aria-labelledby="seguranca-pin">
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -5175,6 +5242,7 @@ function ConfigScreen({
   const [managerPin, setManagerPin] = useState("");
   const [managerError, setManagerError] = useState("");
   const [managerLoading, setManagerLoading] = useState(false);
+  const [backupError, setBackupError] = useState("");
   const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">(
     initialSection ?? "dados",
   );
@@ -5335,13 +5403,16 @@ function ConfigScreen({
   }
 
   function handleImport(file: File) {
+    setBackupError("");
     const reader = new FileReader();
     reader.onload = () => {
       try {
         importBackupJson(String(reader.result));
         onImport();
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Não foi possível importar o backup.");
+        setBackupError(
+          error instanceof Error ? error.message : "Não foi possível importar o backup.",
+        );
       }
     };
     reader.readAsText(file);
@@ -5983,6 +6054,11 @@ function ConfigScreen({
                 e.currentTarget.value = "";
               }}
             />
+            {backupError && (
+              <p role="alert" className="rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">
+                {backupError}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"

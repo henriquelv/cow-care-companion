@@ -535,27 +535,35 @@ export interface VisitValidationIssue {
   message: string;
 }
 
+export function footHasActiveProblem(foot: FootEntry) {
+  if (foot.resolved || foot.data_liberacao) return false;
+  return (
+    !foot.ok ||
+    (foot.diseases ?? []).some((disease) => normalizeSeverity(disease.severity) > 0) ||
+    foot.taco?.action === "apply" ||
+    foot.taco?.action === "maintain"
+  );
+}
+
+export function visitHasActiveProblem(visit: Visit) {
+  return visit.feet.some(footHasActiveProblem);
+}
+
 export function validateVisitClinicalData(visit: Visit): VisitValidationIssue[] {
   const issues: VisitValidationIssue[] = [];
   if (!visit.tag.trim()) issues.push({ message: "Informe o número do brinco." });
 
-  const hasActiveProblem = visit.feet.some(
-    (foot) =>
-      (!foot.ok && !foot.resolved && !foot.data_liberacao) ||
-      foot.taco?.action === "apply" ||
-      foot.taco?.action === "maintain",
-  );
+  const hasActiveProblem = visitHasActiveProblem(visit);
   if (visit.preventivo && hasActiveProblem) {
-    issues.push({ message: "Preventivo não pode ser salvo com problema ativo." });
+    issues.push({
+      message: "Preventivo não pode ser salvo porque há doença, taco ou outro problema registrado.",
+    });
   }
 
   for (const foot of visit.feet) {
     if (foot.ok || foot.resolved || foot.data_liberacao) continue;
     const diseases = (foot.diseases ?? []).filter((disease) => disease.severity > 0);
     const treatments = foot.treatments ?? [];
-    if (diseases.length > 1) {
-      issues.push({ foot: foot.foot, message: "Escolha somente uma lesão neste casco." });
-    }
     if (diseases.length === 0 && treatments.length === 0 && !foot.taco) {
       issues.push({
         foot: foot.foot,
@@ -600,16 +608,17 @@ export function tacoLabel(taco?: TacoEntry) {
   return `${action} · ${taco.side ? TACO_SIDE_LABEL[taco.side] : "lado não informado"}`;
 }
 
-export function normalizeSingleDisease(diseases: DiseaseEntry[] = []) {
-  const active = diseases
-    .filter((disease) => normalizeSeverity(disease.severity) > 0)
-    .map((disease) => ({ ...disease, severity: normalizeSeverity(disease.severity) }));
-  if (active.length <= 1) return active;
-  return [
-    active.reduce((selected, disease) =>
-      disease.severity > selected.severity ? disease : selected,
-    ),
-  ];
+export function normalizeDiseases(diseases: DiseaseEntry[] = []) {
+  const normalized = new Map<LesionCode, DiseaseEntry>();
+  for (const disease of diseases) {
+    const severity = normalizeSeverity(disease.severity);
+    if (severity === 0) continue;
+    const previous = normalized.get(disease.code);
+    if (!previous || severity >= previous.severity) {
+      normalized.set(disease.code, { ...disease, severity });
+    }
+  }
+  return Array.from(normalized.values());
 }
 
 export function visitHasTaco(visit: Visit) {
@@ -675,7 +684,7 @@ export function animalClinicalSnapshotFromVisits(
     .filter(visitIsFinalized)
     .filter((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR") === normalizedTag)
     .sort((a, b) => a.createdAt - b.createdAt);
-  const diseases = new Map<FootKey, ActiveDiseaseEpisode>();
+  const diseases = new Map<string, ActiveDiseaseEpisode>();
   const tacos = new Map<string, ActiveTacoPlacement>();
   let lastPreventiveDate: string | undefined;
   let hasOpenRecheck = false;
@@ -687,22 +696,26 @@ export function animalClinicalSnapshotFromVisits(
     );
 
     for (const foot of visit.feet) {
-      const disease = (foot.diseases ?? [])
-        .filter((entry) => normalizeSeverity(entry.severity) > 0)
-        .sort((a, b) => normalizeSeverity(b.severity) - normalizeSeverity(a.severity))[0];
-      if (foot.ok || foot.resolved || foot.data_liberacao || !disease) {
-        diseases.delete(foot.foot);
-      } else {
-        const previous = diseases.get(foot.foot);
-        diseases.set(foot.foot, {
-          foot: foot.foot,
-          code: disease.code,
-          severity: normalizeSeverity(disease.severity),
-          sinceDate: previous?.code === disease.code ? previous.sinceDate : visit.date,
-          sinceCreatedAt:
-            previous?.code === disease.code ? previous.sinceCreatedAt : visit.createdAt,
-          visits: previous?.code === disease.code ? previous.visits + 1 : 1,
-        });
+      const activeDiseases = normalizeDiseases(foot.diseases);
+      const previousEpisodes = new Map(
+        Array.from(diseases.entries()).filter(([, episode]) => episode.foot === foot.foot),
+      );
+      for (const [key, episode] of diseases) {
+        if (episode.foot === foot.foot) diseases.delete(key);
+      }
+      if (!foot.ok && !foot.resolved && !foot.data_liberacao) {
+        for (const disease of activeDiseases) {
+          const key = `${foot.foot}:${disease.code}`;
+          const previous = previousEpisodes.get(key);
+          diseases.set(key, {
+            foot: foot.foot,
+            code: disease.code,
+            severity: disease.severity,
+            sinceDate: previous?.sinceDate ?? visit.date,
+            sinceCreatedAt: previous?.sinceCreatedAt ?? visit.createdAt,
+            visits: (previous?.visits ?? 0) + 1,
+          });
+        }
       }
 
       if (!foot.taco?.side) continue;
@@ -1315,6 +1328,24 @@ function registerAnimalFromVisit(v: Visit) {
 
 export function addVisit(v: Visit) {
   const all = loadVisits();
+  const normalizedFeet = v.feet.map((foot) => {
+    const normalized = {
+      ...foot,
+      diseases: normalizeDiseases(foot.diseases),
+      treatments: normalizeTreatmentSelection(foot.treatments, Boolean(foot.taco)),
+    };
+    return foot.recheck
+      ? {
+          ...normalized,
+          revisoes_necessarias: normalizeReviewCount(foot.revisoes_necessarias),
+        }
+      : {
+          ...normalized,
+          recheckDate: undefined,
+          intervalo_revisao_dias: undefined,
+          revisoes_necessarias: undefined,
+        };
+  });
   v = {
     ...v,
     ...currentVisitMetadata(),
@@ -1322,24 +1353,8 @@ export function addVisit(v: Visit) {
     tag: v.tag.trim(),
     lote: v.lote?.trim().toUpperCase() || undefined,
     status: "active",
-    feet: v.feet.map((foot) => {
-      const normalized = {
-        ...foot,
-        diseases: normalizeSingleDisease(foot.diseases),
-        treatments: normalizeTreatmentSelection(foot.treatments, Boolean(foot.taco)),
-      };
-      return foot.recheck
-        ? {
-            ...normalized,
-            revisoes_necessarias: normalizeReviewCount(foot.revisoes_necessarias),
-          }
-        : {
-            ...normalized,
-            recheckDate: undefined,
-            intervalo_revisao_dias: undefined,
-            revisoes_necessarias: undefined,
-          };
-    }),
+    preventivo: Boolean(v.preventivo) && !normalizedFeet.some(footHasActiveProblem),
+    feet: normalizedFeet,
   };
 
   // Auto-incrementa numero_revisoes para casos contínuos
@@ -1414,72 +1429,49 @@ export function addVisit(v: Visit) {
         : []),
     ]);
   }
-  void enqueueOutboxMany([
-    ...(registeredAnimal
-      ? [
-          {
-            farm_id: v.farm_id!,
-            tableName: "animals",
-            op: "upsert" as const,
-            payload: registeredAnimal,
-          },
-        ]
-      : []),
-    {
-      farm_id: v.farm_id!,
-      tableName: "hoof_visits",
-      op: "upsert",
-      payload: syncPayloads.visit,
-    },
-    ...syncPayloads.feet.map((payload) => ({
-      farm_id: v.farm_id!,
-      tableName: "hoof_feet",
-      op: "upsert" as const,
-      payload,
-    })),
-    ...syncPayloads.media.map((payload) => ({
-      farm_id: v.farm_id!,
-      tableName: "hoof_media",
-      op: "upsert" as const,
-      payload,
-    })),
-    ...(syncPayloads.correction
-      ? [
-          {
-            farm_id: v.farm_id!,
-            tableName: "hoof_corrections",
-            op: "insert" as const,
-            payload: syncPayloads.correction,
-          },
-        ]
-      : []),
-  ]);
+  if (v.farm_id) {
+    void enqueueOutboxMany([
+      ...(registeredAnimal
+        ? [
+            {
+              farm_id: v.farm_id,
+              tableName: "animals",
+              op: "upsert" as const,
+              payload: registeredAnimal,
+            },
+          ]
+        : []),
+      {
+        farm_id: v.farm_id,
+        tableName: "hoof_visits",
+        op: "upsert",
+        payload: syncPayloads.visit,
+      },
+      ...syncPayloads.feet.map((payload) => ({
+        farm_id: v.farm_id!,
+        tableName: "hoof_feet",
+        op: "upsert" as const,
+        payload,
+      })),
+      ...syncPayloads.media.map((payload) => ({
+        farm_id: v.farm_id!,
+        tableName: "hoof_media",
+        op: "upsert" as const,
+        payload,
+      })),
+      ...(syncPayloads.correction
+        ? [
+            {
+              farm_id: v.farm_id,
+              tableName: "hoof_corrections",
+              op: "insert" as const,
+              payload: syncPayloads.correction,
+            },
+          ]
+        : []),
+    ]);
+  }
   return { animalCreated };
-}
-
-export function createPreventiveVisit(input: {
-  tag: string;
-  sex?: Sex;
-  lote?: string;
-  visitante_nome?: string;
-}): Visit {
-  return {
-    id: uid(),
-    date: todayISO(),
-    createdAt: Date.now(),
-    tag: input.tag,
-    sex: input.sex ?? "vaca",
-    lote: input.lote,
-    preventivo: true,
-    visitante_nome: input.visitante_nome,
-    feet: (["FE", "FD", "TE", "TD"] as FootKey[]).map((foot) => ({
-      foot,
-      ok: true,
-      zones: [],
-      diseases: [],
-      treatments: [],
-    })),
-  };
 }
 
 function readStoredFarm(): FarmConfig {
@@ -1684,7 +1676,7 @@ export function preventiveList(diasThreshold: number): PreventiveAnimal[] {
 
   for (const v of visits) {
     const key = v.tag.toLowerCase();
-    const hasActiveProblem = v.feet.some((f) => !f.ok && !f.resolved && !f.data_liberacao);
+    const hasActiveProblem = visitHasActiveProblem(v);
     const isPreventivo = v.preventivo === true;
     const hasProblema = v.feet.some((f) => !f.ok);
 

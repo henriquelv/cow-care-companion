@@ -7,7 +7,6 @@ import {
   agendaByDate,
   agendaByDateFromVisits,
   calendarMonthMetricsFromVisits,
-  createPreventiveVisit,
   createVisitSyncPayloads,
   curativeDeadlineForDiseases,
   curativeFollowups,
@@ -24,7 +23,7 @@ import {
   loadLastBackupAt,
   loadVisits,
   normalizeSeverity,
-  normalizeSingleDisease,
+  normalizeDiseases,
   preventiveAgendaItems,
   preventiveList,
   recommendedRecheckForDiseases,
@@ -163,6 +162,32 @@ describe("casco-store domain rules", () => {
     expect(tacoIssues.some((issue) => issue.message.includes("Preventivo"))).toBe(true);
   });
 
+  it("reclassifica no salvamento e conserva todos os diagnósticos", () => {
+    addVisit(
+      visit({
+        id: "preventivo-com-achado",
+        tag: "505",
+        preventivo: true,
+        feet: [
+          foot({
+            ok: false,
+            diseases: [
+              { code: "DD", severity: 2 },
+              { code: "SU", severity: 3 },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const saved = loadVisits()[0];
+    expect(saved.preventivo).toBe(false);
+    expect(saved.feet[0].diseases).toEqual([
+      { code: "DD", severity: 2 },
+      { code: "SU", severity: 3 },
+    ]);
+  });
+
   it("preserva o início da doença enquanto o diagnóstico continua", () => {
     const first = visit({
       id: "doenca-1",
@@ -188,6 +213,53 @@ describe("casco-store domain rules", () => {
       sinceDate: "2026-05-01",
       visits: 2,
     });
+  });
+
+  it("preserva várias doenças no mesmo casco e em cascos diferentes", () => {
+    const first = visit({
+      id: "multiplas-1",
+      tag: "504",
+      date: "2026-05-01",
+      createdAt: new Date("2026-05-01T10:00:00-03:00").getTime(),
+      feet: [
+        foot({
+          foot: "FE",
+          ok: false,
+          diseases: [
+            { code: "DD", severity: 1 },
+            { code: "SU", severity: 2 },
+          ],
+        }),
+        foot({ foot: "TD", ok: false, diseases: [{ code: "LOCOMOTION", severity: 2 }] }),
+      ],
+    });
+    const second = visit({
+      id: "multiplas-2",
+      tag: "504",
+      date: "2026-05-10",
+      createdAt: new Date("2026-05-10T10:00:00-03:00").getTime(),
+      feet: [
+        foot({
+          foot: "FE",
+          ok: false,
+          diseases: [
+            { code: "DD", severity: 2 },
+            { code: "SU", severity: 2 },
+          ],
+        }),
+        foot({ foot: "TD", ok: false, diseases: [{ code: "LOCOMOTION", severity: 3 }] }),
+      ],
+    });
+
+    const snapshot = animalClinicalSnapshotFromVisits([second, first], "504");
+    expect(snapshot.activeDiseases).toHaveLength(3);
+    expect(snapshot.activeDiseases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ foot: "FE", code: "DD", severity: 2, visits: 2 }),
+        expect.objectContaining({ foot: "FE", code: "SU", severity: 2, visits: 2 }),
+        expect.objectContaining({ foot: "TD", code: "LOCOMOTION", severity: 3, visits: 2 }),
+      ]),
+    );
   });
 
   it("encerra o episódio clínico quando o casco é marcado como curado", () => {
@@ -353,13 +425,33 @@ describe("casco-store domain rules", () => {
     });
   });
 
-  it("mantém uma lesão por casco e bloqueia tratamentos contraditórios", () => {
+  it("mantém várias lesões por casco e bloqueia tratamentos contraditórios", () => {
     expect(
-      normalizeSingleDisease([
+      normalizeDiseases([
         { code: "DD", severity: 1 },
         { code: "SU", severity: 3 },
+        { code: "DD", severity: 2 },
       ]),
-    ).toEqual([{ code: "SU", severity: 3 }]);
+    ).toEqual([
+      { code: "DD", severity: 2 },
+      { code: "SU", severity: 3 },
+    ]);
+    expect(
+      validateVisitClinicalData(
+        visit({
+          tag: "899",
+          feet: [
+            foot({
+              ok: false,
+              diseases: [
+                { code: "DD", severity: 2 },
+                { code: "SU", severity: 3 },
+              ],
+            }),
+          ],
+        }),
+      ),
+    ).toEqual([]);
     expect(toggleTreatmentSelection(["BLOCO_ON"], "BLOCO_OFF")).toEqual(["BLOCO_OFF"]);
     expect(toggleTreatmentSelection([], "NADA", true)).toEqual([]);
 
@@ -806,24 +898,6 @@ describe("casco-store domain rules", () => {
     const tags = preventiveList(0).map((a) => a.tag);
     expect(tags).toContain("100");
     expect(tags).not.toContain("200");
-  });
-
-  it("cria visita preventiva rápida com todos os pés OK", () => {
-    const preventive = createPreventiveVisit({
-      tag: "777",
-      sex: "touro",
-      lote: "A1",
-      visitante_nome: "João",
-    });
-
-    expect(preventive.preventivo).toBe(true);
-    expect(preventive.tag).toBe("777");
-    expect(preventive.sex).toBe("touro");
-    expect(preventive.lote).toBe("A1");
-    expect(preventive.visitante_nome).toBe("João");
-    expect(preventive.feet).toHaveLength(4);
-    expect(preventive.feet.every((f) => f.ok)).toBe(true);
-    expect(preventive.feet.every((f) => f.diseases?.length === 0)).toBe(true);
   });
 
   it("agenda o preventivo e move a próxima data depois do casqueamento", () => {

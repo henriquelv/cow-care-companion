@@ -1,5 +1,6 @@
 import {
   COMMENTS,
+  FOOT_LABEL,
   SEVERITY_LABEL,
   TREATMENTS,
   ZONE_LABEL,
@@ -9,9 +10,11 @@ import {
   footsWorstSeverity,
   visitBelongsToEmployee,
   visitHasTaco,
+  visitHasActiveProblem,
   visitIsFinalized,
   type AgendaItem,
   type FootKey,
+  type LesionCode,
   type Severity,
   type Visit,
 } from "@/dominio/casco-store";
@@ -57,6 +60,50 @@ export interface EmployeeReportRow extends VisitReportMetrics {
   employeeName: string;
 }
 
+export interface OperationalDiseaseBreakdown {
+  code: LesionCode;
+  label: string;
+  records: number;
+  animals: number;
+}
+
+export interface OperationalFootBreakdown {
+  foot: FootKey;
+  label: string;
+  records: number;
+  animals: number;
+}
+
+export interface OperationalAnimalBreakdown {
+  tag: string;
+  visits: number;
+  problemVisits: number;
+  latestDate: string;
+}
+
+export interface OperationalBreakdown {
+  diagnoses: number;
+  problemFeet: number;
+  diseases: OperationalDiseaseBreakdown[];
+  feet: OperationalFootBreakdown[];
+  animals: OperationalAnimalBreakdown[];
+}
+
+export interface MonthlyMetricSet {
+  prefix: string;
+  label: string;
+  visits: number;
+  animals: number;
+  preventive: number;
+  withProblem: number;
+  diagnoses: number;
+}
+
+export interface MonthlyComparison {
+  current: MonthlyMetricSet;
+  previous: MonthlyMetricSet;
+}
+
 export type FootReportStatus = "unrecorded" | "normal" | "problem" | "resolved" | "taco";
 
 export interface FootReportCell {
@@ -69,7 +116,7 @@ export interface FootReportCell {
 const REPORT_FOOT_ORDER: FootKey[] = ["FE", "FD", "TE", "TD"];
 
 function hasProblem(visit: Visit) {
-  return visit.feet.some((foot) => !foot.ok && !foot.resolved && !foot.data_liberacao);
+  return visitHasActiveProblem(visit);
 }
 
 function hasRecheck(visit: Visit) {
@@ -137,6 +184,121 @@ export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): 
       (count, visit) => count + visit.feet.filter((foot) => foot.taco?.action === "apply").length,
       0,
     ),
+  };
+}
+
+export function operationalBreakdownFromVisits(visits: Visit[]): OperationalBreakdown {
+  const visibleVisits = visits.filter(visitIsFinalized);
+  const diseases = new Map<
+    LesionCode,
+    { code: LesionCode; label: string; records: number; animals: Set<string> }
+  >();
+  const feet = new Map<
+    FootKey,
+    { foot: FootKey; label: string; records: number; animals: Set<string> }
+  >();
+  const animals = new Map<string, OperationalAnimalBreakdown>();
+  let diagnoses = 0;
+  let problemFeet = 0;
+
+  for (const visit of visibleVisits) {
+    const normalizedTag = visit.tag.trim().toLocaleLowerCase("pt-BR");
+    const animal = animals.get(normalizedTag) ?? {
+      tag: visit.tag.trim(),
+      visits: 0,
+      problemVisits: 0,
+      latestDate: visit.date,
+    };
+    animal.visits += 1;
+    if (hasProblem(visit)) animal.problemVisits += 1;
+    if (visit.date > animal.latestDate) animal.latestDate = visit.date;
+    animals.set(normalizedTag, animal);
+
+    for (const foot of visit.feet) {
+      const activeDiseases = (foot.diseases ?? []).filter((disease) => disease.severity > 0);
+      const hasRecordedProblem = activeDiseases.length > 0 || Boolean(foot.taco);
+      if (hasRecordedProblem) {
+        problemFeet += 1;
+        const row = feet.get(foot.foot) ?? {
+          foot: foot.foot,
+          label: FOOT_LABEL[foot.foot],
+          records: 0,
+          animals: new Set<string>(),
+        };
+        row.records += 1;
+        row.animals.add(normalizedTag);
+        feet.set(foot.foot, row);
+      }
+
+      for (const disease of activeDiseases) {
+        diagnoses += 1;
+        const definition = diseaseDefinition(disease.code);
+        const row = diseases.get(disease.code) ?? {
+          code: disease.code,
+          label: definition?.full ?? disease.code,
+          records: 0,
+          animals: new Set<string>(),
+        };
+        row.records += 1;
+        row.animals.add(normalizedTag);
+        diseases.set(disease.code, row);
+      }
+    }
+  }
+
+  return {
+    diagnoses,
+    problemFeet,
+    diseases: Array.from(diseases.values())
+      .map((row) => ({ ...row, animals: row.animals.size }))
+      .sort((left, right) => right.records - left.records || left.label.localeCompare(right.label)),
+    feet: (["FE", "FD", "TE", "TD"] as FootKey[]).map((foot) => {
+      const row = feet.get(foot);
+      return {
+        foot,
+        label: FOOT_LABEL[foot],
+        records: row?.records ?? 0,
+        animals: row?.animals.size ?? 0,
+      };
+    }),
+    animals: Array.from(animals.values()).sort(
+      (left, right) =>
+        right.visits - left.visits ||
+        right.problemVisits - left.problemVisits ||
+        left.tag.localeCompare(right.tag, "pt-BR"),
+    ),
+  };
+}
+
+function monthMetricSet(visits: Visit[], prefix: string): MonthlyMetricSet {
+  const monthVisits = visits.filter(
+    (visit) => visitIsFinalized(visit) && visit.date.startsWith(prefix),
+  );
+  const metrics = visitReportMetrics(monthVisits);
+  const breakdown = operationalBreakdownFromVisits(monthVisits);
+  const date = new Date(`${prefix}-01T12:00:00`);
+  return {
+    prefix,
+    label: date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
+    visits: metrics.visits,
+    animals: metrics.animals,
+    preventive: metrics.preventive,
+    withProblem: metrics.withProblem,
+    diagnoses: breakdown.diagnoses,
+  };
+}
+
+export function monthlyComparisonFromVisits(
+  visits: Visit[],
+  referenceDate: string,
+): MonthlyComparison {
+  const currentPrefix = referenceDate.slice(0, 7);
+  const previousDate = new Date(`${currentPrefix}-01T12:00:00`);
+  previousDate.setMonth(previousDate.getMonth() - 1);
+  const previousPrefix = `${previousDate.getFullYear()}-${String(previousDate.getMonth() + 1).padStart(2, "0")}`;
+  return {
+    current: monthMetricSet(visits, currentPrefix),
+    previous: monthMetricSet(visits, previousPrefix),
   };
 }
 
