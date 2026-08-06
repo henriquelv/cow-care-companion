@@ -1828,6 +1828,8 @@ Critério de sucesso:
 - Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel` e `npm run test:e2e`.
 - Resultado local: 63 testes unitários, lint, typecheck e build aprovados; 15 fluxos Playwright aprovados e 1 fluxo administrativo ignorado de forma prevista no modo local.
 - A suíte completa também confirmou que as operações IndexedDB abrem e encerram normalmente depois da proteção contra itens sem fazenda no outbox.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`, com resposta `200` e cache offline `v26` confirmado.
+- A verificação final do Supabase confirmou acesso público bloqueado e `0` registros cruzados entre StarMilk e Hullsjob.
 
 ## Próximos passos
 
