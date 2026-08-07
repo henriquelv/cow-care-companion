@@ -1918,6 +1918,7 @@ Critério de sucesso:
 - Resultado: 66 testes unitários, lint, typecheck e build aprovados; 16 fluxos Playwright aprovados e 1 administrativo ignorado de forma prevista no modo local.
 - O PDF gerado foi renderizado e inspecionado em duas páginas; composição, taco, revisão, funcionário e as quatro colunas de casco foram confirmados.
 - A auditoria final do Supabase confirmou 71 visitas/animais ativos na Fazenda Vitória, nenhuma visita ativa de Romano e zero registros cruzados entre empresas.
+- Versão publicada em `https://gestao-de-cascos.vercel.app`, com resposta `200` e cache offline `v28` confirmado.
 
 ## Próximos passos
 
