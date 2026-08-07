@@ -62,7 +62,7 @@ export interface AdminOverview {
 export function isTechnicalDeviceName(deviceName?: string | null) {
   const normalized = deviceName?.toLocaleLowerCase("pt-BR") ?? "";
   return (
-    normalized.includes("auditoria de produção") ||
+    normalized.includes("auditoria") ||
     normalized.includes("restauração auditada") ||
     normalized.includes("headlesschrome")
   );

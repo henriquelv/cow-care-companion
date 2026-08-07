@@ -4,6 +4,7 @@ import { deviceDisplayName, isTechnicalDeviceName } from "./admin.service";
 describe("admin device presentation", () => {
   it("não apresenta aparelhos técnicos como celulares da equipe", () => {
     expect(isTechnicalDeviceName("Auditoria de produção")).toBe(true);
+    expect(isTechnicalDeviceName("Auditoria Romano")).toBe(true);
     expect(isTechnicalDeviceName("Restauração auditada de atendimento")).toBe(true);
     expect(isTechnicalDeviceName("Mozilla/5.0 HeadlessChrome/149 Safari/537")).toBe(true);
     expect(isTechnicalDeviceName("Mozilla/5.0 Linux Android 10 Mobile Safari/537")).toBe(false);

@@ -60,6 +60,14 @@ export interface EmployeeReportRow extends VisitReportMetrics {
   employeeName: string;
 }
 
+export interface VisitReportCompositionRow {
+  key: "preventive" | "problem" | "normal" | "recheck" | "taco";
+  label: string;
+  visits: number;
+  animals: number;
+  overlaps: boolean;
+}
+
 export interface OperationalDiseaseBreakdown {
   code: LesionCode;
   label: string;
@@ -185,6 +193,59 @@ export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): 
       0,
     ),
   };
+}
+
+export function visitReportComposition(visits: Visit[]): VisitReportCompositionRow[] {
+  const visibleVisits = visits.filter(visitIsFinalized);
+  const rows: Array<{
+    key: VisitReportCompositionRow["key"];
+    label: string;
+    overlaps: boolean;
+    matches: (visit: Visit) => boolean;
+  }> = [
+    {
+      key: "preventive",
+      label: "Preventivo sem problema",
+      overlaps: false,
+      matches: (visit) => visit.preventivo === true && !hasProblem(visit),
+    },
+    {
+      key: "problem",
+      label: "Clínico com doença ou taco ativo",
+      overlaps: false,
+      matches: hasProblem,
+    },
+    {
+      key: "normal",
+      label: "Normal, não preventivo",
+      overlaps: false,
+      matches: (visit) => !visit.preventivo && !hasProblem(visit),
+    },
+    {
+      key: "recheck",
+      label: "Com revisão marcada",
+      overlaps: true,
+      matches: hasRecheck,
+    },
+    {
+      key: "taco",
+      label: "Com ação de taco",
+      overlaps: true,
+      matches: visitHasTaco,
+    },
+  ];
+
+  return rows.map((row) => {
+    const matchingVisits = visibleVisits.filter(row.matches);
+    return {
+      key: row.key,
+      label: row.label,
+      visits: matchingVisits.length,
+      animals: new Set(matchingVisits.map((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR")))
+        .size,
+      overlaps: row.overlaps,
+    };
+  });
 }
 
 export function operationalBreakdownFromVisits(visits: Visit[]): OperationalBreakdown {
@@ -418,6 +479,7 @@ export async function exportVisitsPdf(input: {
   ]);
   const visits = filterVisitsForReport(input.visits, input.filters ?? {});
   const metrics = visitReportMetrics(visits, input.agenda ?? []);
+  const composition = visitReportComposition(visits);
   const employees = input.includeEmployeeBreakdown ? employeeReportBreakdown(visits) : [];
   const detailedVisits = [...visits]
     .sort(
@@ -430,16 +492,20 @@ export async function exportVisitsPdf(input: {
     (total, detail) => total + detail.feet.filter((foot) => foot.status !== "unrecorded").length,
     0,
   );
-  const feetWithProblem = detailedVisits.reduce(
-    (total, detail) => total + detail.feet.filter((foot) => foot.status === "problem").length,
+  const feetInTreatment = detailedVisits.reduce(
+    (total, detail) =>
+      total +
+      detail.feet.filter((foot) => foot.status === "problem" || foot.status === "taco").length,
     0,
   );
   const feetWithoutActiveLesion = detailedVisits.reduce(
     (total, detail) =>
       total +
-      detail.feet.filter(
-        (foot) => foot.status === "normal" || foot.status === "resolved" || foot.status === "taco",
-      ).length,
+      detail.feet.filter((foot) => foot.status === "normal" || foot.status === "resolved").length,
+    0,
+  );
+  const feetWithTaco = detailedVisits.reduce(
+    (total, detail) => total + detail.visit.feet.filter((foot) => Boolean(foot.taco)).length,
     0,
   );
   const feetBySeverity = (severity: Severity) =>
@@ -490,7 +556,7 @@ export async function exportVisitsPdf(input: {
     { label: "Atendimentos", value: metrics.visits, color: [31, 91, 48] as const },
     { label: "Animais únicos", value: metrics.animals, color: [31, 91, 48] as const },
     { label: "Cascos avaliados", value: feetEvaluated, color: [52, 120, 67] as const },
-    { label: "Cascos com lesão", value: feetWithProblem, color: [174, 109, 20] as const },
+    { label: "Cascos em acompanhamento", value: feetInTreatment, color: [174, 109, 20] as const },
     { label: "Preventivos", value: metrics.preventive, color: [52, 120, 67] as const },
     { label: "Com problema", value: metrics.withProblem, color: [174, 109, 20] as const },
     {
@@ -525,6 +591,7 @@ export async function exportVisitsPdf(input: {
       value: feetWithoutActiveLesion,
       fill: [232, 244, 234] as const,
     },
+    { label: "Cascos com taco", value: feetWithTaco, fill: [232, 239, 248] as const },
     { label: "Cascos G1 · Leve", value: feetBySeverity(1), fill: [224, 242, 249] as const },
     { label: "Cascos G2 · Moderado", value: feetBySeverity(2), fill: [255, 246, 196] as const },
     { label: "Cascos G3 · Grave", value: feetBySeverity(3), fill: [250, 224, 224] as const },
@@ -541,13 +608,48 @@ export async function exportVisitsPdf(input: {
     doc.text(`${item.label}: ${item.value}`, x + 4, 96);
   });
 
+  doc.setTextColor(35, 45, 37);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Composição do relatório", 12, 110);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.text(
+    "As três primeiras linhas abrangem todos os atendimentos. Revisão e taco são controles adicionais e podem repetir animais.",
+    12,
+    114,
+  );
+  autoTable(doc, {
+    startY: 118,
+    margin: { left: 12, right: 12 },
+    head: [["Tipo de atendimento", "Visitas", "Animais únicos", "Leitura"]],
+    body: composition.map((row) => [
+      row.label,
+      row.visits,
+      row.animals,
+      row.overlaps ? "Pode coincidir com outras linhas" : "Categoria principal",
+    ]),
+    theme: "grid",
+    styles: { font: "helvetica", fontSize: 7.2, cellPadding: 1.5, valign: "middle" },
+    headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
+    columnStyles: {
+      0: { cellWidth: 92, fontStyle: "bold" },
+      1: { cellWidth: 24, halign: "center" },
+      2: { cellWidth: 30, halign: "center" },
+      3: { cellWidth: 75 },
+    },
+    alternateRowStyles: { fillColor: [244, 247, 244] },
+  });
+  const compositionEndY =
+    (doc as typeof doc & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 154;
+
   if (input.includeEmployeeBreakdown) {
     doc.setTextColor(35, 45, 37);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
-    doc.text("Produção por funcionário", 12, 110);
+    doc.text("Produção por funcionário", 12, compositionEndY + 7);
     autoTable(doc, {
-      startY: 114,
+      startY: compositionEndY + 11,
       margin: { left: 12, right: 12 },
       head: [["Funcionário", "Atend.", "Animais", "Preventivos", "Problemas", "G1", "G2", "G3"]],
       body: employees.map((employee) => [
@@ -573,7 +675,7 @@ export async function exportVisitsPdf(input: {
     doc.text(
       "Os indicadores e o detalhamento consideram somente os atendimentos do responsável indicado no escopo.",
       12,
-      113,
+      compositionEndY + 9,
     );
   }
 

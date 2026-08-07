@@ -1868,3 +1868,59 @@ Critério de sucesso:
 
 - Validar em campo se “Manter acompanhamento” deve conservar automaticamente a última periodicidade de revisão ou continuar exigindo uma escolha nova.
 - Confirmar com o responsável técnico se uma cura parcial deve permitir encerrar apenas uma doença, mantendo outra doença ativa no mesmo casco.
+
+# 2026-08-07 - Auditoria de lançamentos, trava final e PDF completo
+
+## O que foi feito
+
+- Auditado o banco de produção da Fazenda Vitória por funcionário, visita, animal, casco, revisão e prazo de liberação.
+- Confirmado que os números mostrados a Romano pertenciam aos atendimentos de Jeová, não à produção de Romano.
+- As duas visitas ativas atribuídas incorretamente a Romano foram canceladas de forma auditável; ambas eram preventivos duplicados do brinco `12`.
+- O animal `12` e o atendimento de Jeová foram preservados, pois são registros legítimos. O antigo registro `1284` de Romano já estava cancelado.
+- Antes da limpeza foi gerado um backup local em `.qa-artifacts/backups` com visitas, cascos e mídias atribuídos a Romano.
+- O aparelho técnico criado para a auditoria foi bloqueado, o nome do aparelho real foi restaurado e dispositivos com “auditoria” no nome deixaram de aparecer ou contar no painel do cliente.
+- Depois da correção, a Fazenda Vitória ficou com 71 visitas ativas de 71 animais, todas atribuídas a Jeová, e nenhuma visita ativa de Romano.
+- A gravação ganhou uma trava adicional: `addVisit` rejeita qualquer visita que não tenha `status=active` e horário de conclusão criado no botão final.
+- Adicionado teste mobile que preenche brinco, casco e doença, abandona o fluxo antes do resumo e confirma que nenhuma visita ou métrica é criada.
+- A Agenda Clínica passou a explicar que revisão conta animais, liberação conta cascos tratados e que o mesmo animal pode aparecer nos dois indicadores.
+- O texto “pés aguardando liberação” foi substituído por “cascos tratados aguardando liberação”.
+- O administrador ganhou dois PDFs distintos: completo da fazenda e filtrado. O completo ignora filtros e inclui todos os funcionários, datas e tipos ativos.
+- A capa do PDF agora comprova sua composição entre preventivos, clínicos com problema e normais, além de mostrar revisões e tacos como controles que podem se sobrepor.
+- O detalhamento continua separado por animal e visita, sempre com as quatro colunas FE, FD, TE e TD.
+- Corrigida a contagem de taco no PDF quando o mesmo casco também possui uma doença.
+- Cache offline atualizado para `v28`.
+
+## Números confirmados em produção
+
+- 71 animais e 71 visitas ativas, todas de Jeová.
+- 22 animais em casqueamento preventivo normal.
+- 49 animais com problema ativo.
+- 52 cascos afetados: FE 2, FD 14, TE 18 e TD 18.
+- 44 cascos tratados aguardando prazo de liberação, distribuídos em 41 animais.
+- 19 animais com revisão marcada; 16 deles também aparecem no grupo de liberação de curativo.
+- Nenhuma visita ativa atribuída a Romano após a limpeza.
+
+## Por que foi feito
+
+- Retirar dados atribuídos incorretamente sem apagar o atendimento legítimo de outro funcionário.
+- Impedir que uma navegação incompleta seja confundida com visita finalizada.
+- Explicar indicadores que usam unidades diferentes e podem se sobrepor.
+- Garantir que o relatório administrativo tenha uma opção realmente completa, sem depender da configuração atual dos filtros.
+
+## Como validar
+
+- Entrar como Romano e confirmar que seu relatório individual possui zero visitas ativas.
+- Abrir a tela inicial da Fazenda Vitória e conferir a explicação abaixo da Agenda Clínica.
+- Iniciar uma visita, preencher parte do diagnóstico e sair antes de “Salvar visita concluída”; confirmar que o brinco não aparece em animais, histórico ou métricas.
+- No administrador, baixar “PDF completo da fazenda” e conferir preventivos, problemas, funcionários, visitas e os quatro cascos.
+- Escolher filtros e baixar o PDF filtrado para confirmar que ele respeita somente o recorte escolhido.
+- Rodar `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build:vercel`, os cenários Playwright e `npm run verify:production`.
+- Resultado: 66 testes unitários, lint, typecheck e build aprovados; 16 fluxos Playwright aprovados e 1 administrativo ignorado de forma prevista no modo local.
+- O PDF gerado foi renderizado e inspecionado em duas páginas; composição, taco, revisão, funcionário e as quatro colunas de casco foram confirmados.
+- A auditoria final do Supabase confirmou 71 visitas/animais ativos na Fazenda Vitória, nenhuma visita ativa de Romano e zero registros cruzados entre empresas.
+
+## Próximos passos
+
+- Acompanhar os primeiros atendimentos após a atualização e auditar diariamente funcionário, aparelho e horário durante a apresentação ao cliente.
+- Avaliar uma segunda linha na agenda mostrando também a quantidade de animais dos 44 cascos em liberação.
+- Depois que todos os aparelhos receberem `v28`, avaliar tornar `completed_at` uma coluna obrigatória também no Supabase.

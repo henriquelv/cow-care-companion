@@ -409,13 +409,18 @@ export function Index() {
             correctionOfId={screen.correctionOf}
             farm={farm}
             onSave={(v) => {
-              const { animalCreated } = addVisit(v);
+              const completedVisit: Visit = {
+                ...v,
+                status: "active",
+                completedAt: Date.now(),
+              };
+              const { animalCreated } = addVisit(completedVisit);
               void runSync();
               refresh();
               showToast(
                 animalCreated
                   ? `Visita salva. Animal ${v.tag.trim()} cadastrado automaticamente.`
-                  : v.preventivo
+                  : completedVisit.preventivo
                     ? "Casqueamento preventivo registrado."
                     : "Visita registrada com sucesso!",
               );
@@ -1547,7 +1552,7 @@ function TodayScreen({
               <span className="block text-sm font-bold">
                 {curatives.length === 0
                   ? "Nenhum curativo em acompanhamento"
-                  : `${curatives.length} pé(s) aguardando liberação`}
+                  : `${curatives.length} casco(s) tratado(s) aguardando liberação`}
               </span>
               <span
                 className={cn(
@@ -1561,6 +1566,10 @@ function TodayScreen({
               </span>
             </span>
           </span>
+        </span>
+        <span className="mt-3 block border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
+          Revisão conta animais com retorno agendado. Liberação conta cascos tratados. O mesmo
+          animal pode aparecer nos dois números.
         </span>
       </button>
 

@@ -5,6 +5,7 @@ import {
   monthlyComparisonFromVisits,
   operationalBreakdownFromVisits,
   visitFootReportCells,
+  visitReportComposition,
   visitReportMetrics,
 } from "./visit-report";
 import type { Visit } from "./casco-store";
@@ -88,6 +89,23 @@ describe("visit reports", () => {
       withProblem: 1,
       moderate: 1,
     });
+  });
+
+  it("comprova que o relatório completo abrange preventivos, problemas e normais", () => {
+    const normal = visit({ id: "normal-clinical", tag: "400", preventivo: false });
+    const composition = visitReportComposition([...visits, normal]);
+
+    expect(composition).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "preventive", visits: 1, animals: 1, overlaps: false }),
+        expect.objectContaining({ key: "problem", visits: 1, animals: 1, overlaps: false }),
+        expect.objectContaining({ key: "normal", visits: 1, animals: 1, overlaps: false }),
+        expect.objectContaining({ key: "recheck", visits: 1, animals: 1, overlaps: true }),
+      ]),
+    );
+    expect(
+      composition.filter((row) => !row.overlaps).reduce((total, row) => total + row.visits, 0),
+    ).toBe(3);
   });
 
   it("não inclui registro incompleto nas métricas", () => {

@@ -300,6 +300,11 @@ export function AdminScreen({
       : selectedReportEmployee
         ? employeeReportVisits
         : teamReportVisits;
+  const completeReportVisits = filterVisitsForReport(loadVisits(), {
+    farmId: context?.farm_id,
+    status: "all",
+  });
+  const completeReportMetrics = visitReportMetrics(completeReportVisits);
   const reportAgenda = Array.from(agendaByDate(today, scopedEmployeeId).values()).flat();
   const reportMetrics = visitReportMetrics(reportVisits, reportAgenda);
   const comparisonVisits = filterVisitsForReport(loadVisits(), {
@@ -501,7 +506,7 @@ export function AdminScreen({
     await onDataChanged?.();
   }
 
-  async function exportAdminPdf() {
+  async function exportAdminPdf(mode: "complete" | "filtered") {
     setExportingPdf(true);
     setError("");
     try {
@@ -509,24 +514,27 @@ export function AdminScreen({
       if (!syncResult.ok && syncResult.message !== "Offline.") {
         throw new Error(syncResult.message || "Não foi possível atualizar os atendimentos.");
       }
+      const complete = mode === "complete";
       await exportVisitsPdf({
         visits: loadVisits(),
-        agenda: reportAgenda,
+        agenda: complete ? Array.from(agendaByDate(today).values()).flat() : reportAgenda,
         farmName: context?.farm_name || loadFarm().farmName || "Fazenda",
-        reportTitle:
-          reportScope === "mine"
+        reportTitle: complete
+          ? "Relatório completo de casqueamento da fazenda"
+          : reportScope === "mine"
             ? `Relatório de casqueamento · ${context?.employee_name ?? "Administrador"}`
             : selectedReportEmployee
               ? `Relatório de casqueamento · ${selectedReportEmployee.name}`
               : "Relatório de casqueamento da equipe",
-        scopeLabel:
-          reportScope === "mine"
+        scopeLabel: complete
+          ? "Todos os funcionários, tipos e datas da fazenda"
+          : reportScope === "mine"
             ? `Somente ${context?.employee_name ?? "administrador"}`
             : selectedReportEmployee
               ? `Somente ${selectedReportEmployee.name}`
               : "Administrador e funcionários da fazenda",
-        includeEmployeeBreakdown: reportScope === "team" && !selectedReportEmployee,
-        filters: reportFilters,
+        includeEmployeeBreakdown: complete || (reportScope === "team" && !selectedReportEmployee),
+        filters: complete ? { farmId: context?.farm_id, status: "all" } : reportFilters,
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Não foi possível gerar o PDF.");
@@ -1028,31 +1036,47 @@ export function AdminScreen({
             </div>
           </section>
 
-          <button
-            type="button"
-            onClick={() => void exportAdminPdf()}
-            disabled={exportingPdf}
-            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display font-black uppercase text-primary-foreground disabled:opacity-50"
-          >
-            {exportingPdf ? (
-              <LoaderCircle className="h-5 w-5 animate-spin" />
-            ) : (
-              <Download className="h-5 w-5" />
-            )}
-            {reportScope === "mine"
-              ? "Baixar meu PDF"
-              : selectedReportEmployee
-                ? `Baixar PDF de ${selectedReportEmployee.name}`
-                : "Baixar PDF da equipe"}
-          </button>
-          <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
-            O PDF detalha cada atendimento e mostra separadamente os cascos FE, FD, TE e TD.
-            {reportScope === "mine"
-              ? " Inclui somente os seus atendimentos."
-              : selectedReportEmployee
-                ? ` Inclui somente os atendimentos de ${selectedReportEmployee.name}.`
-                : " Inclui todos os funcionários desta fazenda."}
-          </p>
+          <section className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4">
+            <h3 className="font-display text-base font-black uppercase">Exportar relatório</h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              O PDF completo ignora os filtros acima e inclui todo o histórico ativo da fazenda:
+              preventivos, animais com problema e atendimentos normais.
+            </p>
+            <p className="mt-3 rounded-lg bg-card px-3 py-2 text-xs font-bold text-foreground">
+              Completo: {completeReportMetrics.visits} atendimento(s) ·{" "}
+              {completeReportMetrics.preventive} preventivo(s) · {completeReportMetrics.withProblem}{" "}
+              com problema · {completeReportMetrics.normal} normal(is)
+            </p>
+            <button
+              type="button"
+              onClick={() => void exportAdminPdf("complete")}
+              disabled={exportingPdf || completeReportMetrics.visits === 0}
+              className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display font-black uppercase text-primary-foreground disabled:opacity-50"
+            >
+              {exportingPdf ? (
+                <LoaderCircle className="h-5 w-5 animate-spin" />
+              ) : (
+                <Download className="h-5 w-5" />
+              )}
+              Baixar PDF completo da fazenda
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportAdminPdf("filtered")}
+              disabled={exportingPdf || reportVisits.length === 0}
+              className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-primary bg-card px-4 font-display text-sm font-black uppercase text-primary disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {reportScope === "mine"
+                ? "Baixar meu PDF filtrado"
+                : selectedReportEmployee
+                  ? `Baixar PDF filtrado de ${selectedReportEmployee.name}`
+                  : "Baixar PDF filtrado da equipe"}
+            </button>
+            <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
+              Os dois formatos detalham cada visita e mostram separadamente FE, FD, TE e TD.
+            </p>
+          </section>
 
           {reportScope === "team" && !selectedReportEmployee && (
             <section>

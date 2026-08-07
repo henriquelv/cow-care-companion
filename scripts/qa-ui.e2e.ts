@@ -11,6 +11,21 @@ async function activate(page, company: string, employee: string) {
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
 }
 
+async function storedVisitCount(page) {
+  return page.evaluate(() =>
+    Object.entries(localStorage)
+      .filter(([key]) => key.startsWith("casco.visits.v3"))
+      .reduce((total, [, value]) => {
+        try {
+          const visits = JSON.parse(value);
+          return total + (Array.isArray(visits) ? visits.length : 0);
+        } catch {
+          return total;
+        }
+      }, 0),
+  );
+}
+
 test("Romano administra Hullsjob no celular", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
@@ -39,6 +54,24 @@ test("tela inicial concentra acompanhamento e permite retirar o filtro rápido",
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await page.getByRole("button", { name: "Histórico dos animais" }).click();
   await expect(page.getByRole("heading", { name: "Histórico das vacas" })).toBeVisible();
+});
+
+test("visita abandonada antes do resumo final não é salva", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  const before = await storedVisitCount(page);
+
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("909090");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /FE Frente Esq/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await page.reload();
+
+  await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
+  expect(await storedVisitCount(page)).toBe(before);
+  await expect(page.getByText("909090", { exact: true })).toHaveCount(0);
 });
 
 test("Jeová não recebe ações de gerente", async ({ page }) => {
@@ -115,19 +148,19 @@ test("administrador escolhe entre relatório próprio e de toda a equipe", async
   const teamScope = page.getByRole("button", { name: /Toda a equipe/i });
   const mineScope = page.getByRole("button", { name: /Só o meu/i });
   await expect(teamScope).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Baixar PDF da equipe" })).toBeVisible();
+  await expect(page.getByText(/inclui todo o histórico ativo da fazenda/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Baixar PDF completo da fazenda" })).toBeVisible();
 
   const teamDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Baixar PDF da equipe" }).click();
+  await page.getByRole("button", { name: "Baixar PDF completo da fazenda" }).click();
   const teamDownload = await teamDownloadPromise;
   expect(teamDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
   await teamDownload.saveAs(testInfo.outputPath("relatorio-equipe.pdf"));
 
   await mineScope.click();
   await expect(mineScope).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Inclui somente os seus atendimentos.")).toBeVisible();
   const mineDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Baixar meu PDF" }).click();
+  await page.getByRole("button", { name: "Baixar meu PDF filtrado" }).click();
   const mineDownload = await mineDownloadPromise;
   expect(mineDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
 });

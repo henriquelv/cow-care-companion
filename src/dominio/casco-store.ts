@@ -1327,6 +1327,9 @@ function registerAnimalFromVisit(v: Visit) {
 }
 
 export function addVisit(v: Visit) {
+  if (v.status !== "active" || !v.completedAt || !Number.isFinite(v.completedAt)) {
+    throw new Error("A visita só pode ser salva depois da confirmação final.");
+  }
   const all = loadVisits();
   const normalizedFeet = v.feet.map((foot) => {
     const normalized = {
@@ -1349,7 +1352,7 @@ export function addVisit(v: Visit) {
   v = {
     ...v,
     ...currentVisitMetadata(),
-    completedAt: Date.now(),
+    completedAt: v.completedAt,
     tag: v.tag.trim(),
     lote: v.lote?.trim().toUpperCase() || undefined,
     status: "active",

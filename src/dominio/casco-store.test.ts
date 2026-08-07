@@ -90,8 +90,10 @@ function foot(overrides: Partial<FootEntry> = {}): FootEntry {
 function visit(overrides: Partial<Visit> = {}): Visit {
   return {
     id: `v-${Math.random()}`,
+    status: "active",
     date: todayISO(),
     createdAt: Date.now(),
+    completedAt: Date.now(),
     tag: "100",
     sex: "vaca",
     feet: [foot({ foot: "FE" }), foot({ foot: "FD" }), foot({ foot: "TE" }), foot({ foot: "TD" })],
@@ -123,6 +125,13 @@ describe("casco-store domain rules", () => {
     expect(visitIsFinalized(visit({ id: "rascunho", tag: "" }))).toBe(false);
     expect(visitIsFinalized(visit({ id: "rascunho-preenchido", status: "draft" }))).toBe(false);
     expect(visitIsFinalized(visit({ id: "cancelada", status: "cancelled" }))).toBe(false);
+  });
+
+  it("impede persistir uma visita antes da confirmação final", () => {
+    const draft = visit({ status: "draft", completedAt: undefined, tag: "999" });
+
+    expect(() => addVisit(draft)).toThrow("confirmação final");
+    expect(loadVisits()).toEqual([]);
   });
 
   it("separa quantidade de visitas da quantidade de animais únicos", () => {
