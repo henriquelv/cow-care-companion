@@ -1930,7 +1930,8 @@ Critério de sucesso:
 
 ## O que foi feito
 
-- Identificada a causa do bloqueio no acesso de Romano e Sandro: as licenças de teste de StarMilk e Fazenda Vitória haviam encerrado o período original de 15 dias.
+- Identificados dois bloqueios consecutivos no acesso: primeiro o projeto do Supabase foi pausado automaticamente por baixa atividade no plano gratuito; depois da restauração, as licenças de teste de StarMilk e Fazenda Vitória também estavam fora do período original de 15 dias.
+- Confirmado que a pausa do Supabase não removeu os dados e que o projeto voltou ao estado saudável depois da restauração feita pelo proprietário.
 - Criada uma migração auditável que preserva as licenças vencidas e adiciona uma nova licença ativa de 15 dias somente quando a fazenda não possui outra licença válida.
 - A renovação foi limitada às fazendas `STARMILK` e `HULLSJOB-VITORIA`; vínculos de funcionários, atendimentos, animais e demais dados não foram alterados.
 
@@ -1939,6 +1940,7 @@ Critério de sucesso:
 - Restabelecer o acesso das duas empresas sem desativar a validação de licença do produto.
 - Manter o histórico comercial das licenças em vez de sobrescrever datas antigas.
 - Evitar duplicidade caso a migração seja reexecutada em um ambiente que ainda possua licença válida.
+- Registrar separadamente indisponibilidade da infraestrutura e vencimento da licença interna, pois são causas independentes.
 
 ## Como validar
 
@@ -1952,3 +1954,5 @@ Critério de sucesso:
 - Definir antes do fim do novo período se cada empresa será renovada, bloqueada ou convertida em licença sem vencimento.
 - Adicionar no painel administrativo um aviso de licença próxima do vencimento para evitar novo bloqueio inesperado.
 - Exibir uma mensagem específica de licença vencida no acesso, separando esse caso de funcionário sem vínculo com fazenda.
+- Migrar a organização do Supabase para o plano Pro antes de tratar o sistema como produção contínua; o plano gratuito pode voltar a pausar projetos com baixa atividade.
+- Enquanto o sistema permanecer gratuito, acompanhar os avisos enviados pelo Supabase e conferir semanalmente se o projeto continua ativo.
