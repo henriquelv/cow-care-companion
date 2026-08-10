@@ -1925,3 +1925,30 @@ Critério de sucesso:
 - Acompanhar os primeiros atendimentos após a atualização e auditar diariamente funcionário, aparelho e horário durante a apresentação ao cliente.
 - Avaliar uma segunda linha na agenda mostrando também a quantidade de animais dos 44 cascos em liberação.
 - Depois que todos os aparelhos receberem `v28`, avaliar tornar `completed_at` uma coluna obrigatória também no Supabase.
+
+# 2026-08-10 - Renovação das licenças de produção
+
+## O que foi feito
+
+- Identificada a causa do bloqueio no acesso de Romano e Sandro: as licenças de teste de StarMilk e Fazenda Vitória haviam encerrado o período original de 15 dias.
+- Criada uma migração auditável que preserva as licenças vencidas e adiciona uma nova licença ativa de 15 dias somente quando a fazenda não possui outra licença válida.
+- A renovação foi limitada às fazendas `STARMILK` e `HULLSJOB-VITORIA`; vínculos de funcionários, atendimentos, animais e demais dados não foram alterados.
+
+## Por que foi feito
+
+- Restabelecer o acesso das duas empresas sem desativar a validação de licença do produto.
+- Manter o histórico comercial das licenças em vez de sobrescrever datas antigas.
+- Evitar duplicidade caso a migração seja reexecutada em um ambiente que ainda possua licença válida.
+
+## Como validar
+
+- Entrar na empresa Hullsjob com Romano e confirmar que a Fazenda Vitória volta a aparecer para seleção.
+- Entrar na empresa StarMilk com Sandro e confirmar que a fazenda StarMilk volta a aparecer.
+- Rodar `npm run verify:production` e confirmar a emissão de sessão para as duas empresas.
+- Conferir que os atendimentos e animais já existentes permanecem inalterados.
+
+## Próximos passos
+
+- Definir antes do fim do novo período se cada empresa será renovada, bloqueada ou convertida em licença sem vencimento.
+- Adicionar no painel administrativo um aviso de licença próxima do vencimento para evitar novo bloqueio inesperado.
+- Exibir uma mensagem específica de licença vencida no acesso, separando esse caso de funcionário sem vínculo com fazenda.
