@@ -1967,6 +1967,7 @@ Critério de sucesso:
 - Removida a criação automática de um teste de 15 dias no modo local/offline.
 - Corrigida a atualização do contexto salvo no aparelho: quando o servidor informa licença sem vencimento, qualquer data antiga armazenada é descartada.
 - Removida da inicialização da tela principal a rotina que recriava um prazo de teste mesmo para licenças permanentes.
+- Cache offline atualizado para `v29`, forçando celulares e tablets a substituírem a versão que ainda exibia o contador antigo.
 
 ## Por que foi feito
 
