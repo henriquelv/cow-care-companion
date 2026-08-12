@@ -158,9 +158,8 @@ export function AdminScreen({
   const [notice, setNotice] = useState("");
   const [showFarmForm, setShowFarmForm] = useState(false);
   const [farmName, setFarmName] = useState("");
-  const [farmMaxDevices, setFarmMaxDevices] = useState("10");
   const [editingFarm, setEditingFarm] = useState<AdminFarm | null>(null);
-  const [farmEditForm, setFarmEditForm] = useState({ name: "", max_devices: "10" });
+  const [farmEditForm, setFarmEditForm] = useState({ name: "" });
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [employeeForm, setEmployeeForm] = useState({
     name: "",
@@ -394,17 +393,16 @@ export function AdminScreen({
     event.preventDefault();
     await runAction(
       "create_farm",
-      { name: farmName, max_devices: Number(farmMaxDevices) || 10, grace_period_days: 7 },
+      { name: farmName, grace_period_days: 7 },
       "Fazenda criada e vinculada ao seu acesso.",
     );
     setFarmName("");
-    setFarmMaxDevices("10");
     setShowFarmForm(false);
   }
 
   function openFarmEdit(farm: AdminFarm) {
     setEditingFarm(farm);
-    setFarmEditForm({ name: farm.name, max_devices: String(farm.max_devices) });
+    setFarmEditForm({ name: farm.name });
   }
 
   async function submitFarmEdit(event: FormEvent<HTMLFormElement>) {
@@ -415,7 +413,6 @@ export function AdminScreen({
       {
         farm_id: editingFarm.id,
         name: farmEditForm.name,
-        max_devices: Number(farmEditForm.max_devices) || editingFarm.max_devices,
         status: editingFarm.status,
       },
       `Fazenda ${farmEditForm.name} atualizada.`,
@@ -1352,20 +1349,6 @@ export function AdminScreen({
                     className="mt-1 min-h-12 w-full rounded-lg border border-border bg-background px-3 outline-none focus:border-primary"
                   />
                 </label>
-                <label>
-                  <span className="text-[10px] font-black uppercase text-muted-foreground">
-                    Limite de celulares e tablets
-                  </span>
-                  <input
-                    required
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={farmMaxDevices}
-                    onChange={(event) => setFarmMaxDevices(event.target.value)}
-                    className="mt-1 min-h-12 w-full rounded-lg border border-border bg-background px-3 outline-none focus:border-primary"
-                  />
-                </label>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
@@ -1419,9 +1402,8 @@ export function AdminScreen({
                       <dt className="text-[9px] font-black uppercase text-muted-foreground">
                         Aparelhos
                       </dt>
-                      <dd className="font-display text-xl font-black">
-                        {deviceCount}/{farm.max_devices}
-                      </dd>
+                      <dd className="font-display text-xl font-black">{deviceCount}</dd>
+                      <p className="text-[9px] font-bold text-muted-foreground">Sem limite</p>
                     </div>
                     <div>
                       <dt className="text-[9px] font-black uppercase text-muted-foreground">
@@ -1849,22 +1831,6 @@ export function AdminScreen({
                   value={farmEditForm.name}
                   onChange={(event) =>
                     setFarmEditForm((form) => ({ ...form, name: event.target.value }))
-                  }
-                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-                />
-              </label>
-              <label>
-                <span className="text-xs font-bold uppercase text-muted-foreground">
-                  Limite de celulares e tablets
-                </span>
-                <input
-                  required
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={farmEditForm.max_devices}
-                  onChange={(event) =>
-                    setFarmEditForm((form) => ({ ...form, max_devices: event.target.value }))
                   }
                   className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
                 />

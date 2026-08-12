@@ -3,7 +3,6 @@ export interface BootstrapClient {
   name: string;
   activation_code: string;
   status: "active";
-  max_devices: number;
   grace_period_days: number;
   source: "bootstrap";
 }
@@ -14,7 +13,6 @@ export interface BootstrapFarm {
   name: string;
   activation_code: string;
   status: "active";
-  max_devices: number;
   grace_period_days: number;
 }
 
@@ -78,7 +76,6 @@ const TENANTS: BootstrapAccess[] = [
       name: "StarMilk",
       activation_code: "STARMILK",
       status: "active",
-      max_devices: 10,
       grace_period_days: 7,
       source: "bootstrap",
     },
@@ -89,7 +86,6 @@ const TENANTS: BootstrapAccess[] = [
         name: "StarMilk",
         activation_code: "STARMILK",
         status: "active",
-        max_devices: 10,
         grace_period_days: 7,
       },
     ],
@@ -113,7 +109,6 @@ const TENANTS: BootstrapAccess[] = [
       name: "Hullsjob",
       activation_code: "HULLSJOB",
       status: "active",
-      max_devices: 10,
       grace_period_days: 7,
       source: "bootstrap",
     },
@@ -124,7 +119,6 @@ const TENANTS: BootstrapAccess[] = [
         name: "Fazenda Vitória",
         activation_code: "HULLSJOB-VITORIA",
         status: "active",
-        max_devices: 10,
         grace_period_days: 7,
       },
     ],

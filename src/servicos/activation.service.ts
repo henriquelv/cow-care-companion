@@ -6,7 +6,6 @@ export interface RemoteClient {
   name: string;
   activation_code: string;
   status?: string | null;
-  max_devices?: number | null;
   grace_period_days?: number | null;
   source?: "bootstrap" | "remote";
 }
@@ -17,7 +16,6 @@ export interface RemoteFarm {
   client_id?: string | null;
   activation_code?: string | null;
   status?: string | null;
-  max_devices?: number | null;
   grace_period_days?: number | null;
 }
 

@@ -47,6 +47,8 @@ async function verifyTenant({ company, login, pin, deviceId, expectedFarmName })
   const access = await authenticate(company, login, pin, deviceId, true);
   const farm = access.farms[0];
   assert(farm.name === expectedFarmName, `${company}: fazenda incorreta.`);
+  assert(farm.max_devices == null, `${company}: a fazenda voltou a limitar aparelhos.`);
+  assert(access.client?.max_devices == null, `${company}: a empresa voltou a limitar aparelhos.`);
 
   const activation = await request("rpc/activate_hoof_device", {
     method: "POST",

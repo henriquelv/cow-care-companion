@@ -1988,3 +1988,35 @@ Critério de sucesso:
 - Manter monitoramento da disponibilidade do Supabase enquanto a infraestrutura estiver no plano gratuito.
 - Adicionar uma confirmação mais explícita antes de bloquear manualmente empresa, funcionário ou aparelho.
 - Definir uma rotina externa de backup do banco para produção.
+
+# 2026-08-12 - Remoção do limite de aparelhos
+
+## O que foi feito
+
+- Identificado que a mensagem relatada era causada pelo limite de 10 aparelhos da empresa/fazenda, e não pela validade da licença.
+- Removida a limitação de celulares e tablets para todas as empresas e fazendas.
+- Adicionada proteção no banco para que novos cadastros e edições continuem com aparelhos ilimitados.
+- Retirados dos formulários administrativos os campos de limite de aparelhos.
+- O painel agora mostra somente quantos aparelhos estão cadastrados e informa `Sem limite`.
+- A verificação de produção passou a falhar caso empresa ou fazenda volte a receber um limite.
+- Cache offline atualizado para `v30`.
+
+## Por que foi feito
+
+- Permitir que funcionários acessem de novos celulares e tablets sem bloqueio por quantidade.
+- Evitar que uma edição posterior da fazenda reative acidentalmente o limite antigo.
+- Manter apenas o bloqueio manual de aparelhos individuais quando houver perda, troca ou acesso indevido.
+
+## Como validar
+
+- Acessar StarMilk ou Hullsjob em um aparelho ainda não cadastrado e concluir empresa, funcionário e fazenda.
+- Confirmar que não aparece `Limite de aparelhos para essa fazenda atingido`.
+- Abrir Administração > Fazendas e conferir a indicação `Sem limite`.
+- Confirmar que aparelhos individuais ainda podem ser bloqueados e reativados pelo administrador.
+- Rodar testes, lint, TypeScript, build e `npm run verify:production`.
+
+## Próximos passos
+
+- Revisar e bloquear aparelhos antigos ou desconhecidos, sem que eles consumam vagas de acesso.
+- Adicionar data de último acesso e funcionário responsável em destaque na lista de aparelhos.
+- Manter um alerta de segurança quando houver crescimento incomum de novos aparelhos, sem impedir o trabalho.

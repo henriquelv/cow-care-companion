@@ -6,7 +6,7 @@ export interface AdminFarm {
   id: string;
   name: string;
   status: "active" | "blocked" | "expired";
-  max_devices: number;
+  max_devices: number | null;
   grace_period_days: number;
   created_at: string;
 }
