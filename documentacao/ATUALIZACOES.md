@@ -1956,3 +1956,34 @@ Critério de sucesso:
 - Exibir uma mensagem específica de licença vencida no acesso, separando esse caso de funcionário sem vínculo com fazenda.
 - Migrar a organização do Supabase para o plano Pro antes de tratar o sistema como produção contínua; o plano gratuito pode voltar a pausar projetos com baixa atividade.
 - Enquanto o sistema permanecer gratuito, acompanhar os avisos enviados pelo Supabase e conferir semanalmente se o projeto continua ativo.
+
+# 2026-08-12 - Licenças de produção sem vencimento
+
+## O que foi feito
+
+- Removido o vencimento automático das licenças da StarMilk e da Fazenda Vitória/Hullsjob.
+- Mantida somente a licença mais recente de cada fazenda como ativa; licenças de teste antigas permanecem no histórico com estado expirado.
+- O acesso continua podendo ser bloqueado manualmente pelo administrador, mas não será mais encerrado por contagem de dias.
+- Removida a criação automática de um teste de 15 dias no modo local/offline.
+- Corrigida a atualização do contexto salvo no aparelho: quando o servidor informa licença sem vencimento, qualquer data antiga armazenada é descartada.
+- Removida da inicialização da tela principal a rotina que recriava um prazo de teste mesmo para licenças permanentes.
+
+## Por que foi feito
+
+- Evitar que StarMilk ou Hullsjob voltem a perder acesso por uma data de teste interna.
+- Manter o funcionamento offline sem um prazo artificial criado pelo navegador.
+- Preservar os controles úteis de bloqueio de empresa, funcionário e aparelho.
+
+## Como validar
+
+- Entrar na StarMilk com Sandro e confirmar que não aparece contador de dias ou teste encerrado.
+- Entrar na Hullsjob com Romano e confirmar o mesmo comportamento.
+- Colocar o aparelho offline depois de uma ativação válida e confirmar que o app continua abrindo.
+- Conferir no administrador que as licenças das duas fazendas mostram `Sem vencimento`.
+- Rodar testes, lint, TypeScript, build e `npm run verify:production`.
+
+## Próximos passos
+
+- Manter monitoramento da disponibilidade do Supabase enquanto a infraestrutura estiver no plano gratuito.
+- Adicionar uma confirmação mais explícita antes de bloquear manualmente empresa, funcionário ou aparelho.
+- Definir uma rotina externa de backup do banco para produção.

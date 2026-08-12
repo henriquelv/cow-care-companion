@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, requireSupabase } from "./supabase";
-import { farmContextService, TRIAL_DAYS, type FarmContext } from "./farm-context.service";
+import { farmContextService, type FarmContext } from "./farm-context.service";
 
 export interface RemoteClient {
   id: string;
@@ -195,8 +195,6 @@ export const activationService = {
     const localActivation = client?.source === "bootstrap" || !canReachServer();
 
     if (localActivation) {
-      const expiresAt = new Date(now);
-      expiresAt.setDate(expiresAt.getDate() + TRIAL_DAYS);
       const ctx: FarmContext = {
         client_id: client?.id ?? farm.client_id ?? undefined,
         client_name: client?.name,
@@ -211,8 +209,6 @@ export const activationService = {
         device_id: deviceId,
         last_license_check_at: now,
         grace_period_days: farm.grace_period_days ?? 7,
-        trial_started_at: now,
-        trial_expires_at: expiresAt.toISOString(),
       };
       farmContextService.saveContext(ctx);
       return ctx;
@@ -344,7 +340,8 @@ export const activationService = {
         is_admin: session.employee?.is_admin === true,
         session_expires_at: ctx.session_expires_at,
         last_license_check_at: new Date().toISOString(),
-        trial_expires_at: session.license_expires_at ?? ctx.trial_expires_at,
+        trial_started_at: session.license_expires_at ? ctx.trial_started_at : undefined,
+        trial_expires_at: session.license_expires_at ?? undefined,
       });
       return { ok: true };
     }

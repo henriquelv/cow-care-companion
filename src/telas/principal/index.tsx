@@ -289,7 +289,6 @@ export function Index() {
 
   useEffect(() => {
     if (activated) {
-      farmContextService.ensureTrial();
       void runSync();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

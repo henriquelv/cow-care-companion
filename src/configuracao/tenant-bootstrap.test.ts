@@ -86,7 +86,7 @@ describe("catálogo inicial de empresas", () => {
     expect(context.employee_name).toBe("Jeová");
     expect(context.employee_code).toBe("002");
     expect(context.is_admin).toBe(false);
-    expect(context.trial_expires_at).toBeTruthy();
+    expect(context.trial_expires_at).toBeUndefined();
     expect(farmContextService.getContext()).toEqual(context);
   });
 });

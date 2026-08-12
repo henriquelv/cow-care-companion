@@ -55,6 +55,10 @@ async function verifyTenant({ company, login, pin, deviceId, expectedFarmName })
     body: { p_farm_id: farm.id, p_device_name: "Auditoria de produção" },
   });
   assert(activation?.ok === true, `${company}: aparelho não ativado.`);
+  assert(
+    activation?.license_expires_at == null,
+    `${company}: a licença de produção voltou a ter vencimento.`,
+  );
 
   const validation = await request("rpc/validate_hoof_access", {
     method: "POST",
@@ -63,6 +67,10 @@ async function verifyTenant({ company, login, pin, deviceId, expectedFarmName })
     body: { p_farm_id: farm.id },
   });
   assert(validation?.ok === true, `${company}: sessão não validada.`);
+  assert(
+    validation?.license_expires_at == null,
+    `${company}: a validação retornou licença com vencimento.`,
+  );
 
   const settings = await request(
     `farm_settings?select=farm_id,payload&farm_id=eq.${encodeURIComponent(farm.id)}`,
