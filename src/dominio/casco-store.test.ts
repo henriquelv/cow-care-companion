@@ -12,6 +12,7 @@ import {
   curativeFollowups,
   curativeMetrics,
   dateAfterDays,
+  dateAfterMonths,
   defaultDiseaseCatalog,
   employeeWorkMetricsFromVisits,
   exportBackupJson,
@@ -45,6 +46,7 @@ import {
   type Visit,
 } from "./casco-store";
 import { enqueueOutboxMany, localdb, pendingOutbox } from "@/servicos/localdb";
+import { DEFAULT_PRICING_CONFIG } from "@/dominio/billing";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -74,6 +76,7 @@ const farm: FarmConfig = {
   dias_para_preventivo: 180,
   animais: [],
   diseases: defaultDiseaseCatalog(),
+  pricing: DEFAULT_PRICING_CONFIG,
 };
 
 function foot(overrides: Partial<FootEntry> = {}): FootEntry {
@@ -540,6 +543,7 @@ describe("casco-store domain rules", () => {
     expect(dateAfterDays(3)).toBe("2026-05-25");
     expect(dateAfterDays(5)).toBe("2026-05-27");
     expect(dateAfterDays(7)).toBe("2026-05-29");
+    expect(dateAfterMonths(6, "2026-08-31")).toBe("2027-02-28");
   });
 
   it("mantém apenas a revisão aberta mais recente por animal no calendário", () => {
@@ -971,6 +975,85 @@ describe("casco-store domain rules", () => {
     ]);
     const updated = preventiveAgendaItems("2026-05-22", 10).find((item) => item.tag === "100");
     expect(updated).toMatchObject({ date: "2026-06-01", overdue: false });
+  });
+
+  it("agenda o próximo preventivo exatamente seis meses depois", () => {
+    saveFarm({ ...farm, dias_para_preventivo: 180, animais: [{ tag: "300", sex: "vaca" }] });
+    saveVisits([
+      visit({
+        id: "preventive-six-months",
+        tag: "300",
+        date: "2026-08-15",
+        createdAt: new Date("2026-08-15T10:00:00-03:00").getTime(),
+        preventivo: true,
+      }),
+    ]);
+
+    expect(preventiveAgendaItems("2026-08-15", 180)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tag: "300", date: "2027-02-15", overdue: false }),
+      ]),
+    );
+  });
+
+  it("grava o próximo preventivo e congela o valor ao concluir a visita", () => {
+    saveFarm({
+      ...farm,
+      pricing: { ...DEFAULT_PRICING_CONFIG, preventive: 75 },
+    });
+
+    addVisit(
+      visit({
+        id: "preventive-priced",
+        tag: "350",
+        date: "2026-08-15",
+        preventivo: true,
+      }),
+    );
+
+    expect(loadVisits()[0]).toMatchObject({
+      nextPreventiveDate: "2027-02-15",
+      billing: {
+        currency: "BRL",
+        total: 75,
+        lines: [expect.objectContaining({ key: "preventive", total: 75 })],
+      },
+    });
+  });
+
+  it("mostra o preventivo futuro somente na agenda do funcionário responsável", () => {
+    saveFarm({
+      ...farm,
+      animais: [
+        { tag: "401", sex: "vaca" },
+        { tag: "402", sex: "vaca" },
+      ],
+    });
+    saveVisits([
+      visit({
+        id: "preventive-employee-a",
+        tag: "401",
+        date: "2026-08-15",
+        preventivo: true,
+        employee_id: "employee-a",
+      }),
+      visit({
+        id: "preventive-employee-b",
+        tag: "402",
+        date: "2026-08-15",
+        preventivo: true,
+        employee_id: "employee-b",
+      }),
+    ]);
+
+    expect(preventiveAgendaItems("2026-08-15", 180, "employee-a").map((item) => item.tag)).toEqual([
+      "401",
+    ]);
+    expect(
+      agendaByDate("2026-08-15", "employee-b", { includePreventive: true })
+        .get("2027-02-15")
+        ?.map((item) => item.tag),
+    ).toEqual(["402"]);
   });
 
   it("gera payloads separados de visita e pés para sync", () => {

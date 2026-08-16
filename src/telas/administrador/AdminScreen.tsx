@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  CircleDollarSign,
   Database,
   Download,
   AlertTriangle,
@@ -40,8 +41,10 @@ import { isSupabaseConfigured } from "@/servicos/supabase";
 import {
   agendaByDate,
   allAnimals,
+  diseaseCatalog,
   loadFarm,
   loadVisits,
+  saveFarm,
   todayISO,
   visitIsFinalized,
   type Visit,
@@ -58,8 +61,18 @@ import {
   MonthlyComparisonPanel,
   OperationalBreakdownPanel,
 } from "@/componentes/metricas/OperationalAnalysis";
+import { BillingDashboard, PricingEditor } from "@/componentes/financeiro/BillingPanels";
+import { billingSummaryFromVisits, formatCurrency, type PricingConfig } from "@/dominio/billing";
 
-type AdminTab = "reports" | "data" | "farms" | "employees" | "devices" | "licenses" | "audit";
+type AdminTab =
+  | "reports"
+  | "billing"
+  | "data"
+  | "farms"
+  | "employees"
+  | "devices"
+  | "licenses"
+  | "audit";
 
 const EMPTY_OVERVIEW: AdminOverview = {
   farms: [],
@@ -192,6 +205,8 @@ export function AdminScreen({
     { kind: "visit"; visit: Visit } | { kind: "animal"; tag: string; totalVisits: number } | null
   >(null);
   const [dataRemovalReason, setDataRemovalReason] = useState("");
+  const farmConfiguration = loadFarm();
+  const pricingCatalog = diseaseCatalog(farmConfiguration);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -304,8 +319,15 @@ export function AdminScreen({
     status: "all",
   });
   const completeReportMetrics = visitReportMetrics(completeReportVisits);
-  const reportAgenda = Array.from(agendaByDate(today, scopedEmployeeId).values()).flat();
+  const reportAgenda = Array.from(
+    agendaByDate(today, scopedEmployeeId, { includePreventive: true }).values(),
+  ).flat();
   const reportMetrics = visitReportMetrics(reportVisits, reportAgenda);
+  const reportBilling = billingSummaryFromVisits(
+    reportVisits,
+    farmConfiguration.pricing,
+    pricingCatalog,
+  );
   const comparisonVisits = filterVisitsForReport(loadVisits(), {
     farmId: context?.farm_id,
     employeeId: scopedEmployeeId,
@@ -337,7 +359,11 @@ export function AdminScreen({
       lote: reportLote === "all" ? undefined : reportLote,
       status: reportStatus,
     });
-    return { employee, metrics: visitReportMetrics(visits) };
+    return {
+      employee,
+      metrics: visitReportMetrics(visits),
+      billing: billingSummaryFromVisits(visits, farmConfiguration.pricing, pricingCatalog),
+    };
   });
   const normalizedDataSearch = dataSearch.trim().toLocaleLowerCase("pt-BR");
   const operationalVisits = loadVisits()
@@ -384,6 +410,30 @@ export function AdminScreen({
       setError(message);
       if (message.includes("expirado")) setUnlocked(false);
       return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function savePricing(pricing: PricingConfig) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const farm = loadFarm();
+      await saveFarm({ ...farm, pricing });
+      const sync = await syncService.syncAll();
+      if (!sync.ok && sync.message !== "Offline.") {
+        throw new Error(sync.message || "Não foi possível sincronizar a tabela.");
+      }
+      setNotice(
+        sync.ok
+          ? "Tabela de preços salva e sincronizada para esta fazenda."
+          : "Tabela salva neste aparelho. Ela será sincronizada quando houver internet.",
+      );
+      await onDataChanged?.();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível salvar os valores.");
     } finally {
       setLoading(false);
     }
@@ -514,7 +564,9 @@ export function AdminScreen({
       const complete = mode === "complete";
       await exportVisitsPdf({
         visits: loadVisits(),
-        agenda: complete ? Array.from(agendaByDate(today).values()).flat() : reportAgenda,
+        agenda: complete
+          ? Array.from(agendaByDate(today, undefined, { includePreventive: true }).values()).flat()
+          : reportAgenda,
         farmName: context?.farm_name || loadFarm().farmName || "Fazenda",
         reportTitle: complete
           ? "Relatório completo de casqueamento da fazenda"
@@ -531,6 +583,8 @@ export function AdminScreen({
               ? `Somente ${selectedReportEmployee.name}`
               : "Administrador e funcionários da fazenda",
         includeEmployeeBreakdown: complete || (reportScope === "team" && !selectedReportEmployee),
+        pricing: farmConfiguration.pricing,
+        catalog: pricingCatalog,
         filters: complete ? { farmId: context?.farm_id, status: "all" } : reportFilters,
       });
     } catch (caught) {
@@ -620,6 +674,12 @@ export function AdminScreen({
   const tabs: Array<{ id: AdminTab; label: string; description: string; icon: typeof Building2 }> =
     [
       { id: "reports", label: "Desempenho", description: "Métricas e PDF", icon: BarChart3 },
+      {
+        id: "billing",
+        label: "Cobranças",
+        description: "Valores e saldos",
+        icon: CircleDollarSign,
+      },
       { id: "data", label: "Registros", description: "Visitas e animais", icon: Database },
       { id: "farms", label: "Fazendas", description: "Unidades separadas", icon: Building2 },
       { id: "employees", label: "Equipe", description: "Pessoas e acessos", icon: Users },
@@ -698,6 +758,50 @@ export function AdminScreen({
           {notice}
         </p>
       ) : null}
+
+      {tab === "billing" && (
+        <section className="space-y-7" aria-labelledby="billing-admin-title">
+          <div>
+            <h2 id="billing-admin-title" className="font-display text-lg font-black uppercase">
+              Cobranças da fazenda
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Valores produzidos pela equipe e tabela usada nos próximos atendimentos.
+            </p>
+          </div>
+
+          <BillingDashboard
+            visits={loadVisits().filter(
+              (visit) => !context?.farm_id || !visit.farm_id || visit.farm_id === context.farm_id,
+            )}
+            pricing={farmConfiguration.pricing}
+            catalog={pricingCatalog}
+            referenceDate={today}
+            employees={farmEmployees.map((employee) => ({
+              id: employee.id,
+              name: employee.name,
+            }))}
+            allowEmployeeFilter
+          />
+
+          <section className="border-t-2 border-border pt-6" aria-labelledby="pricing-title">
+            <div className="mb-4">
+              <h2 id="pricing-title" className="font-display text-lg font-black uppercase">
+                Editar tabela de preços
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Somente o administrador pode alterar os valores desta fazenda.
+              </p>
+            </div>
+            <PricingEditor
+              pricing={farmConfiguration.pricing}
+              catalog={pricingCatalog}
+              saving={loading}
+              onSave={savePricing}
+            />
+          </section>
+        </section>
+      )}
 
       {tab === "reports" && (
         <section className="space-y-5" aria-labelledby="reports-title">
@@ -930,6 +1034,29 @@ export function AdminScreen({
             </div>
           </section>
 
+          <button
+            type="button"
+            onClick={() => setTab("billing")}
+            className="flex min-h-20 w-full items-center gap-4 rounded-lg border-2 border-primary/30 bg-primary/5 px-4 text-left"
+          >
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[10px] font-black uppercase text-muted-foreground">
+                Valor produzido nos filtros acima
+              </span>
+              <strong className="block font-display text-xl font-black text-primary">
+                {formatCurrency(reportBilling.total)}
+              </strong>
+              <span className="block text-xs text-muted-foreground">
+                {reportBilling.visits} atendimento(s) · média de{" "}
+                {formatCurrency(reportBilling.averagePerVisit)}
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-black uppercase text-primary">Detalhar</span>
+          </button>
+
           <section
             className="rounded-lg border border-border bg-card p-4"
             aria-labelledby="severity-title"
@@ -1084,7 +1211,7 @@ export function AdminScreen({
                 Mesma fazenda, período, lote e tipo escolhidos acima.
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {employeeMetricRows.map(({ employee, metrics }) => (
+                {employeeMetricRows.map(({ employee, metrics, billing }) => (
                   <article
                     key={employee.id}
                     className="rounded-lg border border-border bg-card p-3"
@@ -1125,6 +1252,12 @@ export function AdminScreen({
                         </p>
                         <p className="text-[9px] uppercase text-muted-foreground">Graves</p>
                       </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                      <span className="text-[10px] font-black uppercase text-muted-foreground">
+                        Valor produzido
+                      </span>
+                      <strong className="text-primary">{formatCurrency(billing.total)}</strong>
                     </div>
                   </article>
                 ))}

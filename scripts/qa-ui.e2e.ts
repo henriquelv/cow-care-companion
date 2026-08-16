@@ -109,6 +109,11 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await page.getByRole("button", { name: /Ver resumo/i }).click();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
+  await page.getByRole("button", { name: /Meu saldo produzido no mês/i }).click();
+  await expect(page.getByRole("heading", { name: "Produção em valores" })).toBeVisible();
+  await expect(page.getByText("Últimos seis meses", { exact: true })).toBeVisible();
+  await expect(page.getByText("Composição dos serviços", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Voltar" }).click();
   await expect(page.getByText("Este é o seu relatório individual")).toBeVisible();
   await expect(page.getByRole("button", { name: "Abrir relatório da equipe" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Comparativo mensal" })).toBeVisible();
@@ -219,6 +224,8 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   await expect(page.getByText("Horario (definido pelo app)")).toBeVisible();
   await expect(page.getByText("Romano", { exact: true })).toBeVisible();
   await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
+  await expect(page.getByText("Próximo preventivo na agenda", { exact: true })).toBeVisible();
+  await expect(page.getByText("15/02/2027", { exact: true })).toBeVisible();
   await expect(page.getByText(/Encontrou alguma doença durante o preventivo/i)).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   expect(unexpectedDialogs).toEqual([]);

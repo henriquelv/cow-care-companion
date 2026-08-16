@@ -1,7 +1,10 @@
 import {
   agendaByDateFromVisits,
+  dateAfterMonths,
   normalizeSeverity,
   todayISO,
+  visitHasActiveProblem,
+  visitIsFinalized,
   type AgendaItem,
   type FootEntry,
   type Sex,
@@ -63,6 +66,7 @@ function normalizeVisit(row: RemoteVisitRow): Visit {
     sex: payload?.sex ?? row.sex ?? "vaca",
     lote: payload?.lote ?? row.lote,
     preventivo: payload?.preventivo ?? row.preventivo,
+    nextPreventiveDate: payload?.nextPreventiveDate,
     visitante_nome: payload?.visitante_nome ?? row.visitante_nome,
     employee_id: payload?.employee_id ?? row.employee_id,
     employee_name: payload?.employee_name ?? row.employee_name,
@@ -73,7 +77,44 @@ function normalizeVisit(row: RemoteVisitRow): Visit {
 
 function buildAgenda(visits: Visit[], employeeId: string, farms: AgendaFarm[]) {
   const farmNames = new Map(farms.map((farm) => [farm.id, farm.name]));
-  return Array.from(agendaByDateFromVisits(visits, todayISO(), employeeId).values())
+  const clinicalItems = Array.from(
+    agendaByDateFromVisits(visits, todayISO(), employeeId).values(),
+  ).flat();
+  const groupedVisits = new Map<string, Visit[]>();
+
+  for (const visit of visits.filter(visitIsFinalized)) {
+    if (!visit.farm_id) continue;
+    const key = `${visit.farm_id}:${visit.tag.trim().toLocaleLowerCase("pt-BR")}`;
+    groupedVisits.set(key, [...(groupedVisits.get(key) ?? []), visit]);
+  }
+
+  const preventiveItems = Array.from(groupedVisits.values()).flatMap((animalVisits) => {
+    const ordered = [...animalVisits].sort((left, right) => right.createdAt - left.createdAt);
+    if (visitHasActiveProblem(ordered[0])) return [];
+    const latestPreventive = ordered.find((visit) => visit.preventivo);
+    if (!latestPreventive || latestPreventive.employee_id !== employeeId) return [];
+    const date = latestPreventive.nextPreventiveDate ?? dateAfterMonths(6, latestPreventive.date);
+    return [
+      {
+        id: `preventive_${latestPreventive.farm_id}_${latestPreventive.tag}_${date}`,
+        visit_id: latestPreventive.id,
+        farm_id: latestPreventive.farm_id,
+        date,
+        type: "preventive" as const,
+        tag: latestPreventive.tag,
+        sex: latestPreventive.sex,
+        lote: latestPreventive.lote,
+        feet: [],
+        title: "Casqueamento preventivo",
+        detail: "Programado seis meses após o último preventivo",
+        overdue: date < todayISO(),
+        employee_id: latestPreventive.employee_id,
+        employee_name: latestPreventive.employee_name ?? latestPreventive.visitante_nome,
+      },
+    ];
+  });
+
+  return [...clinicalItems, ...preventiveItems]
     .flat()
     .filter((item): item is AgendaItem & { farm_id: string } => Boolean(item.farm_id))
     .map(

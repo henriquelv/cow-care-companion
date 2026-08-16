@@ -2020,3 +2020,53 @@ Critério de sucesso:
 - Revisar e bloquear aparelhos antigos ou desconhecidos, sem que eles consumam vagas de acesso.
 - Adicionar data de último acesso e funcionário responsável em destaque na lista de aparelhos.
 - Manter um alerta de segurança quando houver crescimento incomum de novos aparelhos, sem impedir o trabalho.
+
+# 2026-08-15 - Agenda preventiva de seis meses e gestão de cobranças
+
+## O que foi feito
+
+- Todo casqueamento concluído como preventivo agora grava uma data fixa para o próximo preventivo exatamente seis meses depois. Datas no fim do mês são ajustadas para o último dia válido, como 31 de agosto para 28 ou 29 de fevereiro.
+- A data futura aparece no resumo antes de salvar, no calendário da fazenda, na agenda do funcionário responsável e no detalhamento do PDF.
+- A agenda pessoal mostra o preventivo futuro somente para o funcionário que realizou o último preventivo; a agenda geral da fazenda continua reunindo toda a equipe.
+- Criada a configuração financeira por fazenda com valores de casqueamento preventivo, atendimento clínico, curativo, colocação, manutenção e retirada de taco e cada doença ativa.
+- O valor configurado é aplicado por animal nos atendimentos preventivo e clínico e por ocorrência no casco para doença, curativo e taco.
+- Cada visita finalizada guarda uma fotografia da tabela de preços usada no momento. Alterações futuras de preço não reescrevem o histórico financeiro.
+- Visitas antigas sem valor congelado continuam visíveis e são identificadas como estimativas calculadas pela tabela atual.
+- Cada funcionário ganhou `Cobranças e saldo`, acessível por `Meu trabalho`, mostrando somente sua produção em valores, visitas, média, composição dos serviços e comparação dos últimos seis meses.
+- O administrador ganhou a aba `Cobranças`, com visão da equipe, filtro por funcionário, ranking mensal, visitas, composição dos serviços e edição simplificada da tabela de preços da fazenda atual.
+- O painel `Desempenho` passou a mostrar o valor produzido nos filtros selecionados e o valor individual nos cartões da equipe, com acesso direto ao detalhamento financeiro.
+- O PDF ganhou resumo financeiro, evolução dos últimos seis meses, composição dos serviços, valores por funcionário para relatórios da equipe e valor detalhado em cada visita.
+- Doenças personalizadas da fazenda também são consideradas no PDF e na cobrança.
+- A tabela de preços usa o `farm_settings` já isolado por `farm_id`; não foi necessária uma nova tabela nem houve alteração em visitas reais existentes.
+- O salvamento administrativo agora aguarda a criação da fila offline antes de sincronizar. Sem internet, a tabela fica salva no aparelho e é enviada depois.
+- A seta da tela de saldo retorna para `Meu trabalho`, preservando o contexto da navegação móvel.
+- O estado sem valores foi compactado para não deixar um gráfico grande e vazio em celular.
+- Adicionados testes para preço preventivo, cobrança clínica com doenças, curativo e taco, congelamento de preços, estimativas legadas, comparação mensal, data de seis meses e isolamento da agenda por funcionário.
+- Cache offline atualizado para `v31`.
+
+## Por que foi feito
+
+- Garantir que uma vaca casqueada preventivamente volte automaticamente à agenda sem depender de anotação manual.
+- Separar produção financeira por funcionário, fazenda e empresa sem confundir saldo produzido com folha de pagamento.
+- Dar ao administrador uma leitura clara de volume, valor, serviços e desempenho da equipe no mesmo período.
+- Fazer o PDF refletir tanto o quadro clínico dos quatro cascos quanto os valores dos serviços executados.
+- Preservar a confiabilidade histórica quando o administrador reajustar preços.
+
+## Como validar
+
+- Entrar como administrador, abrir `Administração > Cobranças`, cadastrar os valores da fazenda e salvar.
+- Concluir um preventivo e conferir no resumo a data de seis meses; depois abrir o calendário nesse mês e localizar o animal.
+- Entrar com o funcionário responsável, abrir `Meu trabalho > Meu saldo produzido no mês` e conferir que não aparecem visitas de outras pessoas.
+- No administrador, alternar entre toda a equipe e um funcionário e conferir visitas, valores, média e composição.
+- Alterar um preço, concluir uma nova visita e confirmar que a visita anterior mantém o valor antigo.
+- Gerar o PDF individual e o PDF da equipe e conferir resumo financeiro, seis meses, funcionários, animais, visitas e os quatro cascos.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel`, `npm run test:e2e` e `npm run verify:production`.
+
+## Próximos passos
+
+- O administrador deve cadastrar os valores reais separadamente na StarMilk e na Fazenda Vitória antes de usar os saldos comercialmente.
+- Validar com o cliente se o atendimento clínico deve ser somado ao valor de cada doença ou se deve funcionar como alternativa; a regra atual soma os dois.
+- Confirmar se curativo e doença são cobrados por casco, como implementado, ou somente uma vez por animal em cada visita.
+- Se necessário, criar uma etapa futura de pagamentos e repasses com estados `em aberto`, `pago`, desconto e adiantamento; o saldo atual representa produção registrada, não folha de pagamento.
+- Receber a planilha real de animais para concluir a importação preventiva com validação e pré-visualização por linha.
+- Avaliar notificações de agenda no aparelho depois de validar o intervalo preventivo de seis meses durante o uso real.

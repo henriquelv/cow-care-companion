@@ -55,6 +55,7 @@ import {
   FileText,
   ListChecks,
   Box,
+  CircleDollarSign,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -67,6 +68,7 @@ import {
   addVisit,
   animalClinicalSnapshotFromVisits,
   dateAfterDays,
+  dateAfterMonths,
   exportBackupJson,
   importBackupJson,
   loadLastBackupAt,
@@ -136,6 +138,8 @@ import { getPhotoDisplayUrl, mediaRef, savePhotoBlob } from "@/servicos/media.se
 import { employeeAgendaService, type EmployeeAgendaItem } from "@/servicos/employee-agenda.service";
 import { adminService } from "@/servicos/admin.service";
 import { PreventiveScreen } from "@/telas/preventivo/PreventiveScreen";
+import { BillingDashboard } from "@/componentes/financeiro/BillingPanels";
+import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
 
 const AdminScreen = lazy(() =>
   import("@/telas/administrador/AdminScreen").then((module) => ({ default: module.AdminScreen })),
@@ -193,6 +197,7 @@ type Screen =
   | { name: "filters" }
   | { name: "calendar" }
   | { name: "preventivo" }
+  | { name: "billing" }
   | { name: "profile" };
 
 function newDraft(tag = ""): Visit {
@@ -380,7 +385,7 @@ export function Index() {
         }}
         onHistory={() => setScreen({ name: "history-list" })}
         showBack={screen.name !== "today"}
-        onBack={goToday}
+        onBack={screen.name === "billing" ? () => setScreen({ name: "profile" }) : goToday}
         screen={screen.name}
         onHelp={() => setShowHelp(true)}
         syncInfo={syncInfo}
@@ -420,7 +425,7 @@ export function Index() {
                 animalCreated
                   ? `Visita salva. Animal ${v.tag.trim()} cadastrado automaticamente.`
                   : completedVisit.preventivo
-                    ? "Casqueamento preventivo registrado."
+                    ? `Preventivo salvo. Próximo em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.`
                     : "Visita registrada com sucesso!",
               );
               goToday();
@@ -443,12 +448,14 @@ export function Index() {
         )}
         {screen.name === "profile" && (
           <EmployeeWorkScreen
+            onOpenBilling={() => setScreen({ name: "billing" })}
             onOpenTeamReport={() => {
               setScreen({ name: "admin" });
               void runSync();
             }}
           />
         )}
+        {screen.name === "billing" && <EmployeeBillingScreen farm={farm} />}
         {screen.name === "calendar" && (
           <CalendarScreen
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
@@ -1213,6 +1220,7 @@ function Header({
     filters: "Filtros",
     preventivo: "Casqueamento Preventivo",
     profile: "Meu trabalho",
+    billing: "Cobranças e saldo",
   };
 
   return (
@@ -4215,6 +4223,24 @@ function RegisterScreen({
               </p>
             </div>
           )}
+          {visit.preventivo ? (
+            <section className="flex items-center gap-3 rounded-2xl border-2 border-good/40 bg-good/5 p-4">
+              <CalendarDays className="h-7 w-7 shrink-0 text-good" aria-hidden="true" />
+              <div>
+                <p className="text-[10px] font-black uppercase text-muted-foreground">
+                  Próximo preventivo na agenda
+                </p>
+                <p className="font-display text-lg font-black text-good">
+                  {new Date(`${dateAfterMonths(6, visit.date)}T12:00:00`).toLocaleDateString(
+                    "pt-BR",
+                  )}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  O sistema agenda automaticamente seis meses após esta visita.
+                </p>
+              </div>
+            </section>
+          ) : null}
           {hasResolvedFoot && (
             <section className="rounded-2xl border-2 border-good/40 bg-good/5 p-4">
               <p className="font-display text-base font-black uppercase text-good">
@@ -4861,7 +4887,33 @@ function HistoryScreen({
 }
 
 /* ───────────── Meu trabalho ───────────── */
-function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => void }) {
+function EmployeeBillingScreen({ farm }: { farm: FarmConfig }) {
+  const context = farmContextService.getContext();
+  if (!context) return null;
+  const visits = loadVisits().filter(
+    (visit) =>
+      visitIsFinalized(visit) &&
+      visitBelongsToEmployee(visit, context.employee_id, context.employee_name),
+  );
+  return (
+    <div className="pb-6">
+      <BillingDashboard
+        visits={visits}
+        pricing={farm.pricing}
+        catalog={diseaseCatalog(farm)}
+        referenceDate={todayISO()}
+      />
+    </div>
+  );
+}
+
+function EmployeeWorkScreen({
+  onOpenBilling,
+  onOpenTeamReport,
+}: {
+  onOpenBilling: () => void;
+  onOpenTeamReport?: () => void;
+}) {
   const context = farmContextService.getContext();
   const today = todayISO();
   const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
@@ -4879,7 +4931,10 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
   } | null>(null);
 
   const agendaItems = useMemo(
-    () => Array.from(agendaByDate(today, context?.employee_id).values()).flat(),
+    () =>
+      Array.from(
+        agendaByDate(today, context?.employee_id, { includePreventive: true }).values(),
+      ).flat(),
     [context?.employee_id, today],
   );
   const metrics = useMemo(
@@ -4933,6 +4988,12 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
   const monthLabel = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", {
     month: "long",
   });
+  const pricing = loadFarm().pricing;
+  const monthBilling = billingSummaryFromVisits(
+    employeeVisits.filter((visit) => visit.date.startsWith(today.slice(0, 7))),
+    pricing,
+    diseaseCatalog(),
+  );
   const pinIsValid =
     /^\d{4,6}$/.test(currentPin) &&
     /^\d{4,6}$/.test(newPin) &&
@@ -4975,6 +5036,8 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
         agenda: agendaItems,
         farmName: context.farm_name,
         reportTitle: `Relatório de casqueamento · ${context.employee_name}`,
+        pricing: loadFarm().pricing,
+        catalog: diseaseCatalog(),
         filters: {
           farmId: context.farm_id,
           dateFrom: reportFrom,
@@ -5013,6 +5076,28 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
           </p>
         </div>
       </section>
+
+      <button
+        type="button"
+        onClick={onOpenBilling}
+        className="flex min-h-20 w-full items-center gap-4 rounded-xl border-2 border-primary/30 bg-primary/5 px-4 text-left"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[10px] font-black uppercase text-muted-foreground">
+            Meu saldo produzido no mês
+          </span>
+          <strong className="block truncate font-display text-xl font-black text-primary">
+            {formatCurrency(monthBilling.total)}
+          </strong>
+          <span className="block text-xs text-muted-foreground">
+            Ver serviços, visitas e comparação mensal
+          </span>
+        </span>
+        <ChevronRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+      </button>
 
       <section aria-labelledby="producao-funcionario">
         <div className="mb-3 flex items-end justify-between gap-3">
@@ -5061,7 +5146,7 @@ function EmployeeWorkScreen({ onOpenTeamReport }: { onOpenTeamReport?: () => voi
               : "Agenda sem atrasos"}
           </p>
           <p className="text-xs text-muted-foreground">
-            {metrics.pendingAnimals} animal(is) aguardando revisão ou curativo
+            {metrics.pendingAnimals} animal(is) aguardando revisão, curativo ou preventivo
           </p>
         </div>
       </section>
@@ -5456,6 +5541,7 @@ function ConfigScreen({
       dias_para_preventivo: diasPreventivo,
       animais,
       diseases,
+      pricing: farm.pricing,
     };
   }
 

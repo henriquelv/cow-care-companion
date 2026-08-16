@@ -4,6 +4,7 @@ import {
   SEVERITY_LABEL,
   TREATMENTS,
   ZONE_LABEL,
+  dateAfterMonths,
   diseaseDefinition,
   footWorstSeverity,
   tacoLabel,
@@ -12,12 +13,23 @@ import {
   visitHasTaco,
   visitHasActiveProblem,
   visitIsFinalized,
+  todayISO,
   type AgendaItem,
+  type DiseaseDefinition,
   type FootKey,
   type LesionCode,
   type Severity,
   type Visit,
 } from "@/dominio/casco-store";
+import {
+  billingForVisit,
+  billingSummaryFromVisits,
+  employeeBillingSummaries,
+  formatCurrency,
+  monthlyBillingSeries,
+  normalizePricingConfig,
+  type PricingConfig,
+} from "@/dominio/billing";
 
 export type VisitReportStatus =
   | "all"
@@ -471,6 +483,8 @@ export async function exportVisitsPdf(input: {
   reportTitle: string;
   scopeLabel?: string;
   includeEmployeeBreakdown?: boolean;
+  pricing?: PricingConfig;
+  catalog?: DiseaseDefinition[];
   filters?: VisitReportFilters;
 }) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
@@ -479,6 +493,28 @@ export async function exportVisitsPdf(input: {
   ]);
   const visits = filterVisitsForReport(input.visits, input.filters ?? {});
   const metrics = visitReportMetrics(visits, input.agenda ?? []);
+  const pricing = normalizePricingConfig(input.pricing);
+  const billingCatalog =
+    input.catalog ??
+    Array.from(
+      new Set(
+        visits.flatMap((visit) =>
+          visit.feet.flatMap((foot) => (foot.diseases ?? []).map((disease) => disease.code)),
+        ),
+      ),
+    ).flatMap((code) => {
+      const definition = diseaseDefinition(code);
+      return definition ? [definition] : [];
+    });
+  const financial = billingSummaryFromVisits(visits, pricing, billingCatalog);
+  const financialEmployees = employeeBillingSummaries(visits, pricing, billingCatalog);
+  const financialMonths = monthlyBillingSeries(
+    visits,
+    pricing,
+    billingCatalog,
+    input.filters?.dateTo ?? todayISO(),
+    6,
+  );
   const composition = visitReportComposition(visits);
   const employees = input.includeEmployeeBreakdown ? employeeReportBreakdown(visits) : [];
   const detailedVisits = [...visits]
@@ -679,6 +715,121 @@ export async function exportVisitsPdf(input: {
     );
   }
 
+  if (input.pricing) {
+    doc.addPage();
+    doc.setFillColor(31, 91, 48);
+    doc.rect(0, 0, pageWidth, 22, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.text("Resumo financeiro", 12, 10);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`${input.farmName} · ${period}`, 12, 16);
+
+    const financialCards = [
+      ["Valor produzido", formatCurrency(financial.total)],
+      ["Atendimentos", String(financial.visits)],
+      ["Média por visita", formatCurrency(financial.averagePerVisit)],
+      ["Visitas estimadas", String(financial.estimatedVisits)],
+    ];
+    financialCards.forEach(([label, value], index) => {
+      const width = (pageWidth - 27) / 4;
+      const x = 12 + index * (width + 1);
+      doc.setFillColor(244, 247, 244);
+      doc.setDrawColor(207, 216, 208);
+      doc.roundedRect(x, 29, width, 20, 2, 2, "FD");
+      doc.setTextColor(31, 91, 48);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(value, x + 4, 38);
+      doc.setTextColor(70, 78, 71);
+      doc.setFontSize(7);
+      doc.text(label.toUpperCase(), x + 4, 44);
+    });
+
+    doc.setTextColor(35, 45, 37);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Evolução dos últimos seis meses", 12, 59);
+    autoTable(doc, {
+      startY: 63,
+      margin: { left: 12, right: 12 },
+      head: [financialMonths.map((month) => month.label.toUpperCase())],
+      body: [
+        financialMonths.map((month) => formatCurrency(month.total)),
+        financialMonths.map((month) => `${month.visits} visita(s)`),
+      ],
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.6, halign: "center" },
+      headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [244, 247, 244] },
+    });
+    const monthsEndY =
+      (doc as typeof doc & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 83;
+
+    doc.setTextColor(35, 45, 37);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Composição dos serviços", 12, monthsEndY + 8);
+    autoTable(doc, {
+      startY: monthsEndY + 12,
+      margin: { left: 12, right: 12 },
+      head: [["Serviço", "Ocorrências", "Valor"]],
+      body: financial.lines.map((item) => [item.label, item.quantity, formatCurrency(item.total)]),
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 150, fontStyle: "bold" },
+        1: { cellWidth: 35, halign: "center" },
+        2: { cellWidth: 55, halign: "right" },
+      },
+      alternateRowStyles: { fillColor: [244, 247, 244] },
+    });
+
+    if (input.includeEmployeeBreakdown) {
+      const servicesEndY =
+        (doc as typeof doc & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 95;
+      doc.setTextColor(35, 45, 37);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("Valores por funcionário", 12, servicesEndY + 8);
+      autoTable(doc, {
+        startY: servicesEndY + 12,
+        margin: { left: 12, right: 12 },
+        head: [["Funcionário", "Atendimentos", "Valor", "Média"]],
+        body: financialEmployees.map((employee) => [
+          employee.employeeName,
+          employee.visits,
+          formatCurrency(employee.total),
+          formatCurrency(employee.averagePerVisit),
+        ]),
+        theme: "grid",
+        styles: { font: "helvetica", fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [31, 91, 48], textColor: 255, fontStyle: "bold" },
+        columnStyles: {
+          0: { cellWidth: 110, fontStyle: "bold" },
+          1: { cellWidth: 40, halign: "center" },
+          2: { cellWidth: 55, halign: "right" },
+          3: { cellWidth: 55, halign: "right" },
+        },
+        alternateRowStyles: { fillColor: [244, 247, 244] },
+      });
+    }
+
+    if (financial.estimatedVisits > 0) {
+      doc.setTextColor(132, 87, 17);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(
+        `${financial.estimatedVisits} visita(s) anterior(es) à tabela usam os valores atuais como estimativa.`,
+        12,
+        pageHeight - 12,
+      );
+    }
+  }
+
   if (visits.length) {
     doc.addPage();
     autoTable(doc, {
@@ -699,6 +850,10 @@ export async function exportVisitsPdf(input: {
         const reviewFeet = feet.filter((foot) => foot.text.includes("Revisão:"));
         const situation = [
           visit.preventivo ? "CASQUEAMENTO PREVENTIVO" : "ATENDIMENTO CLÍNICO",
+          visit.preventivo
+            ? `Próximo preventivo: ${formatShortDate(visit.nextPreventiveDate ?? dateAfterMonths(6, visit.date))}`
+            : "",
+          `Valor: ${formatCurrency(billingForVisit(visit, pricing, billingCatalog).total)}${visit.billing ? "" : " (estimado)"}`,
           reviewFeet.length > 0
             ? `Revisão em ${reviewFeet.map((foot) => foot.foot).join(", ")}`
             : "Sem revisão marcada",

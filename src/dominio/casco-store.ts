@@ -3,6 +3,13 @@
 import { farmContextService } from "@/servicos/farm-context.service";
 import { enqueueOutboxMany, localdb, putLocalRecord } from "@/servicos/localdb";
 import { mediaIdFromRef, mediaRef } from "@/servicos/media.service";
+import {
+  DEFAULT_PRICING_CONFIG,
+  createVisitBillingSnapshot,
+  normalizePricingConfig,
+  type PricingConfig,
+  type VisitBillingSnapshot,
+} from "@/dominio/billing";
 
 export type Sex = "vaca" | "touro";
 export type FootKey = "FE" | "FD" | "TE" | "TD";
@@ -94,6 +101,8 @@ export interface Visit {
   cancelled_at?: string;
   cancelled_by?: string;
   cancellation_scope?: "visit" | "animal";
+  nextPreventiveDate?: string;
+  billing?: VisitBillingSnapshot;
   feet: FootEntry[];
 }
 
@@ -111,6 +120,7 @@ export interface FarmConfig {
   dias_para_preventivo: number;
   animais: RegisteredAnimal[]; // animais cadastrados manualmente
   diseases: DiseaseDefinition[];
+  pricing: PricingConfig;
 }
 
 const VISITS_KEY = "casco.visits.v3";
@@ -878,6 +888,8 @@ export interface AgendaItem {
   reviewNumber?: number;
   reviewTotal?: number;
   reviewIntervalDays?: number;
+  employee_id?: string;
+  employee_name?: string;
 }
 
 export interface ScheduledRecheck {
@@ -922,6 +934,17 @@ export function normalizeSeverity(value: unknown): Severity {
 export function dateAfterDays(days: number, fromISO = todayISO()) {
   const base = new Date(`${fromISO}T12:00:00`);
   base.setDate(base.getDate() + days);
+  const tz = base.getTimezoneOffset() * 60000;
+  return new Date(base.getTime() - tz).toISOString().slice(0, 10);
+}
+
+export function dateAfterMonths(months: number, fromISO = todayISO()) {
+  const base = new Date(`${fromISO}T12:00:00`);
+  const originalDay = base.getDate();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + months);
+  const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  base.setDate(Math.min(originalDay, lastDay));
   const tz = base.getTimezoneOffset() * 60000;
   return new Date(base.getTime() - tz).toISOString().slice(0, 10);
 }
@@ -1271,6 +1294,8 @@ export async function hydrateVisitsFromIndexedDb() {
         cancelled_at: data.cancelled_at ?? payload?.cancelled_at,
         cancelled_by: data.cancelled_by ?? payload?.cancelled_by,
         cancellation_scope: data.cancellation_scope ?? payload?.cancellation_scope,
+        nextPreventiveDate: payload?.nextPreventiveDate,
+        billing: payload?.billing,
         feet,
       } satisfies Visit;
     })
@@ -1384,6 +1409,22 @@ export function addVisit(v: Visit) {
       feet: v.feet.map((f) => (f.ok ? f : { ...f, numero_revisoes: 1 })),
     };
   }
+
+  const farm = loadFarm();
+  v = {
+    ...v,
+    nextPreventiveDate: v.preventivo
+      ? (v.nextPreventiveDate ?? dateAfterMonths(6, v.date))
+      : undefined,
+    billing:
+      v.billing ??
+      createVisitBillingSnapshot(
+        v,
+        farm.pricing,
+        diseaseCatalog(farm),
+        new Date(v.completedAt!).toISOString(),
+      ),
+  };
 
   all.unshift(v);
   saveVisits(all);
@@ -1505,6 +1546,7 @@ function normalizeFarm(stored: Partial<FarmConfig>): FarmConfig {
         lote: animal.lote?.trim().toUpperCase() || undefined,
       })),
     diseases: normalizeDiseaseCatalog(stored.diseases),
+    pricing: normalizePricingConfig(stored.pricing),
   };
 }
 
@@ -1644,7 +1686,10 @@ export type PreventiveAnimal = {
   lote?: string;
   diasSemCasqueamento: number; // -1 = nunca feito
   lastPreventivoDate?: string;
+  nextPreventiveDate?: string;
   hasProblemaHistorico: boolean;
+  employee_id?: string;
+  employee_name?: string;
 };
 
 export function preventiveList(diasThreshold: number): PreventiveAnimal[] {
@@ -1661,7 +1706,10 @@ export function preventiveList(diasThreshold: number): PreventiveAnimal[] {
       lote?: string;
       hasActiveProblem: boolean;
       lastPreventivo?: number;
+      nextPreventiveDate?: string;
       hasProblemaHistorico: boolean;
+      employee_id?: string;
+      employee_name?: string;
     }
   >();
 
@@ -1690,13 +1738,19 @@ export function preventiveList(diasThreshold: number): PreventiveAnimal[] {
         sex: v.sex,
         lote: v.lote,
         hasActiveProblem,
-        lastPreventivo: isPreventivo ? v.createdAt : undefined,
+        lastPreventivo: isPreventivo ? new Date(`${v.date}T12:00:00`).getTime() : undefined,
+        nextPreventiveDate: isPreventivo ? v.nextPreventiveDate : undefined,
         hasProblemaHistorico: hasProblema,
+        employee_id: isPreventivo ? v.employee_id : undefined,
+        employee_name: isPreventivo ? (v.employee_name ?? v.visitante_nome) : undefined,
       });
     } else {
       const a = animals.get(key)!;
       if (isPreventivo && a.lastPreventivo === undefined) {
-        a.lastPreventivo = v.createdAt;
+        a.lastPreventivo = new Date(`${v.date}T12:00:00`).getTime();
+        a.nextPreventiveDate = v.nextPreventiveDate;
+        a.employee_id = v.employee_id;
+        a.employee_name = v.employee_name ?? v.visitante_nome;
       }
       if (hasProblema) a.hasProblemaHistorico = true;
     }
@@ -1719,7 +1773,10 @@ export function preventiveList(diasThreshold: number): PreventiveAnimal[] {
               .toISOString()
               .slice(0, 10)
           : undefined,
+        nextPreventiveDate: a.nextPreventiveDate,
         hasProblemaHistorico: a.hasProblemaHistorico,
+        employee_id: a.employee_id,
+        employee_name: a.employee_name,
       });
     }
   }
@@ -1739,6 +1796,7 @@ const FARM_DEFAULT: FarmConfig = {
   dias_para_preventivo: 180,
   animais: [],
   diseases: defaultDiseaseCatalog(),
+  pricing: DEFAULT_PRICING_CONFIG,
 };
 
 export function loadFarm(): FarmConfig {
@@ -1796,6 +1854,7 @@ export function saveFarm(f: FarmConfig) {
   const normalized = normalizeFarm(f);
   localStorage.setItem(scopedKey(FARM_KEY), JSON.stringify(normalized));
   const ctx = farmContextService.getContext();
+  let outboxWrite: Promise<unknown> | undefined;
   if (ctx?.is_admin) {
     const currentLoteIds = new Set(normalized.lotes.map((lote) => `${ctx.farm_id}_${lote}`));
     const currentAnimalIds = new Set(
@@ -1844,7 +1903,7 @@ export function saveFarm(f: FarmConfig) {
         synced: false,
       });
     }
-    void enqueueOutboxMany([
+    outboxWrite = enqueueOutboxMany([
       {
         farm_id: ctx.farm_id,
         tableName: "farm_settings",
@@ -1893,8 +1952,10 @@ export function saveFarm(f: FarmConfig) {
         },
       })),
     ]);
+    void outboxWrite;
   }
   writeAutoBackup();
+  return outboxWrite?.then(() => undefined);
 }
 
 // footWorstSeverity ignora pés resolvidos/liberados
@@ -2138,29 +2199,39 @@ export function agendaByDateFromVisits(
 export function preventiveAgendaItems(
   referenceDate = todayISO(),
   diasThreshold = loadFarm().dias_para_preventivo,
+  employeeId?: string,
 ): AgendaItem[] {
   const threshold = Math.max(1, Math.min(3650, Math.trunc(diasThreshold) || 1));
   const farmId = farmContextService.getFarmId() ?? undefined;
-  return preventiveList(0).map((animal) => {
-    const date = animal.lastPreventivoDate
-      ? dateAfterDays(threshold, animal.lastPreventivoDate)
-      : referenceDate;
-    return {
-      id: `preventive_${farmId ?? "local"}_${animal.tag}_${date}`,
-      farm_id: farmId,
-      date,
-      type: "preventive",
-      tag: animal.tag,
-      sex: animal.sex,
-      lote: animal.lote,
-      feet: [],
-      title: "Casqueamento preventivo",
-      detail: animal.lastPreventivoDate
-        ? `Programado ${threshold} dias após o último preventivo`
-        : "Primeiro preventivo ainda não registrado",
-      overdue: date < referenceDate,
-    };
-  });
+  return preventiveList(0)
+    .filter((animal) => !employeeId || animal.employee_id === employeeId)
+    .map((animal) => {
+      const date = animal.lastPreventivoDate
+        ? (animal.nextPreventiveDate ??
+          (threshold === 180
+            ? dateAfterMonths(6, animal.lastPreventivoDate)
+            : dateAfterDays(threshold, animal.lastPreventivoDate)))
+        : referenceDate;
+      return {
+        id: `preventive_${farmId ?? "local"}_${animal.tag}_${date}`,
+        farm_id: farmId,
+        date,
+        type: "preventive",
+        tag: animal.tag,
+        sex: animal.sex,
+        lote: animal.lote,
+        feet: [],
+        title: "Casqueamento preventivo",
+        detail: animal.lastPreventivoDate
+          ? threshold === 180
+            ? "Programado seis meses após o último preventivo"
+            : `Programado ${threshold} dias após o último preventivo`
+          : "Primeiro preventivo ainda não registrado",
+        overdue: date < referenceDate,
+        employee_id: animal.employee_id,
+        employee_name: animal.employee_name,
+      };
+    });
 }
 
 export function agendaByDate(
@@ -2171,7 +2242,11 @@ export function agendaByDate(
   const map = agendaByDateFromVisits(loadVisits(), referenceDate, employeeId);
   if (!options.includePreventive) return map;
 
-  for (const item of preventiveAgendaItems(referenceDate)) {
+  for (const item of preventiveAgendaItems(
+    referenceDate,
+    loadFarm().dias_para_preventivo,
+    employeeId,
+  )) {
     map.set(item.date, [...(map.get(item.date) ?? []), item]);
   }
   for (const items of map.values()) {
