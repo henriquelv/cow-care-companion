@@ -34,6 +34,11 @@ interface BootstrapAccess {
 }
 
 const LOCAL_PIN_OVERRIDES_KEY = "casco.employee_pin_overrides.v1";
+const LOCAL_FARMS_KEY = "casco.bootstrap_farms.v1";
+
+interface LocalBootstrapFarm extends BootstrapFarm {
+  employee_ids: string[];
+}
 
 function readLocalPinOverrides(): Record<string, string> {
   if (typeof localStorage === "undefined") return {};
@@ -52,6 +57,62 @@ export function saveLocalEmployeePin(employeeId: string, pin: string) {
   const overrides = readLocalPinOverrides();
   overrides[employeeId] = pin;
   localStorage.setItem(LOCAL_PIN_OVERRIDES_KEY, JSON.stringify(overrides));
+}
+
+function readLocalFarms(): LocalBootstrapFarm[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const stored = JSON.parse(localStorage.getItem(LOCAL_FARMS_KEY) ?? "[]") as unknown;
+    return Array.isArray(stored) ? (stored as LocalBootstrapFarm[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function createLocalId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `farm_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+}
+
+export function createBootstrapFarm(
+  clientCode: string,
+  employeeId: string,
+  pin: string,
+  name: string,
+) {
+  const tenant = TENANTS.find((item) => item.client.activation_code === clientCode);
+  const employee = tenant?.employees.find((item) => item.id === employeeId);
+  if (!tenant || !employee?.is_admin) {
+    throw new Error("Somente administradores podem criar fazendas.");
+  }
+  const expectedPin = readLocalPinOverrides()[employee.id] ?? employee.temporary_password;
+  if (pin !== expectedPin) throw new Error("PIN incorreto.");
+
+  const cleanName = name.trim();
+  if (cleanName.length < 2 || cleanName.length > 80) {
+    throw new Error("Informe um nome de fazenda válido.");
+  }
+  const duplicate = [...tenant.farms, ...readLocalFarms()].some(
+    (farm) =>
+      farm.client_id === tenant.client.id &&
+      farm.name.trim().toLocaleLowerCase("pt-BR") === cleanName.toLocaleLowerCase("pt-BR"),
+  );
+  if (duplicate) throw new Error("Já existe uma fazenda com esse nome nesta empresa.");
+
+  const farm: LocalBootstrapFarm = {
+    id: createLocalId(),
+    client_id: tenant.client.id,
+    name: cleanName,
+    activation_code: "",
+    status: "active",
+    grace_period_days: 7,
+    employee_ids: [employee.id],
+  };
+  localStorage.setItem(LOCAL_FARMS_KEY, JSON.stringify([...readLocalFarms(), farm]));
+  return farm;
 }
 
 export function changeBootstrapEmployeePin(
@@ -179,9 +240,12 @@ export function authenticateBootstrapEmployee(code: string, login: string, pin: 
   if (!employee) return null;
 
   const { temporary_password: _temporaryPassword, ...safeEmployee } = employee;
+  const localFarms = readLocalFarms().filter(
+    (farm) => farm.client_id === tenant.client.id && farm.employee_ids.includes(employee.id),
+  );
   return {
     client: tenant.client,
     employee: safeEmployee,
-    farms: tenant.farms.filter((farm) => farm.id === employee.farm_id),
+    farms: [...tenant.farms.filter((farm) => farm.id === employee.farm_id), ...localFarms],
   };
 }

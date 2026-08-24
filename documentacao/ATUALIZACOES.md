@@ -8,6 +8,44 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-24 - Nova fazenda na seleção e isolamento reforçado
+
+### O que foi feito
+
+- Adicionado o botão visível `Adicionar nova fazenda` na etapa de escolha da fazenda, onde o administrador naturalmente procura essa ação.
+- O cadastro abre no mesmo lugar, pede somente o nome da fazenda e a confirmação do PIN administrativo.
+- A nova fazenda é criada dentro da empresa da sessão atual, vinculada ao administrador que a criou, selecionada automaticamente e recebe licença ativa sem vencimento e sem limite de aparelhos.
+- Funcionários comuns não veem o botão e não conseguem executar a criação diretamente.
+- O identificador da empresa não é aceito do frontend: o Supabase obtém o `client_id` da sessão autenticada, impedindo criar uma fazenda dentro de outra empresa por alteração do navegador.
+- Animais, visitas, cascos, mídias, configurações, agenda, valores e relatórios continuam vinculados ao `farm_id` da fazenda selecionada.
+- O armazenamento local continua usando chaves próprias por `farm_id`; IndexedDB, outbox e sincronização exigem e filtram pelo mesmo identificador.
+- A seleção passou a mostrar a quantidade de fazendas e uma explicação curta de que cada unidade possui dados separados.
+- O botão `Entrar na fazenda` ganhou prioridade visual; `Minha agenda` permanece como ação secundária e informa que reúne as fazendas permitidas ao funcionário.
+- Adicionados testes de permissão, nome duplicado, separação entre StarMilk e Hullsjob e isolamento de uma visita entre duas fazendas da Hullsjob.
+- A verificação de produção agora confirma que a função de criação rejeita chamadas sem sessão administrativa.
+- Validação concluída com `75` testes unitários e `19` fluxos de navegador em celular e tablet; `18` passaram e `1` foi ignorado por exigir o painel remoto durante o modo local de QA.
+- Atualizado o cache offline para `v32`.
+
+### Por que foi feito
+
+- Permitir que o próprio administrador cadastre uma nova unidade sem procurar a função dentro de uma tela administrativa extensa.
+- Tornar explícita a diferença entre empresa e fazenda e reduzir o risco de o usuário trabalhar na unidade errada.
+- Garantir isolamento em várias camadas, inclusive contra alteração manual de requisições no navegador.
+
+### Como validar
+
+- Entrar em `HULLSJOB` como Romano, tocar em `Adicionar nova fazenda`, confirmar o PIN e verificar que a nova unidade fica selecionada.
+- Entrar como Jeová e confirmar que o botão de cadastro não aparece.
+- Registrar um animal na nova fazenda, trocar para Fazenda Vitória e confirmar que o animal não aparece.
+- Voltar à nova fazenda e confirmar que o registro continua disponível.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel`, `npm run test:e2e` e `npm run verify:production`.
+
+### Próximos passos
+
+1. Criar, na administração, uma seleção simples dos funcionários que terão acesso a cada nova fazenda.
+2. Adicionar uma confirmação visual permanente da fazenda no início de toda nova visita.
+3. Monitorar a primeira fazenda criada em produção e confirmar sincronização em dois aparelhos antes de ampliar o uso.
+
 ## 2026-08-04 - Relatório da equipe e aparelho persistente
 
 ### O que foi feito

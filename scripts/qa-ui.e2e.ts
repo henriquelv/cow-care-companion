@@ -209,7 +209,63 @@ test("Romano consulta a agenda antes de escolher a fazenda", async ({ page }) =>
   await expect(page.getByRole("button", { name: /Entrar na fazenda/i })).toBeVisible();
 });
 
+test("somente administrador pode adicionar fazenda na seleção", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByLabel("Link ou código da empresa").fill("HULLSJOB");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByLabel("Nome ou código do funcionário").fill("Jeová");
+  await page.getByLabel("PIN de acesso").fill("1234");
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await expect(page.getByText("Fazendas disponíveis", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Adicionar nova fazenda/i })).toHaveCount(0);
+});
+
+test("nova fazenda mantém visitas isoladas da Fazenda Vitória", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByLabel("Link ou código da empresa").fill("HULLSJOB");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByLabel("Nome ou código do funcionário").fill("Romano");
+  await page.getByLabel("PIN de acesso").fill("1234");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: /Adicionar nova fazenda/i }).click();
+  await page.getByLabel("Nome da nova fazenda").fill("Fazenda Isolada QA");
+  await page.getByLabel("PIN para criar fazenda").fill("1234");
+  await page.getByRole("button", { name: "Criar fazenda" }).click();
+
+  await expect(page.getByText(/Fazenda Isolada QA criada e selecionada/i)).toBeVisible();
+  await expect(page.getByText("2 fazendas", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Entrar na fazenda/i }).click();
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("240824");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
+  await page.getByRole("button", { name: /Salvar visita/i }).click();
+  await page.getByRole("button", { name: /^Todos/ }).click();
+  await expect(page.getByText("240824", { exact: true }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Trocar empresa ou fazenda" }).click();
+  await page.getByRole("button", { name: "Trocar acesso" }).click();
+  await page.getByLabel("Link ou código da empresa").fill("HULLSJOB");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByLabel("Nome ou código do funcionário").fill("Romano");
+  await page.getByLabel("PIN de acesso").fill("1234");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Fazenda Vitória" }).click();
+  await page.getByRole("button", { name: /Entrar na fazenda/i }).click();
+  await page.getByRole("button", { name: /^Todos/ }).click();
+
+  await expect(page.getByText("240824", { exact: true })).toHaveCount(0);
+});
+
 test("Romano registra casco normal como preventivo com auditoria automática", async ({ page }) => {
+  const nextPreventive = new Date();
+  nextPreventive.setMonth(nextPreventive.getMonth() + 6);
+  const expectedPreventiveDate = new Intl.DateTimeFormat("pt-BR").format(nextPreventive);
   const unexpectedDialogs: string[] = [];
   page.on("dialog", async (dialog) => {
     unexpectedDialogs.push(dialog.message());
@@ -225,7 +281,7 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   await expect(page.getByText("Romano", { exact: true })).toBeVisible();
   await expect(page.getByText("Casco normal", { exact: true })).toBeVisible();
   await expect(page.getByText("Próximo preventivo na agenda", { exact: true })).toBeVisible();
-  await expect(page.getByText("15/02/2027", { exact: true })).toBeVisible();
+  await expect(page.getByText(expectedPreventiveDate, { exact: true })).toBeVisible();
   await expect(page.getByText(/Encontrou alguma doença durante o preventivo/i)).toBeVisible();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   expect(unexpectedDialogs).toEqual([]);

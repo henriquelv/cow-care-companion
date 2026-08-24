@@ -648,9 +648,13 @@ function ActivationScreen({
   const [employeeLogin, setEmployeeLogin] = useState("");
   const [pin, setPin] = useState("");
   const [showEmployeeAgenda, setShowEmployeeAgenda] = useState(false);
+  const [showFarmForm, setShowFarmForm] = useState(false);
+  const [newFarmName, setNewFarmName] = useState("");
+  const [managerPin, setManagerPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState(initialMessage);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => setHydrated(true), []);
 
@@ -670,6 +674,8 @@ function ActivationScreen({
       setEmployee(null);
       setEmployeeLogin("");
       setPin("");
+      setShowFarmForm(false);
+      setNotice("");
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
       setClient(null);
@@ -697,6 +703,8 @@ function ActivationScreen({
       setFarms(result.farms);
       setFarm(result.farms.length === 1 ? result.farms[0] : null);
       setPin("");
+      setShowFarmForm(false);
+      setNotice("");
     } catch (err) {
       setEmployee(null);
       setFarms([]);
@@ -721,6 +729,61 @@ function ActivationScreen({
     }
   }
 
+  async function createFarmFromSelection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!client || !employee?.is_admin) return;
+    setError("");
+    setNotice("");
+    if (newFarmName.trim().length < 2) {
+      setError("Digite o nome da nova fazenda.");
+      return;
+    }
+    if (!/^\d{4,6}$/.test(managerPin)) {
+      setError("Informe seu PIN de 4 a 6 números para confirmar.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let createdFarm: RemoteFarm;
+      if (client.source === "bootstrap" || !isSupabaseConfigured) {
+        const { createBootstrapFarm } = await import("@/configuracao/tenant-bootstrap");
+        createdFarm = createBootstrapFarm(
+          client.activation_code,
+          employee.id,
+          managerPin,
+          newFarmName,
+        );
+      } else {
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          throw new Error("Conecte este aparelho à internet para adicionar uma fazenda.");
+        }
+        await adminService.unlock(managerPin);
+        const result = (await adminService.action("create_farm", {
+          name: newFarmName,
+        })) as { id?: string; farm?: RemoteFarm };
+        if (!result.farm?.id) throw new Error("A fazenda foi criada, mas não pôde ser carregada.");
+        createdFarm = result.farm;
+      }
+
+      setFarms((current) => [
+        ...current.filter((currentFarm) => currentFarm.id !== createdFarm.id),
+        createdFarm,
+      ]);
+      setFarm(createdFarm);
+      setShowFarmForm(false);
+      setNewFarmName("");
+      setManagerPin("");
+      setNotice(
+        `${createdFarm.name} criada e selecionada. Os dados serão separados das outras fazendas.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível criar a fazenda.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function backOneStep() {
     setError("");
     if (employee) {
@@ -730,12 +793,17 @@ function ActivationScreen({
       setFarm(null);
       setEmployeeLogin("");
       setPin("");
+      setShowFarmForm(false);
+      setNewFarmName("");
+      setManagerPin("");
+      setNotice("");
       return;
     }
     farmContextService.savePendingSession(null);
     setClient(null);
     setEmployeeLogin("");
     setPin("");
+    setNotice("");
   }
 
   if (showEmployeeAgenda && employee) {
@@ -931,9 +999,19 @@ function ActivationScreen({
                     <CheckCircle2 className="h-5 w-5 text-good" />
                   </div>
 
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    Escolha a fazenda
-                  </p>
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase text-muted-foreground">
+                        Fazendas disponíveis
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Cada fazenda possui animais, visitas e agenda separados.
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs font-bold text-primary">
+                      {farms.length} {farms.length === 1 ? "fazenda" : "fazendas"}
+                    </span>
+                  </div>
                   <div className="grid gap-2">
                     {farms.map((item) => (
                       <button
@@ -959,21 +1037,133 @@ function ActivationScreen({
                     ))}
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  {employee.is_admin ? (
                     <button
                       type="button"
-                      onClick={() => setShowEmployeeAgenda(true)}
+                      onClick={() => {
+                        setShowFarmForm((current) => !current);
+                        setError("");
+                        setNotice("");
+                      }}
                       disabled={loading}
-                      className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-primary bg-card px-3 font-display text-sm uppercase text-primary"
+                      aria-expanded={showFarmForm}
+                      className="flex min-h-14 w-full items-center gap-3 rounded-xl border-2 border-dashed border-primary/60 bg-primary/5 px-4 text-left text-primary"
                     >
-                      <CalendarDays className="h-5 w-5" />
-                      Minha agenda
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                        <Plus className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-display text-sm font-black uppercase">
+                          Adicionar nova fazenda
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Nova unidade nesta mesma empresa
+                        </span>
+                      </span>
+                      {showFarmForm ? (
+                        <ChevronLeft className="h-5 w-5 -rotate-90" aria-hidden="true" />
+                      ) : (
+                        <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                      )}
                     </button>
+                  ) : null}
+
+                  {showFarmForm && employee.is_admin ? (
+                    <form
+                      onSubmit={createFarmFromSelection}
+                      className="space-y-3 rounded-2xl border-2 border-primary/30 bg-primary/5 p-4"
+                    >
+                      <div>
+                        <p className="font-display text-base font-black uppercase">
+                          Cadastrar fazenda
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          Ela ficará dentro de {client.name}, mas seus animais, visitas, agenda e
+                          valores não serão misturados com as outras unidades.
+                        </p>
+                      </div>
+                      <label className="block">
+                        <span className="text-xs font-bold uppercase text-muted-foreground">
+                          Nome da fazenda
+                        </span>
+                        <input
+                          aria-label="Nome da nova fazenda"
+                          value={newFarmName}
+                          onChange={(event) => setNewFarmName(event.target.value)}
+                          maxLength={80}
+                          autoFocus
+                          placeholder="Ex.: Fazenda Santa Clara"
+                          className="mt-1 min-h-14 w-full rounded-xl border-2 border-border bg-card px-4 text-base font-bold outline-none focus:border-primary"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-bold uppercase text-muted-foreground">
+                          Seu PIN de administrador
+                        </span>
+                        <div className="relative mt-1">
+                          <KeyRound className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                          <input
+                            aria-label="PIN para criar fazenda"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
+                            value={managerPin}
+                            onChange={(event) =>
+                              setManagerPin(event.target.value.replace(/\D/g, ""))
+                            }
+                            autoComplete="one-time-code"
+                            placeholder="Confirme seu PIN"
+                            className="min-h-14 w-full rounded-xl border-2 border-border bg-card pl-12 pr-4 text-center text-lg font-bold tracking-[0.18em] outline-none [-webkit-text-security:disc] focus:border-primary"
+                          />
+                        </div>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowFarmForm(false);
+                            setNewFarmName("");
+                            setManagerPin("");
+                            setError("");
+                          }}
+                          className="min-h-12 rounded-xl border-2 border-border bg-card px-3 font-display text-sm font-black uppercase"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={
+                            loading || newFarmName.trim().length < 2 || managerPin.length < 4
+                          }
+                          className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-3 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
+                        >
+                          {loading ? (
+                            <RefreshCw className="h-5 w-5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Plus className="h-5 w-5" aria-hidden="true" />
+                          )}
+                          Criar fazenda
+                        </button>
+                      </div>
+                    </form>
+                  ) : null}
+
+                  {notice ? (
+                    <p
+                      role="status"
+                      className="rounded-xl border border-good/30 bg-good/10 px-4 py-3 text-sm font-bold text-good"
+                    >
+                      {notice}
+                    </p>
+                  ) : null}
+
+                  <div className="grid gap-2">
                     <button
                       type="button"
                       onClick={() => void activate()}
                       disabled={!farm || loading}
-                      className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl bg-good px-3 font-display text-sm uppercase text-good-foreground stamp"
+                      className="tap-lg flex min-h-16 w-full items-center justify-center gap-3 rounded-xl bg-good px-4 font-display text-base uppercase text-good-foreground stamp disabled:opacity-50"
                     >
                       {loading ? (
                         <RefreshCw className="h-5 w-5 animate-spin" />
@@ -981,6 +1171,19 @@ function ActivationScreen({
                         <CheckCircle2 className="h-5 w-5" />
                       )}
                       Entrar na fazenda
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmployeeAgenda(true)}
+                      disabled={loading}
+                      aria-label="Minha agenda"
+                      className="tap-lg flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-primary bg-card px-3 font-display text-sm uppercase text-primary"
+                    >
+                      <CalendarDays className="h-5 w-5" />
+                      Minha agenda
+                      <span className="text-xs font-sans font-normal text-muted-foreground">
+                        · todas as fazendas
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1349,7 +1552,7 @@ function Header({
                   className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-danger hover:bg-danger/5"
                 >
                   <LogOut className="h-5 w-5" />
-                  Trocar empresa
+                  Trocar empresa ou fazenda
                 </button>
               )}
             </div>

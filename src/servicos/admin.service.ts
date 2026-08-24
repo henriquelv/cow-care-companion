@@ -165,27 +165,32 @@ export const adminService = {
   async action(action: string, payload: Record<string, unknown>) {
     const managerToken = managerTokenOrThrow();
     const { data, error } =
-      action === "edit_employee"
-        ? await requireSupabase().rpc("hoof_admin_edit_employee", {
+      action === "create_farm"
+        ? await requireSupabase().rpc("hoof_admin_create_farm", {
             p_manager_token: managerToken,
-            p_payload: payload,
+            p_name: String(payload.name ?? ""),
           })
-        : action === "remove_employee"
-          ? await requireSupabase().rpc("hoof_admin_remove_employee", {
+        : action === "edit_employee"
+          ? await requireSupabase().rpc("hoof_admin_edit_employee", {
               p_manager_token: managerToken,
               p_payload: payload,
             })
-          : action === "cancel_visit" || action === "remove_animal"
-            ? await requireSupabase().rpc("hoof_admin_manage_data", {
+          : action === "remove_employee"
+            ? await requireSupabase().rpc("hoof_admin_remove_employee", {
                 p_manager_token: managerToken,
-                p_action: action,
                 p_payload: payload,
               })
-            : await requireSupabase().rpc("hoof_admin_action", {
-                p_manager_token: managerToken,
-                p_action: action,
-                p_payload: payload,
-              });
+            : action === "cancel_visit" || action === "remove_animal"
+              ? await requireSupabase().rpc("hoof_admin_manage_data", {
+                  p_manager_token: managerToken,
+                  p_action: action,
+                  p_payload: payload,
+                })
+              : await requireSupabase().rpc("hoof_admin_action", {
+                  p_manager_token: managerToken,
+                  p_action: action,
+                  p_payload: payload,
+                });
     if (error) throw new Error("Não foi possível concluir esta ação.");
     const result = data as { ok?: boolean; message?: string; id?: string } | null;
     if (!result?.ok) {

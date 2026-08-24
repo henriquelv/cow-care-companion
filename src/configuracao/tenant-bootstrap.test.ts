@@ -3,6 +3,7 @@ import { activationService } from "@/servicos/activation.service";
 import { farmContextService } from "@/servicos/farm-context.service";
 import {
   authenticateBootstrapEmployee,
+  createBootstrapFarm,
   findBootstrapClient,
   saveLocalEmployeePin,
 } from "./tenant-bootstrap";
@@ -88,5 +89,49 @@ describe("catálogo inicial de empresas", () => {
     expect(context.is_admin).toBe(false);
     expect(context.trial_expires_at).toBeUndefined();
     expect(farmContextService.getContext()).toEqual(context);
+  });
+
+  it("cria nova fazenda somente para o administrador da mesma empresa", () => {
+    const created = createBootstrapFarm(
+      "HULLSJOB",
+      "30000000-0000-4000-8000-000000000002",
+      "1234",
+      "Fazenda Norte",
+    );
+
+    const romano = authenticateBootstrapEmployee("HULLSJOB", "Romano", "1234")!;
+    const jeova = authenticateBootstrapEmployee("HULLSJOB", "Jeová", "1234")!;
+    const sandro = authenticateBootstrapEmployee("STARMILK", "Sandro", "1234")!;
+
+    expect(created.client_id).toBe(romano.client.id);
+    expect(romano.farms.map((farm) => farm.name)).toEqual(["Fazenda Vitória", "Fazenda Norte"]);
+    expect(jeova.farms.map((farm) => farm.name)).toEqual(["Fazenda Vitória"]);
+    expect(sandro.farms.map((farm) => farm.name)).toEqual(["StarMilk"]);
+  });
+
+  it("impede funcionário comum e nomes repetidos de criarem fazenda", () => {
+    expect(() =>
+      createBootstrapFarm(
+        "HULLSJOB",
+        "30000000-0000-4000-8000-000000000003",
+        "1234",
+        "Fazenda Sem Permissão",
+      ),
+    ).toThrow("Somente administradores");
+
+    createBootstrapFarm(
+      "HULLSJOB",
+      "30000000-0000-4000-8000-000000000002",
+      "1234",
+      "Fazenda Norte",
+    );
+    expect(() =>
+      createBootstrapFarm(
+        "HULLSJOB",
+        "30000000-0000-4000-8000-000000000002",
+        "1234",
+        " fazenda norte ",
+      ),
+    ).toThrow("Já existe uma fazenda");
   });
 });

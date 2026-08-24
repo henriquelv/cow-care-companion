@@ -139,6 +139,15 @@ async function main() {
     "RLS público de clients falhou. Aplique a migration 202607220001_production_security.sql.",
   );
 
+  const farmCreationProbe = await request("rpc/hoof_admin_create_farm", {
+    method: "POST",
+    body: { p_manager_token: "invalid", p_name: "Verificação sem sessão" },
+  });
+  assert(
+    farmCreationProbe?.ok === false,
+    "A criação de fazenda aceitou uma chamada sem sessão administrativa.",
+  );
+
   const starMilk = await verifyTenant({
     company: "STARMILK",
     login: "Sandro",
@@ -202,6 +211,7 @@ async function main() {
       {
         ok: true,
         public_access_blocked: true,
+        farm_creation_requires_admin_session: true,
         starmilk: {
           farm: starMilk.farm.name,
           employees: starMilk.overview.employees.length,
