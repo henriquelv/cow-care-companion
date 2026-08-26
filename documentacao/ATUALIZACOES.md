@@ -8,6 +8,61 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-26 - Fluxo Hullsjob, financeiro por permissão e relatórios operacionais
+
+### O que foi feito
+
+- Criada uma configuração central de recursos por empresa: Hullsjob usa mapa do casco, preços, financeiro e solicitações de animal mancando; StarMilk mantém esses recursos desativados.
+- Adicionado mapa SVG grande do casco para a Hullsjob, com áreas selecionáveis também por botões amplos para facilitar o uso no celular.
+- Centralizadas as associações entre áreas e doenças: áreas 1/2/5 para Linha Branca, 2/3/4 para doenças de sola, 6E para Dermatite Digital e 6C para Hiperplasia Interdigital.
+- O atendimento permite várias áreas e várias doenças no mesmo casco, vários cascos na mesma visita, retorno aos cascos e edição antes da confirmação final.
+- A administração clínica permite criar, editar, ativar e desativar áreas e doenças, além de alterar as sugestões de doenças por área.
+- Diagnósticos anteriores agora preservam ou recuperam a região correspondente, evitando exigir que o funcionário redescubra a área em uma revisão.
+- Adicionada a tabela padrão Hullsjob: preventivo por faixas de quantidade, Dermatite Digital, curativo, taco e deslocamento a R$ 3,30 por quilômetro.
+- O valor vigente é congelado somente quando a visita é concluída. StarMilk não gera cobrança escondida.
+- Criada a permissão `can_view_financial`; Romano e Jeová foram autorizados inicialmente no Supabase e o gerente pode conceder ou retirar o acesso por funcionário.
+- Aparelhos já ativados atualizam a permissão financeira automaticamente durante a sincronização.
+- Retirada a aba financeira duplicada da administração. O resumo financeiro fica em Desempenho e a tabela de preços permanece na configuração da fazenda.
+- Criada solicitação de animal mancando com brinco obrigatório, observação e foto opcionais, estados Nova/Aceita/Agendada/Atendida/Recusada e integração com a agenda existente.
+- O RLS das solicitações limita o funcionário a pedidos novos disponíveis, criados por ele ou assumidos por ele; gerente mantém a visão completa da equipe.
+- Funcionário comum vê somente a própria agenda. Gerente pode alternar entre a própria agenda, toda a equipe e um funcionário específico.
+- Criados dois PDFs: relatório detalhado para o cliente e relatório interno compacto por animal, visita e quatro cascos.
+- Valores no PDF são opcionais e só aparecem para usuário autorizado; quando desmarcados, não há página financeira nem `R$ 0,00` residual.
+- O painel principal de Desempenho passou a mostrar donut de cascos Normal/G1/G2/G3, doenças em barras, análise por pé/animal e evolução dos últimos seis meses.
+- Métricas e textos distinguem visitas realizadas de vacas vistas, sem contar rascunhos ou telas abandonadas.
+- Aplicada no Supabase a migração de permissões financeiras, solicitações, índices, RLS e funções administrativas.
+- Auditoria de produção confirmou RLS público bloqueado, fazendas isoladas, criação de fazenda protegida e nenhuma visita ativa sem animal cadastrado.
+- Adicionados testes para empresas, permissões, áreas, faixas preventivas, KM, solicitações offline e retorno com diagnóstico anterior.
+- Validação concluída com `82` testes unitários e `21` fluxos de navegador em celular e tablet; `20` passaram e `1` foi ignorado por exigir o painel remoto durante o modo local de QA.
+- Os PDFs detalhado e interno foram renderizados como imagem e conferidos visualmente; a exportação vazia passou a ser bloqueada.
+- Atualizado o cache offline para `v33`.
+
+### Por que foi feito
+
+- Adaptar a operação da Hullsjob sem alterar o fluxo mais simples usado pela StarMilk.
+- Reduzir erros de toque e de interpretação para usuários com pouca familiaridade com tecnologia.
+- Evitar mistura entre visitas, vacas únicas, diagnósticos e valores financeiros.
+- Permitir análise clínica e financeira sem duplicar painéis nem expor valores a pessoas não autorizadas.
+- Garantir que solicitações, revisões e preventivos formem uma única agenda operacional.
+
+### Como validar
+
+- Entrar na Hullsjob, registrar dois cascos com problemas, selecionar regiões e doenças diferentes, concluir os tratamentos e conferir o resumo final.
+- Reabrir um animal tratado e confirmar que diagnóstico, região e taco anteriores aparecem pré-selecionados.
+- Entrar na StarMilk e confirmar que mapa, KM, solicitações e financeiro não aparecem.
+- Como Romano, alternar a agenda entre `Somente a minha`, `Toda a equipe` e um funcionário.
+- Criar uma solicitação de animal mancando offline, voltar à internet, aceitar, agendar e iniciar o atendimento.
+- Gerar os formatos `Cliente · detalhado` e `Interno · compacto`, com e sem valores.
+- Conferir em Desempenho as métricas de visitas, vacas vistas, gravidade, doenças e seis meses.
+- Rodar `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build:vercel`, `npm run test:e2e` e `npm run verify:production`.
+
+### Próximos passos
+
+1. Validar com Romano em um atendimento real se os nomes e limites das áreas 6E e 6C correspondem exatamente ao vocabulário usado no campo.
+2. Conferir o primeiro fechamento financeiro real por fazenda antes de usar os valores para cobrança ao cliente.
+3. Coletar uma amostra dos dois PDFs com 30 ou mais animais e ajustar apenas densidade de texto caso alguma doença longa reduza a leitura.
+4. Monitorar as primeiras solicitações de animais mancando em dois aparelhos para confirmar o tempo de sincronização em rede rural.
+
 ## 2026-08-24 - Nova fazenda na seleção e isolamento reforçado
 
 ### O que foi feito

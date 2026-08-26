@@ -104,10 +104,13 @@ export interface OperationalAnimalBreakdown {
 export interface OperationalBreakdown {
   diagnoses: number;
   problemFeet: number;
+  severity: { normal: number; light: number; moderate: number; severe: number; total: number };
   diseases: OperationalDiseaseBreakdown[];
   feet: OperationalFootBreakdown[];
   animals: OperationalAnimalBreakdown[];
 }
+
+export type MonthlyEvolutionRow = MonthlyMetricSet;
 
 export interface MonthlyMetricSet {
   prefix: string;
@@ -273,6 +276,7 @@ export function operationalBreakdownFromVisits(visits: Visit[]): OperationalBrea
   const animals = new Map<string, OperationalAnimalBreakdown>();
   let diagnoses = 0;
   let problemFeet = 0;
+  const severity = { normal: 0, light: 0, moderate: 0, severe: 0, total: 0 };
 
   for (const visit of visibleVisits) {
     const normalizedTag = visit.tag.trim().toLocaleLowerCase("pt-BR");
@@ -289,6 +293,15 @@ export function operationalBreakdownFromVisits(visits: Visit[]): OperationalBrea
 
     for (const foot of visit.feet) {
       const activeDiseases = (foot.diseases ?? []).filter((disease) => disease.severity > 0);
+      const footSeverity = activeDiseases.reduce<Severity>(
+        (worst, disease) => Math.max(worst, disease.severity) as Severity,
+        0,
+      );
+      severity.total += 1;
+      if (footSeverity === 0) severity.normal += 1;
+      if (footSeverity === 1) severity.light += 1;
+      if (footSeverity === 2) severity.moderate += 1;
+      if (footSeverity === 3) severity.severe += 1;
       const hasRecordedProblem = activeDiseases.length > 0 || Boolean(foot.taco);
       if (hasRecordedProblem) {
         problemFeet += 1;
@@ -322,6 +335,7 @@ export function operationalBreakdownFromVisits(visits: Visit[]): OperationalBrea
   return {
     diagnoses,
     problemFeet,
+    severity,
     diseases: Array.from(diseases.values())
       .map((row) => ({ ...row, animals: row.animals.size }))
       .sort((left, right) => right.records - left.records || left.label.localeCompare(right.label)),
@@ -373,6 +387,19 @@ export function monthlyComparisonFromVisits(
     current: monthMetricSet(visits, currentPrefix),
     previous: monthMetricSet(visits, previousPrefix),
   };
+}
+
+export function sixMonthEvolutionFromVisits(
+  visits: Visit[],
+  referenceDate: string,
+): MonthlyEvolutionRow[] {
+  const reference = new Date(`${referenceDate.slice(0, 7)}-01T12:00:00`);
+  return Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(reference);
+    date.setMonth(reference.getMonth() - (5 - index));
+    const prefix = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    return monthMetricSet(visits, prefix);
+  });
 }
 
 export function employeeReportBreakdown(visits: Visit[]): EmployeeReportRow[] {
@@ -486,6 +513,8 @@ export async function exportVisitsPdf(input: {
   pricing?: PricingConfig;
   catalog?: DiseaseDefinition[];
   filters?: VisitReportFilters;
+  reportType?: "client" | "internal";
+  includeValues?: boolean;
 }) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import("jspdf"),
@@ -506,6 +535,7 @@ export async function exportVisitsPdf(input: {
       const definition = diseaseDefinition(code);
       return definition ? [definition] : [];
     });
+  const showValues = Boolean(input.includeValues && input.pricing);
   const financial = billingSummaryFromVisits(visits, pricing, billingCatalog);
   const financialEmployees = employeeBillingSummaries(visits, pricing, billingCatalog);
   const financialMonths = monthlyBillingSeries(
@@ -567,6 +597,115 @@ export async function exportVisitsPdf(input: {
     input.filters?.lote ? `Lote: ${input.filters.lote}` : "Todos os lotes",
   ].join("  |  ");
 
+  if (input.reportType === "internal") {
+    doc.setFillColor(31, 91, 48);
+    doc.rect(0, 0, pageWidth, 22, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(`${input.reportTitle} · Relatório interno`, 10, 9);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(`${input.farmName} · ${scope} · ${period}`, 10, 15);
+
+    const compactFoot = (visit: Visit, footKey: FootKey) => {
+      const foot = visit.feet.find((entry) => entry.foot === footKey);
+      if (!foot) return "-";
+      const diseases = (foot.diseases ?? [])
+        .filter((disease) => disease.severity > 0)
+        .map((disease) => {
+          const zones = disease.zones?.length ? disease.zones : (foot.zones ?? []);
+          return `${disease.code} G${disease.severity}${zones.length ? ` Z${zones.join("/")}` : ""}`;
+        });
+      if (foot.taco)
+        diseases.push(
+          `Taco ${foot.taco.action === "apply" ? "+" : foot.taco.action === "remove" ? "-" : "="}`,
+        );
+      return diseases.length > 0 ? diseases.join(" · ") : "OK";
+    };
+    const headers = ["Animal / visita", "FE", "FD", "TE", "TD", "Tratamento", "Revisão"];
+    if (showValues) headers.push("Valor");
+    autoTable(doc, {
+      startY: 27,
+      margin: { top: 27, left: 6, right: 6, bottom: 11 },
+      head: [headers],
+      body: detailedVisits.map(({ visit }) => {
+        const treatments = Array.from(
+          new Set(
+            visit.feet.flatMap((foot) => [
+              ...(foot.treatments ?? []).map(
+                (code) => TREATMENTS.find((treatment) => treatment.code === code)?.label ?? code,
+              ),
+              ...(foot.taco ? [`${foot.foot}: ${tacoLabel(foot.taco)}`] : []),
+            ]),
+          ),
+        );
+        const reviews = visit.feet
+          .filter((foot) => foot.recheck && foot.recheckDate)
+          .map((foot) => `${foot.foot} ${formatShortDate(foot.recheckDate)}`);
+        const row = [
+          `${visit.tag}\n${formatShortDate(visit.date)} · ${visit.employee_name ?? visit.visitante_nome ?? "Sem responsável"}`,
+          ...REPORT_FOOT_ORDER.map((foot) => compactFoot(visit, foot)),
+          treatments.length > 0
+            ? treatments.join(" · ")
+            : visit.preventivo
+              ? "Preventivo"
+              : "Sem tratamento",
+          reviews.length > 0
+            ? reviews.join(" · ")
+            : visit.preventivo
+              ? `Preventivo ${formatShortDate(visit.nextPreventiveDate ?? dateAfterMonths(6, visit.date))}`
+              : "-",
+        ];
+        if (showValues) {
+          row.push(formatCurrency(billingForVisit(visit, pricing, billingCatalog).total));
+        }
+        return row;
+      }),
+      theme: "grid",
+      rowPageBreak: "avoid",
+      showHead: "everyPage",
+      styles: {
+        font: "helvetica",
+        fontSize: 5.8,
+        cellPadding: 1.1,
+        overflow: "linebreak",
+        valign: "top",
+      },
+      headStyles: {
+        fillColor: [31, 91, 48],
+        textColor: 255,
+        fontStyle: "bold",
+        fontSize: 6.4,
+        halign: "center",
+      },
+      columnStyles: {
+        0: { cellWidth: 30, fontStyle: "bold" },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 26 },
+        4: { cellWidth: 26 },
+        5: { cellWidth: 55 },
+        6: { cellWidth: showValues ? 45 : 67 },
+        ...(showValues ? { 7: { cellWidth: 20, halign: "right" } } : {}),
+      },
+      alternateRowStyles: { fillColor: [244, 247, 244] },
+    });
+
+    const pageCount = doc.getNumberOfPages();
+    for (let page = 1; page <= pageCount; page += 1) {
+      doc.setPage(page);
+      doc.setTextColor(100, 108, 101);
+      doc.setFontSize(7);
+      doc.text(`Página ${page} de ${pageCount}`, pageWidth - 8, pageHeight - 5, {
+        align: "right",
+      });
+    }
+    const suffix = input.filters?.employeeName || input.farmName || "relatorio";
+    doc.save(`interno-${safeFilename(suffix)}-${generatedAt.toISOString().slice(0, 10)}.pdf`);
+    return { count: visits.length };
+  }
+
   doc.setFillColor(31, 91, 48);
   doc.rect(0, 0, pageWidth, 28, "F");
   doc.setTextColor(255, 255, 255);
@@ -589,8 +728,8 @@ export async function exportVisitsPdf(input: {
   doc.text(filterDescription, 12, 40, { maxWidth: pageWidth - 24 });
 
   const metricCards = [
-    { label: "Atendimentos", value: metrics.visits, color: [31, 91, 48] as const },
-    { label: "Animais únicos", value: metrics.animals, color: [31, 91, 48] as const },
+    { label: "Visitas realizadas", value: metrics.visits, color: [31, 91, 48] as const },
+    { label: "Vacas vistas", value: metrics.animals, color: [31, 91, 48] as const },
     { label: "Cascos avaliados", value: feetEvaluated, color: [52, 120, 67] as const },
     { label: "Cascos em acompanhamento", value: feetInTreatment, color: [174, 109, 20] as const },
     { label: "Preventivos", value: metrics.preventive, color: [52, 120, 67] as const },
@@ -658,7 +797,7 @@ export async function exportVisitsPdf(input: {
   autoTable(doc, {
     startY: 118,
     margin: { left: 12, right: 12 },
-    head: [["Tipo de atendimento", "Visitas", "Animais únicos", "Leitura"]],
+    head: [["Tipo de atendimento", "Visitas realizadas", "Vacas vistas", "Leitura"]],
     body: composition.map((row) => [
       row.label,
       row.visits,
@@ -687,7 +826,9 @@ export async function exportVisitsPdf(input: {
     autoTable(doc, {
       startY: compositionEndY + 11,
       margin: { left: 12, right: 12 },
-      head: [["Funcionário", "Atend.", "Animais", "Preventivos", "Problemas", "G1", "G2", "G3"]],
+      head: [
+        ["Funcionário", "Visitas", "Vacas vistas", "Preventivos", "Problemas", "G1", "G2", "G3"],
+      ],
       body: employees.map((employee) => [
         employee.employeeName,
         employee.visits,
@@ -715,7 +856,7 @@ export async function exportVisitsPdf(input: {
     );
   }
 
-  if (input.pricing) {
+  if (showValues) {
     doc.addPage();
     doc.setFillColor(31, 91, 48);
     doc.rect(0, 0, pageWidth, 22, "F");
@@ -729,7 +870,7 @@ export async function exportVisitsPdf(input: {
 
     const financialCards = [
       ["Valor produzido", formatCurrency(financial.total)],
-      ["Atendimentos", String(financial.visits)],
+      ["Visitas cobradas", String(financial.visits)],
       ["Média por visita", formatCurrency(financial.averagePerVisit)],
       ["Visitas estimadas", String(financial.estimatedVisits)],
     ];
@@ -798,7 +939,7 @@ export async function exportVisitsPdf(input: {
       autoTable(doc, {
         startY: servicesEndY + 12,
         margin: { left: 12, right: 12 },
-        head: [["Funcionário", "Atendimentos", "Valor", "Média"]],
+        head: [["Funcionário", "Visitas", "Valor", "Média"]],
         body: financialEmployees.map((employee) => [
           employee.employeeName,
           employee.visits,
@@ -853,7 +994,9 @@ export async function exportVisitsPdf(input: {
           visit.preventivo
             ? `Próximo preventivo: ${formatShortDate(visit.nextPreventiveDate ?? dateAfterMonths(6, visit.date))}`
             : "",
-          `Valor: ${formatCurrency(billingForVisit(visit, pricing, billingCatalog).total)}${visit.billing ? "" : " (estimado)"}`,
+          showValues
+            ? `Valor: ${formatCurrency(billingForVisit(visit, pricing, billingCatalog).total)}${visit.billing ? "" : " (estimado)"}`
+            : "",
           reviewFeet.length > 0
             ? `Revisão em ${reviewFeet.map((foot) => foot.foot).join(", ")}`
             : "Sem revisão marcada",

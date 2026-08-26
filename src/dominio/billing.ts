@@ -2,15 +2,17 @@ import type { DiseaseDefinition, FootKey, TacoAction, Visit } from "./casco-stor
 
 export interface PricingConfig {
   preventive: number;
+  preventiveTiers: Array<{ min: number; max?: number; price: number }>;
   clinicalVisit: number;
   bandage: number;
   tacoApply: number;
   tacoMaintain: number;
   tacoRemove: number;
   diseases: Record<string, number>;
+  travelPerKm: number;
 }
 
-export type BillingLineKind = "preventive" | "clinical" | "bandage" | "taco" | "disease";
+export type BillingLineKind = "preventive" | "clinical" | "bandage" | "taco" | "disease" | "travel";
 
 export interface BillingLine {
   key: string;
@@ -62,12 +64,30 @@ export interface MonthlyBillingPoint {
 
 export const DEFAULT_PRICING_CONFIG: PricingConfig = {
   preventive: 0,
+  preventiveTiers: [],
   clinicalVisit: 0,
   bandage: 0,
   tacoApply: 0,
   tacoMaintain: 0,
   tacoRemove: 0,
   diseases: {},
+  travelPerKm: 0,
+};
+
+export const HULLSJOB_DEFAULT_PRICING: PricingConfig = {
+  preventive: 80,
+  preventiveTiers: [
+    { min: 1, max: 20, price: 80 },
+    { min: 21, max: 40, price: 65 },
+    { min: 41, price: 60 },
+  ],
+  clinicalVisit: 0,
+  bandage: 35,
+  tacoApply: 45,
+  tacoMaintain: 0,
+  tacoRemove: 0,
+  diseases: { DD: 15 },
+  travelPerKm: 3.3,
 };
 
 const TACO_LABELS: Record<TacoAction, string> = {
@@ -90,6 +110,15 @@ function line(input: Omit<BillingLine, "quantity" | "total">): BillingLine {
 export function normalizePricingConfig(value?: Partial<PricingConfig> | null): PricingConfig {
   return {
     preventive: money(value?.preventive),
+    preventiveTiers: Array.isArray(value?.preventiveTiers)
+      ? value.preventiveTiers
+          .map((tier) => ({
+            min: Math.max(1, Math.round(Number(tier.min) || 1)),
+            max: tier.max ? Math.max(1, Math.round(Number(tier.max))) : undefined,
+            price: money(tier.price),
+          }))
+          .sort((left, right) => left.min - right.min)
+      : [],
     clinicalVisit: money(value?.clinicalVisit),
     bandage: money(value?.bandage),
     tacoApply: money(value?.tacoApply),
@@ -98,19 +127,30 @@ export function normalizePricingConfig(value?: Partial<PricingConfig> | null): P
     diseases: Object.fromEntries(
       Object.entries(value?.diseases ?? {}).map(([code, price]) => [code, money(price)]),
     ),
+    travelPerKm: money(value?.travelPerKm),
   };
 }
 
 export function pricingHasValues(pricing: PricingConfig) {
   return (
     pricing.preventive > 0 ||
+    pricing.preventiveTiers.some((tier) => tier.price > 0) ||
     pricing.clinicalVisit > 0 ||
     pricing.bandage > 0 ||
     pricing.tacoApply > 0 ||
     pricing.tacoMaintain > 0 ||
     pricing.tacoRemove > 0 ||
-    Object.values(pricing.diseases).some((price) => price > 0)
+    Object.values(pricing.diseases).some((price) => price > 0) ||
+    pricing.travelPerKm > 0
   );
+}
+
+export function preventiveUnitPrice(pricing: PricingConfig, quantity = 1) {
+  const normalizedQuantity = Math.max(1, Math.round(quantity));
+  const tier = pricing.preventiveTiers.find(
+    (item) => normalizedQuantity >= item.min && (!item.max || normalizedQuantity <= item.max),
+  );
+  return tier?.price ?? pricing.preventive;
 }
 
 function diseaseName(code: string, catalog: DiseaseDefinition[]) {
@@ -131,7 +171,7 @@ export function billingLinesForVisit(
         key: "preventive",
         kind: "preventive",
         label: "Casqueamento preventivo",
-        unitPrice: pricing.preventive,
+        unitPrice: preventiveUnitPrice(pricing, visit.preventiveBatchSize),
       }),
     );
   } else {
@@ -160,7 +200,7 @@ export function billingLinesForVisit(
       );
     }
 
-    if ((foot.treatments ?? []).includes("BAND_ON")) {
+    if ((foot.treatments ?? []).includes("BAND_ON") && foot.taco?.action !== "apply") {
       lines.push(
         line({
           key: "bandage",
@@ -189,6 +229,19 @@ export function billingLinesForVisit(
         }),
       );
     }
+  }
+
+  if ((visit.travelKm ?? 0) > 0 && pricing.travelPerKm > 0) {
+    const quantity = Math.round((visit.travelKm ?? 0) * 10) / 10;
+    const unitPrice = pricing.travelPerKm;
+    lines.push({
+      key: "travel",
+      kind: "travel",
+      label: `Deslocamento (${quantity.toLocaleString("pt-BR")} km)`,
+      quantity,
+      unitPrice,
+      total: money(quantity * unitPrice),
+    });
   }
 
   return lines;

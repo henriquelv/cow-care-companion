@@ -44,7 +44,6 @@ import {
   diseaseCatalog,
   loadFarm,
   loadVisits,
-  saveFarm,
   todayISO,
   visitIsFinalized,
   type Visit,
@@ -54,25 +53,20 @@ import {
   filterVisitsForReport,
   monthlyComparisonFromVisits,
   operationalBreakdownFromVisits,
+  sixMonthEvolutionFromVisits,
   visitReportMetrics,
   type VisitReportStatus,
 } from "@/dominio/visit-report";
 import {
   MonthlyComparisonPanel,
   OperationalBreakdownPanel,
+  SeverityDonutPanel,
+  SixMonthEvolutionPanel,
 } from "@/componentes/metricas/OperationalAnalysis";
-import { BillingDashboard, PricingEditor } from "@/componentes/financeiro/BillingPanels";
-import { billingSummaryFromVisits, formatCurrency, type PricingConfig } from "@/dominio/billing";
+import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
+import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features";
 
-type AdminTab =
-  | "reports"
-  | "billing"
-  | "data"
-  | "farms"
-  | "employees"
-  | "devices"
-  | "licenses"
-  | "audit";
+type AdminTab = "reports" | "data" | "farms" | "employees" | "devices" | "licenses" | "audit";
 
 const EMPTY_OVERVIEW: AdminOverview = {
   farms: [],
@@ -96,6 +90,7 @@ const ACTION_LABELS: Record<string, string> = {
   update_device_status: "Aparelho atualizado",
   update_license_status: "Licença atualizada",
   update_farm: "Fazenda atualizada",
+  set_financial_permission: "Permissão financeira atualizada",
 };
 
 function formatDate(value?: string | null) {
@@ -198,6 +193,8 @@ export function AdminScreen({
   const [reportEmployeeId, setReportEmployeeId] = useState("all");
   const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
   const [reportLote, setReportLote] = useState("all");
+  const [reportType, setReportType] = useState<"client" | "internal">("client");
+  const [includeValues, setIncludeValues] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [dataMode, setDataMode] = useState<"visits" | "animals">("visits");
   const [dataSearch, setDataSearch] = useState("");
@@ -207,6 +204,8 @@ export function AdminScreen({
   const [dataRemovalReason, setDataRemovalReason] = useState("");
   const farmConfiguration = loadFarm();
   const pricingCatalog = diseaseCatalog(farmConfiguration);
+  const features = tenantFeatures(context, farmConfiguration.featureOverrides);
+  const financialAllowed = canViewFinancial(context, farmConfiguration.featureOverrides);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -337,6 +336,7 @@ export function AdminScreen({
   });
   const monthComparison = monthlyComparisonFromVisits(comparisonVisits, reportTo || today);
   const operationalBreakdown = operationalBreakdownFromVisits(reportVisits);
+  const sixMonthEvolution = sixMonthEvolutionFromVisits(comparisonVisits, reportTo || today);
   const currentAnimals = allAnimals();
   const currentHerdMetrics = {
     registered: currentAnimals.length,
@@ -410,30 +410,6 @@ export function AdminScreen({
       setError(message);
       if (message.includes("expirado")) setUnlocked(false);
       return false;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function savePricing(pricing: PricingConfig) {
-    setLoading(true);
-    setError("");
-    setNotice("");
-    try {
-      const farm = loadFarm();
-      await saveFarm({ ...farm, pricing });
-      const sync = await syncService.syncAll();
-      if (!sync.ok && sync.message !== "Offline.") {
-        throw new Error(sync.message || "Não foi possível sincronizar a tabela.");
-      }
-      setNotice(
-        sync.ok
-          ? "Tabela de preços salva e sincronizada para esta fazenda."
-          : "Tabela salva neste aparelho. Ela será sincronizada quando houver internet.",
-      );
-      await onDataChanged?.();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Não foi possível salvar os valores.");
     } finally {
       setLoading(false);
     }
@@ -583,8 +559,10 @@ export function AdminScreen({
               ? `Somente ${selectedReportEmployee.name}`
               : "Administrador e funcionários da fazenda",
         includeEmployeeBreakdown: complete || (reportScope === "team" && !selectedReportEmployee),
-        pricing: farmConfiguration.pricing,
+        pricing: financialAllowed && includeValues ? farmConfiguration.pricing : undefined,
         catalog: pricingCatalog,
+        reportType,
+        includeValues: financialAllowed && includeValues,
         filters: complete ? { farmId: context?.farm_id, status: "all" } : reportFilters,
       });
     } catch (caught) {
@@ -674,12 +652,6 @@ export function AdminScreen({
   const tabs: Array<{ id: AdminTab; label: string; description: string; icon: typeof Building2 }> =
     [
       { id: "reports", label: "Desempenho", description: "Métricas e PDF", icon: BarChart3 },
-      {
-        id: "billing",
-        label: "Cobranças",
-        description: "Valores e saldos",
-        icon: CircleDollarSign,
-      },
       { id: "data", label: "Registros", description: "Visitas e animais", icon: Database },
       { id: "farms", label: "Fazendas", description: "Unidades separadas", icon: Building2 },
       { id: "employees", label: "Equipe", description: "Pessoas e acessos", icon: Users },
@@ -758,50 +730,6 @@ export function AdminScreen({
           {notice}
         </p>
       ) : null}
-
-      {tab === "billing" && (
-        <section className="space-y-7" aria-labelledby="billing-admin-title">
-          <div>
-            <h2 id="billing-admin-title" className="font-display text-lg font-black uppercase">
-              Cobranças da fazenda
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Valores produzidos pela equipe e tabela usada nos próximos atendimentos.
-            </p>
-          </div>
-
-          <BillingDashboard
-            visits={loadVisits().filter(
-              (visit) => !context?.farm_id || !visit.farm_id || visit.farm_id === context.farm_id,
-            )}
-            pricing={farmConfiguration.pricing}
-            catalog={pricingCatalog}
-            referenceDate={today}
-            employees={farmEmployees.map((employee) => ({
-              id: employee.id,
-              name: employee.name,
-            }))}
-            allowEmployeeFilter
-          />
-
-          <section className="border-t-2 border-border pt-6" aria-labelledby="pricing-title">
-            <div className="mb-4">
-              <h2 id="pricing-title" className="font-display text-lg font-black uppercase">
-                Editar tabela de preços
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Somente o administrador pode alterar os valores desta fazenda.
-              </p>
-            </div>
-            <PricingEditor
-              pricing={farmConfiguration.pricing}
-              catalog={pricingCatalog}
-              saving={loading}
-              onSave={savePricing}
-            />
-          </section>
-        </section>
-      )}
 
       {tab === "reports" && (
         <section className="space-y-5" aria-labelledby="reports-title">
@@ -981,18 +909,18 @@ export function AdminScreen({
               </h3>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Atendimentos conta visitas finalizadas. Animais únicos conta brincos diferentes, então
-              pode ser menor.
+              Visitas realizadas conta registros finalizados. Vacas vistas conta brincos diferentes,
+              então pode ser menor.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <MetricTile
                 value={reportMetrics.visits}
-                label="Atendimentos"
+                label="Visitas realizadas"
                 help="Visitas finalizadas no período"
               />
               <MetricTile
                 value={reportMetrics.animals}
-                label="Animais únicos"
+                label="Vacas vistas"
                 help="Brincos diferentes atendidos"
               />
               <MetricTile
@@ -1034,28 +962,25 @@ export function AdminScreen({
             </div>
           </section>
 
-          <button
-            type="button"
-            onClick={() => setTab("billing")}
-            className="flex min-h-20 w-full items-center gap-4 rounded-lg border-2 border-primary/30 bg-primary/5 px-4 text-left"
-          >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[10px] font-black uppercase text-muted-foreground">
-                Valor produzido nos filtros acima
+          {financialAllowed ? (
+            <section className="flex min-h-20 w-full items-center gap-4 rounded-lg border-2 border-primary/30 bg-primary/5 px-4 text-left">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
               </span>
-              <strong className="block font-display text-xl font-black text-primary">
-                {formatCurrency(reportBilling.total)}
-              </strong>
-              <span className="block text-xs text-muted-foreground">
-                {reportBilling.visits} atendimento(s) · média de{" "}
-                {formatCurrency(reportBilling.averagePerVisit)}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] font-black uppercase text-muted-foreground">
+                  Valor produzido nos filtros acima
+                </span>
+                <strong className="block font-display text-xl font-black text-primary">
+                  {formatCurrency(reportBilling.total)}
+                </strong>
+                <span className="block text-xs text-muted-foreground">
+                  {reportBilling.visits} atendimento(s) · média de{" "}
+                  {formatCurrency(reportBilling.averagePerVisit)}
+                </span>
               </span>
-            </span>
-            <span className="shrink-0 text-xs font-black uppercase text-primary">Detalhar</span>
-          </button>
+            </section>
+          ) : null}
 
           <section
             className="rounded-lg border border-border bg-card p-4"
@@ -1090,6 +1015,11 @@ export function AdminScreen({
           </section>
 
           <MonthlyComparisonPanel comparison={monthComparison} />
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <SeverityDonutPanel breakdown={operationalBreakdown} />
+            <SixMonthEvolutionPanel rows={sixMonthEvolution} />
+          </div>
 
           <OperationalBreakdownPanel
             breakdown={operationalBreakdown}
@@ -1171,6 +1101,50 @@ export function AdminScreen({
               {completeReportMetrics.preventive} preventivo(s) · {completeReportMetrics.withProblem}{" "}
               com problema · {completeReportMetrics.normal} normal(is)
             </p>
+            <fieldset className="mt-3">
+              <legend className="text-[10px] font-black uppercase text-muted-foreground">
+                Formato do PDF
+              </legend>
+              <div className="mt-1 grid grid-cols-2 gap-2 rounded-lg bg-card p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setReportType("client")}
+                  aria-pressed={reportType === "client"}
+                  className={cn(
+                    "min-h-11 rounded-md px-3 text-xs font-black uppercase",
+                    reportType === "client"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground",
+                  )}
+                >
+                  Cliente · detalhado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportType("internal")}
+                  aria-pressed={reportType === "internal"}
+                  className={cn(
+                    "min-h-11 rounded-md px-3 text-xs font-black uppercase",
+                    reportType === "internal"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground",
+                  )}
+                >
+                  Interno · compacto
+                </button>
+              </div>
+            </fieldset>
+            {financialAllowed ? (
+              <label className="mt-3 flex min-h-12 items-center gap-3 rounded-lg border border-border bg-card px-3 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={includeValues}
+                  onChange={(event) => setIncludeValues(event.target.checked)}
+                  className="h-5 w-5 accent-primary"
+                />
+                Incluir valores financeiros no PDF
+              </label>
+            ) : null}
             <button
               type="button"
               onClick={() => void exportAdminPdf("complete")}
@@ -1222,7 +1196,7 @@ export function AdminScreen({
                     <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                       <div>
                         <p className="font-display text-xl font-black">{metrics.visits}</p>
-                        <p className="text-[9px] uppercase text-muted-foreground">Atend.</p>
+                        <p className="text-[9px] uppercase text-muted-foreground">Visitas</p>
                       </div>
                       <div>
                         <p className="font-display text-xl font-black">{metrics.animals}</p>
@@ -1253,12 +1227,14 @@ export function AdminScreen({
                         <p className="text-[9px] uppercase text-muted-foreground">Graves</p>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-                      <span className="text-[10px] font-black uppercase text-muted-foreground">
-                        Valor produzido
-                      </span>
-                      <strong className="text-primary">{formatCurrency(billing.total)}</strong>
-                    </div>
+                    {financialAllowed ? (
+                      <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                        <span className="text-[10px] font-black uppercase text-muted-foreground">
+                          Valor produzido
+                        </span>
+                        <strong className="text-primary">{formatCurrency(billing.total)}</strong>
+                      </div>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -1769,6 +1745,32 @@ export function AdminScreen({
                   >
                     {employee.is_admin ? "Remover gerente" : "Tornar gerente"}
                   </button>
+                  {features.financial ? (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() =>
+                        void runAction(
+                          "set_financial_permission",
+                          {
+                            employee_id: employee.id,
+                            allowed: !employee.can_view_financial,
+                          },
+                          employee.can_view_financial
+                            ? "Acesso aos valores removido."
+                            : "Acesso aos valores concedido.",
+                        )
+                      }
+                      className={cn(
+                        "min-h-10 rounded-lg px-3 text-xs font-bold disabled:opacity-40",
+                        employee.can_view_financial
+                          ? "bg-primary/10 text-primary"
+                          : "bg-surface text-foreground",
+                      )}
+                    >
+                      {employee.can_view_financial ? "Ocultar valores" : "Permitir valores"}
+                    </button>
+                  ) : null}
                 </div>
                 <div>
                   <p className="mb-1.5 text-[10px] font-black uppercase text-muted-foreground">

@@ -43,12 +43,30 @@ async function authenticate(company, login, pin, deviceId, expectedAdmin) {
   return result;
 }
 
-async function verifyTenant({ company, login, pin, deviceId, expectedFarmName }) {
+async function verifyTenant({
+  company,
+  login,
+  pin,
+  deviceId,
+  expectedFarmName,
+  expectedFinancial,
+}) {
   const access = await authenticate(company, login, pin, deviceId, true);
-  const farm = access.farms[0];
-  assert(farm.name === expectedFarmName, `${company}: fazenda incorreta.`);
+  const farm = access.farms.find((candidate) => candidate.name === expectedFarmName);
+  assert(farm, `${company}: fazenda ${expectedFarmName} não encontrada.`);
   assert(farm.max_devices == null, `${company}: a fazenda voltou a limitar aparelhos.`);
   assert(access.client?.max_devices == null, `${company}: a empresa voltou a limitar aparelhos.`);
+
+  const permissions = await request("rpc/hoof_employee_permissions", {
+    method: "POST",
+    session: access.session_token,
+    deviceId,
+    body: {},
+  });
+  assert(
+    permissions?.can_view_financial === expectedFinancial,
+    `${company}: permissão financeira incorreta.`,
+  );
 
   const activation = await request("rpc/activate_hoof_device", {
     method: "POST",
@@ -154,6 +172,7 @@ async function main() {
     pin: process.env.QA_STARMILK_PIN ?? "1234",
     deviceId: "qa-production-starmilk",
     expectedFarmName: "StarMilk",
+    expectedFinancial: false,
   });
   const hullsjob = await verifyTenant({
     company: "HULLSJOB",
@@ -161,6 +180,7 @@ async function main() {
     pin: process.env.QA_HULLSJOB_PIN ?? "1234",
     deviceId: "qa-production-hullsjob",
     expectedFarmName: "Fazenda Vitória",
+    expectedFinancial: true,
   });
   const jeova = await authenticate(
     "HULLSJOB",

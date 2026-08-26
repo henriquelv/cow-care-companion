@@ -10,6 +10,7 @@ import {
   type ReactElement,
 } from "react";
 import {
+  Activity,
   Plus,
   Minus,
   Search,
@@ -98,6 +99,7 @@ import {
   visitHasActiveProblem,
   type DiseaseEntry,
   type DiseaseDefinition,
+  type HoofAreaDefinition,
   type FarmConfig,
   type FootEntry,
   type FootKey,
@@ -110,6 +112,7 @@ import {
   type TacoSide,
   type Visit,
   type AgendaItem,
+  type Zone,
 } from "@/dominio/casco-store";
 import {
   exportVisitsPdf,
@@ -119,6 +122,7 @@ import {
   type VisitReportStatus,
 } from "@/dominio/visit-report";
 import { DiseasePicker } from "@/componentes/casco/DiseasePicker";
+import { HoofMapPicker } from "@/componentes/casco/HoofMapPicker";
 import { HelpModal } from "@/componentes/casco/Tutorial";
 import {
   MonthlyComparisonPanel,
@@ -134,12 +138,19 @@ import {
 import { farmContextService } from "@/servicos/farm-context.service";
 import { isSupabaseConfigured } from "@/servicos/supabase";
 import { syncService } from "@/servicos/sync.service";
-import { getPhotoDisplayUrl, mediaRef, savePhotoBlob } from "@/servicos/media.service";
+import {
+  getPhotoDisplayUrl,
+  getSignedPhotoUrl,
+  mediaRef,
+  savePhotoBlob,
+} from "@/servicos/media.service";
 import { employeeAgendaService, type EmployeeAgendaItem } from "@/servicos/employee-agenda.service";
 import { adminService } from "@/servicos/admin.service";
 import { PreventiveScreen } from "@/telas/preventivo/PreventiveScreen";
-import { BillingDashboard } from "@/componentes/financeiro/BillingPanels";
+import { BillingDashboard, PricingEditor } from "@/componentes/financeiro/BillingPanels";
 import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
+import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features";
+import { limpingRequestService, type LimpingRequest } from "@/servicos/limping-request.service";
 
 const AdminScreen = lazy(() =>
   import("@/telas/administrador/AdminScreen").then((module) => ({ default: module.AdminScreen })),
@@ -198,7 +209,8 @@ type Screen =
   | { name: "calendar" }
   | { name: "preventivo" }
   | { name: "billing" }
-  | { name: "profile" };
+  | { name: "profile" }
+  | { name: "limping-request" };
 
 function newDraft(tag = ""): Visit {
   const employeeName = farmContextService.getEmployeeName();
@@ -369,9 +381,10 @@ export function Index() {
             : screen.name === "preventivo"
               ? "today"
               : "today";
+  const showBottomNav = screen.name !== "register" && screen.name !== "limping-request";
 
   return (
-    <div className="app-bottom-space min-h-[100dvh] overflow-x-hidden">
+    <div className={cn("min-h-[100dvh] overflow-x-hidden", showBottomNav && "app-bottom-space")}>
       <a href="#conteudo-principal" className="skip-link">
         Pular para conteúdo
       </a>
@@ -384,7 +397,7 @@ export function Index() {
           void runSync();
         }}
         onHistory={() => setScreen({ name: "history-list" })}
-        showBack={screen.name !== "today"}
+        showBack={screen.name !== "today" && screen.name !== "register"}
         onBack={screen.name === "billing" ? () => setScreen({ name: "profile" }) : goToday}
         screen={screen.name}
         onHelp={() => setShowHelp(true)}
@@ -402,6 +415,7 @@ export function Index() {
             onEdit={(tag) => openEdit(tag)}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
             onCalendar={() => setScreen({ name: "calendar" })}
+            onRequest={() => setScreen({ name: "limping-request" })}
             onFilters={() => setScreen({ name: "filters" })}
             filters={homeFilters}
             onClearFilters={() => setHomeFilters(EMPTY_FILTERS)}
@@ -419,6 +433,24 @@ export function Index() {
                 completedAt: Date.now(),
               };
               const { animalCreated } = addVisit(completedVisit);
+              void limpingRequestService
+                .list()
+                .then((requests) => {
+                  const linked = requests.find(
+                    (request) =>
+                      request.tag.trim().toLocaleLowerCase("pt-BR") ===
+                        completedVisit.tag.trim().toLocaleLowerCase("pt-BR") &&
+                      request.status !== "attended" &&
+                      request.status !== "refused",
+                  );
+                  return linked
+                    ? limpingRequestService.update(linked, {
+                        status: "attended",
+                        visit_id: completedVisit.id,
+                      })
+                    : undefined;
+                })
+                .catch(() => undefined);
               void runSync();
               refresh();
               showToast(
@@ -456,6 +488,15 @@ export function Index() {
           />
         )}
         {screen.name === "billing" && <EmployeeBillingScreen farm={farm} />}
+        {screen.name === "limping-request" && (
+          <LimpingRequestScreen
+            onSaved={() => {
+              void runSync();
+              showToast("Solicitação enviada para a agenda.");
+              setScreen({ name: "calendar" });
+            }}
+          />
+        )}
         {screen.name === "calendar" && (
           <CalendarScreen
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
@@ -524,51 +565,53 @@ export function Index() {
       </main>
 
       {/* Bottom Navigation */}
-      <nav
-        aria-label="Navegação principal"
-        className="safe-bottom fixed bottom-0 left-0 right-0 z-20 border-t-2 border-border bg-background/95 backdrop-blur-sm"
-      >
-        <div className="mx-auto flex max-w-2xl items-stretch">
-          <NavTab
-            icon={<Users className="h-5 w-5" />}
-            label="Animais"
-            active={screen.name === "today"}
-            onClick={goToday}
-            ariaLabel="Tela de animais"
-          />
-          <NavTab
-            icon={<Scissors className="h-5 w-5" />}
-            label="Preventivo"
-            active={screen.name === "preventivo"}
-            onClick={() => setScreen({ name: "preventivo" })}
-            ariaLabel="Lista de casqueamento preventivo"
-          />
-          <button
-            aria-label="Nova visita"
-            onClick={() => setScreen({ name: "register" })}
-            className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground stamp shadow-lg transition-transform active:scale-95">
-              <Plus className="h-7 w-7" strokeWidth={3} aria-hidden="true" />
-            </div>
-            <span className="text-[10px] font-bold uppercase text-primary">Nova</span>
-          </button>
-          <NavTab
-            icon={<CalendarDays className="h-5 w-5" />}
-            label="Calendário"
-            active={screen.name === "calendar"}
-            onClick={() => setScreen({ name: "calendar" })}
-            ariaLabel="Calendário de revisões"
-          />
-          <NavTab
-            icon={<User className="h-5 w-5" />}
-            label="Trabalho"
-            active={screen.name === "profile"}
-            onClick={() => setScreen({ name: "profile" })}
-            ariaLabel="Meu trabalho e segurança"
-          />
-        </div>
-      </nav>
+      {showBottomNav ? (
+        <nav
+          aria-label="Navegação principal"
+          className="safe-bottom fixed bottom-0 left-0 right-0 z-20 border-t-2 border-border bg-background/95 backdrop-blur-sm"
+        >
+          <div className="mx-auto flex max-w-2xl items-stretch">
+            <NavTab
+              icon={<Users className="h-5 w-5" />}
+              label="Animais"
+              active={screen.name === "today"}
+              onClick={goToday}
+              ariaLabel="Tela de animais"
+            />
+            <NavTab
+              icon={<Scissors className="h-5 w-5" />}
+              label="Preventivo"
+              active={screen.name === "preventivo"}
+              onClick={() => setScreen({ name: "preventivo" })}
+              ariaLabel="Lista de casqueamento preventivo"
+            />
+            <button
+              aria-label="Nova visita"
+              onClick={() => setScreen({ name: "register" })}
+              className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground stamp shadow-lg transition-transform active:scale-95">
+                <Plus className="h-7 w-7" strokeWidth={3} aria-hidden="true" />
+              </div>
+              <span className="text-[10px] font-bold uppercase text-primary">Nova</span>
+            </button>
+            <NavTab
+              icon={<CalendarDays className="h-5 w-5" />}
+              label="Calendário"
+              active={screen.name === "calendar"}
+              onClick={() => setScreen({ name: "calendar" })}
+              ariaLabel="Calendário de revisões"
+            />
+            <NavTab
+              icon={<User className="h-5 w-5" />}
+              label="Trabalho"
+              active={screen.name === "profile"}
+              onClick={() => setScreen({ name: "profile" })}
+              ariaLabel="Meu trabalho e segurança"
+            />
+          </div>
+        </nav>
+      ) : null}
 
       {showHelp && <HelpModal screen={helpScreen} onClose={() => setShowHelp(false)} />}
 
@@ -1569,6 +1612,7 @@ function TodayScreen({
   onEdit,
   onOpenHistory,
   onCalendar,
+  onRequest,
   onFilters,
   filters,
   onClearFilters,
@@ -1577,10 +1621,13 @@ function TodayScreen({
   onEdit: (tag: string) => void;
   onOpenHistory: (tag: string) => void;
   onCalendar: () => void;
+  onRequest: () => void;
   onFilters: () => void;
   filters: Filters;
   onClearFilters: () => void;
 }) {
+  const homeFarm = loadFarm();
+  const features = tenantFeatures(farmContextService.getContext(), homeFarm.featureOverrides);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"treatment" | "recheck" | "registered" | "all">("treatment");
 
@@ -1712,6 +1759,25 @@ function TodayScreen({
           </button>
         </div>
       </section>
+
+      {features.limpingRequests ? (
+        <button
+          type="button"
+          onClick={onRequest}
+          className="flex min-h-14 w-full items-center gap-3 rounded-xl border-2 border-primary bg-card px-4 text-left text-primary"
+        >
+          <Activity className="h-6 w-6 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-sm font-black uppercase">
+              Solicitar atendimento
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Informar uma vaca mancando para entrar na agenda
+            </span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+        </button>
+      ) : null}
 
       <button
         type="button"
@@ -2754,6 +2820,144 @@ function FiltersScreen({
   );
 }
 
+function LimpingRequestScreen({ onSaved }: { onSaved: () => void }) {
+  const [tag, setTag] = useState("");
+  const [note, setNote] = useState("");
+  const [photoMediaId, setPhotoMediaId] = useState<string>();
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function attachPhoto(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Escolha uma foto da câmera ou da galeria.");
+      return;
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Não foi possível abrir a foto."));
+      reader.readAsDataURL(file);
+    });
+    const id = uid();
+    await savePhotoBlob(id, dataUrl, file.type);
+    setPhotoMediaId(id);
+    setPhotoPreview(dataUrl);
+    setError("");
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await limpingRequestService.create({ tag, note, photoMediaId });
+      onSaved();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível enviar a solicitação.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="space-y-5" onSubmit={submit}>
+      <section className="border-b border-border pb-4">
+        <p className="text-xs font-black uppercase text-primary">Agenda clínica</p>
+        <h1 className="mt-1 font-display text-xl font-black uppercase">Solicitar atendimento</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Informe o brinco da vaca que está mancando. A equipe poderá aceitar e agendar.
+        </p>
+      </section>
+
+      <label className="block">
+        <span className="text-xs font-black uppercase">Número do brinco *</span>
+        <input
+          required
+          inputMode="numeric"
+          value={tag}
+          onChange={(event) => setTag(event.target.value.replace(/[^0-9A-Za-z-]/g, ""))}
+          placeholder="Ex.: 1284"
+          className="mt-2 min-h-16 w-full rounded-xl border-2 border-border bg-surface px-4 text-2xl font-bold outline-none focus:border-primary"
+        />
+      </label>
+
+      <label className="block">
+        <span className="text-xs font-black uppercase">Observação (opcional)</span>
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          maxLength={500}
+          rows={3}
+          placeholder="Ex.: manca do pé traseiro direito"
+          className="mt-2 w-full rounded-xl border-2 border-border bg-surface p-4 text-base outline-none focus:border-primary"
+        />
+      </label>
+
+      <label className="flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-primary bg-card px-4 font-display text-sm font-black uppercase text-primary">
+        <Camera className="h-5 w-5" aria-hidden="true" />
+        {photoPreview ? "Trocar foto" : "Adicionar foto (opcional)"}
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="sr-only"
+          onChange={(event) => void attachPhoto(event.target.files?.[0])}
+        />
+      </label>
+      {photoPreview ? (
+        <img
+          src={photoPreview}
+          alt="Foto anexada à solicitação"
+          className="aspect-video w-full rounded-xl border border-border object-cover"
+        />
+      ) : null}
+
+      {error ? (
+        <p role="alert" className="rounded-lg bg-danger/10 p-3 text-sm font-bold text-danger">
+          {error}
+        </p>
+      ) : null}
+      <button
+        type="submit"
+        disabled={saving || !tag.trim()}
+        className="flex min-h-16 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 font-display font-black uppercase text-primary-foreground disabled:opacity-50"
+      >
+        <CalendarPlus className="h-5 w-5" aria-hidden="true" />
+        {saving ? "Enviando" : "Enviar para a agenda"}
+      </button>
+    </form>
+  );
+}
+
+function LimpingRequestPhoto({ request }: { request: LimpingRequest }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let objectUrl = "";
+    let active = true;
+    void (async () => {
+      const local = request.photo_media_id
+        ? await getPhotoDisplayUrl(mediaRef(request.photo_media_id))
+        : "";
+      const next = local || (await getSignedPhotoUrl(request.photo_storage_path));
+      objectUrl = next;
+      if (active) setUrl(next);
+    })();
+    return () => {
+      active = false;
+      if (objectUrl.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
+    };
+  }, [request.photo_media_id, request.photo_storage_path]);
+  return url ? (
+    <img
+      src={url}
+      alt={`Foto da solicitação do animal ${request.tag}`}
+      className="mt-3 aspect-video w-full rounded-lg border border-border object-cover"
+    />
+  ) : null;
+}
+
 /* ───────────── Calendário ───────────── */
 function downloadAgendaEvent(item: AgendaItem, selectedFarmName?: string) {
   const farmName = selectedFarmName ?? farmContextService.getContext()?.farm_name ?? "Fazenda";
@@ -2801,17 +3005,55 @@ function CalendarScreen({
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [selectedDate, setSelectedDate] = useState(today);
+  const [agendaScope, setAgendaScope] = useState("mine");
+  const [limpingRequests, setLimpingRequests] = useState<LimpingRequest[]>([]);
+  const farmFeatures = tenantFeatures(employeeContext, loadFarm().featureOverrides);
+  const agendaEmployees = useMemo(() => {
+    const employees = new Map<string, string>();
+    for (const visit of loadVisits().filter(visitIsFinalized)) {
+      if (visit.employee_id) {
+        employees.set(
+          visit.employee_id,
+          visit.employee_name ?? visit.visitante_nome ?? "Funcionário",
+        );
+      }
+    }
+    if (employeeContext?.employee_id) {
+      employees.set(employeeContext.employee_id, employeeContext.employee_name);
+    }
+    return Array.from(employees, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name, "pt-BR"),
+    );
+  }, [employeeContext?.employee_id, employeeContext?.employee_name]);
+  const agendaEmployeeId =
+    !employeeContext?.is_admin || agendaScope === "mine"
+      ? employeeContext?.employee_id
+      : agendaScope === "team"
+        ? undefined
+        : agendaScope;
+  const agendaEmployeeName =
+    agendaScope === "mine"
+      ? employeeContext?.employee_name
+      : agendaEmployees.find((employee) => employee.id === agendaScope)?.name;
+
+  useEffect(() => {
+    if (!farmFeatures.limpingRequests) return;
+    void limpingRequestService
+      .list()
+      .then(setLimpingRequests)
+      .catch(() => setLimpingRequests([]));
+  }, [farmFeatures.limpingRequests]);
 
   const agendaMap = useMemo(
-    () => agendaByDate(today, employeeContext?.employee_id, { includePreventive: true }),
-    [today, employeeContext?.employee_id],
+    () => agendaByDate(today, agendaEmployeeId, { includePreventive: true }),
+    [today, agendaEmployeeId],
   );
   const attendedByDate = useMemo(() => {
     const tagsByDate = new Map<string, Set<string>>();
     for (const visit of loadVisits().filter(visitIsFinalized)) {
       if (
-        !employeeContext?.employee_id ||
-        !visitBelongsToEmployee(visit, employeeContext.employee_id, employeeContext.employee_name)
+        agendaEmployeeId &&
+        !visitBelongsToEmployee(visit, agendaEmployeeId, agendaEmployeeName)
       ) {
         continue;
       }
@@ -2820,7 +3062,7 @@ function CalendarScreen({
       tagsByDate.set(visit.date, tags);
     }
     return new Map(Array.from(tagsByDate, ([date, tags]) => [date, tags.size]));
-  }, [employeeContext?.employee_id, employeeContext?.employee_name]);
+  }, [agendaEmployeeId, agendaEmployeeName]);
   const { year, month } = currentMonth;
 
   const firstDay = new Date(year, month, 1).getDay();
@@ -2855,13 +3097,49 @@ function CalendarScreen({
       calendarMonthMetricsFromVisits(
         loadVisits(),
         agendaItems,
-        employeeContext?.employee_id ?? "",
+        agendaEmployeeId ?? "",
         year,
         month,
-        employeeContext?.employee_name,
+        agendaEmployeeName,
       ),
-    [agendaItems, employeeContext?.employee_id, employeeContext?.employee_name, month, year],
+    [agendaEmployeeId, agendaEmployeeName, agendaItems, month, year],
   );
+  const visibleRequests = limpingRequests.filter((request) => {
+    if (!employeeContext?.is_admin) {
+      return (
+        request.created_by === employeeContext?.employee_id ||
+        request.assigned_employee_id === employeeContext?.employee_id
+      );
+    }
+    if (agendaScope === "team") return true;
+    const employeeId = agendaScope === "mine" ? employeeContext.employee_id : agendaScope;
+    return request.created_by === employeeId || request.assigned_employee_id === employeeId;
+  });
+  const openRequests = visibleRequests.filter(
+    (request) => request.status !== "attended" && request.status !== "refused",
+  );
+  const selectedRequests = openRequests.filter(
+    (request) => request.status === "scheduled" && request.scheduled_date === selectedDate,
+  );
+  const scheduledRequestCounts = new Map<string, number>();
+  for (const request of openRequests) {
+    if (!request.scheduled_date || request.status !== "scheduled") continue;
+    scheduledRequestCounts.set(
+      request.scheduled_date,
+      (scheduledRequestCounts.get(request.scheduled_date) ?? 0) + 1,
+    );
+  }
+
+  async function updateRequest(
+    request: LimpingRequest,
+    patch: Parameters<typeof limpingRequestService.update>[1],
+  ) {
+    const updated = await limpingRequestService.update(request, patch);
+    setLimpingRequests((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    void syncService.syncAll();
+  }
 
   function openFirstPending() {
     if (!firstPending) return;
@@ -2876,12 +3154,129 @@ function CalendarScreen({
       <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
         <User className="h-5 w-5 text-primary" />
         <div>
-          <p className="text-[10px] font-bold uppercase text-muted-foreground">Agenda da fazenda</p>
+          <p className="text-[10px] font-bold uppercase text-muted-foreground">
+            {employeeContext?.is_admin && agendaScope === "team"
+              ? "Agenda da equipe"
+              : "Minha agenda"}
+          </p>
           <p className="font-display text-sm font-black uppercase">
-            Revisões de {employeeContext?.employee_name ?? "funcionário"} e preventivos
+            Revisões, preventivos e solicitações
           </p>
         </div>
       </div>
+
+      {employeeContext?.is_admin ? (
+        <label className="block rounded-xl border border-border bg-card p-3">
+          <span className="text-[10px] font-black uppercase text-muted-foreground">
+            Agenda exibida
+          </span>
+          <select
+            value={agendaScope}
+            onChange={(event) => setAgendaScope(event.target.value)}
+            className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 font-bold outline-none focus:border-primary"
+          >
+            <option value="mine">Somente a minha</option>
+            <option value="team">Toda a equipe</option>
+            {agendaEmployees
+              .filter((employee) => employee.id !== employeeContext.employee_id)
+              .map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
+
+      {farmFeatures.limpingRequests && openRequests.length > 0 ? (
+        <section className="rounded-xl border-2 border-warn/45 bg-warn/5 p-4">
+          <h2 className="font-display text-sm font-black uppercase">
+            Solicitações de animais mancando · {openRequests.length}
+          </h2>
+          <div className="mt-3 space-y-2">
+            {openRequests.map((request) => (
+              <article key={request.id} className="rounded-lg border border-border bg-card p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-display font-black uppercase">Brinco {request.tag}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Solicitado por {request.created_by_name}
+                    </p>
+                    {request.note ? <p className="mt-1 text-sm">{request.note}</p> : null}
+                  </div>
+                  <span className="rounded-full bg-surface px-2 py-1 text-[10px] font-black uppercase">
+                    {request.status === "new"
+                      ? "Nova"
+                      : request.status === "accepted"
+                        ? "Aceita"
+                        : "Agendada"}
+                  </span>
+                </div>
+                <LimpingRequestPhoto request={request} />
+                {request.status === "new" ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void updateRequest(request, {
+                          status: "accepted",
+                          assigned_employee_id: employeeContext?.employee_id,
+                        })
+                      }
+                      className="min-h-11 rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
+                    >
+                      Aceitar para mim
+                    </button>
+                    {employeeContext?.is_admin ||
+                    request.created_by === employeeContext?.employee_id ? (
+                      <button
+                        type="button"
+                        onClick={() => void updateRequest(request, { status: "refused" })}
+                        className="min-h-11 rounded-lg bg-surface px-3 text-xs font-black uppercase text-danger"
+                      >
+                        Recusar
+                      </button>
+                    ) : (
+                      <span className="flex min-h-11 items-center justify-center rounded-lg bg-surface px-3 text-center text-[10px] font-bold text-muted-foreground">
+                        Aceite para incluir na sua agenda
+                      </span>
+                    )}
+                  </div>
+                ) : request.status === "accepted" ? (
+                  <label className="mt-3 block">
+                    <span className="text-[10px] font-black uppercase text-muted-foreground">
+                      Data do atendimento
+                    </span>
+                    <input
+                      type="date"
+                      min={today}
+                      onChange={(event) =>
+                        event.target.value &&
+                        void updateRequest(request, {
+                          status: "scheduled",
+                          scheduled_date: event.target.value,
+                        })
+                      }
+                      className="mt-1 min-h-11 w-full rounded-lg border border-border bg-surface px-3"
+                    />
+                  </label>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNew(request.tag)}
+                    className="mt-3 min-h-11 w-full rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
+                  >
+                    Iniciar atendimento ·{" "}
+                    {request.scheduled_date
+                      ? new Date(`${request.scheduled_date}T12:00:00`).toLocaleDateString("pt-BR")
+                      : "data pendente"}
+                  </button>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* Resumo pendências */}
       {pendingTotal > 0 && (
@@ -2991,7 +3386,8 @@ function CalendarScreen({
             const dateStr = isoDay(day);
             const isToday = dateStr === today;
             const isSel = dateStr === selectedDate;
-            const count = agendaMap.get(dateStr)?.length ?? 0;
+            const count =
+              (agendaMap.get(dateStr)?.length ?? 0) + (scheduledRequestCounts.get(dateStr) ?? 0);
             const attended = attendedByDate.get(dateStr) ?? 0;
             const isPast = dateStr < today && count > 0;
             return (
@@ -3055,10 +3451,32 @@ function CalendarScreen({
             <span className="ml-1 text-danger"> — Atrasada!</span>
           )}
           <span className="mt-1 block normal-case tracking-normal text-muted-foreground">
-            {attendedByDate.get(selectedDate) ?? 0} atendido(s) · {selectedItems.length} a fazer
+            {attendedByDate.get(selectedDate) ?? 0} atendido(s) ·{" "}
+            {selectedItems.length + selectedRequests.length} a fazer
           </span>
         </p>
-        {selectedItems.length === 0 ? (
+        {selectedRequests.length > 0 ? (
+          <ul className="mb-2 space-y-2">
+            {selectedRequests.map((request) => (
+              <li key={request.id} className="rounded-xl border-2 border-warn/45 bg-warn/5 p-4">
+                <p className="font-display text-sm font-black uppercase">
+                  Solicitação · Brinco {request.tag}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {request.note || `Solicitado por ${request.created_by_name}`}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNew(request.tag)}
+                  className="mt-3 min-h-11 w-full rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
+                >
+                  Iniciar atendimento
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {selectedItems.length === 0 && selectedRequests.length === 0 ? (
           <div className="rounded-2xl border-2 border-dashed border-border/50 bg-surface/50 p-8 text-center">
             <CalendarDays className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="mt-3 font-display text-base font-black uppercase text-muted-foreground">
@@ -3128,7 +3546,7 @@ function CalendarScreen({
       </div>
 
       {/* Zero pendências */}
-      {allPending.length === 0 && (
+      {allPending.length === 0 && openRequests.length === 0 && (
         <div className="rounded-2xl border-2 border-dashed border-good/40 bg-good/5 p-8 text-center">
           <CheckCircle2 className="mx-auto h-10 w-10 text-good" aria-hidden="true" />
           <p className="mt-3 font-display text-base font-black uppercase text-good">
@@ -3198,6 +3616,8 @@ function RegisterScreen({
   const [footIdx, setFootIdx] = useState(0);
   const [curePromptFoot, setCurePromptFoot] = useState<FootKey | null>(null);
   const [showFootAdvanced, setShowFootAdvanced] = useState(false);
+  const context = farmContextService.getContext();
+  const features = tenantFeatures(context, farm.featureOverrides);
 
   const currentFoot = badFeet[footIdx] ?? null;
   const currentFootEntry = visit.feet.find((f) => f.foot === currentFoot);
@@ -3243,10 +3663,14 @@ function RegisterScreen({
         (disease) => disease.foot === foot.foot,
       );
       const activeTaco = animalSnapshot.activeTacos.find((taco) => taco.foot === foot.foot);
+      const activeZones = Array.from(
+        new Set(activeDiseases.flatMap((disease) => disease.zones ?? [])),
+      );
       return selected.includes(foot.foot)
         ? {
             ...foot,
             ok: false,
+            zones: foot.zones?.length ? foot.zones : activeZones,
             resolved: false,
             data_liberacao: undefined,
             diseases:
@@ -3255,6 +3679,7 @@ function RegisterScreen({
                 : activeDiseases.map((disease) => ({
                     code: disease.code,
                     severity: disease.severity,
+                    zones: disease.zones,
                   })),
             taco:
               foot.taco ??
@@ -3643,6 +4068,41 @@ function RegisterScreen({
                 </div>
               </div>
             )}
+            {features.pricing ? (
+              <label className="mt-4 block border-t border-border pt-3">
+                <span className="text-xs font-bold uppercase text-muted-foreground">
+                  Quilômetros de deslocamento (opcional)
+                </span>
+                <div className="mt-2 flex items-center rounded-lg border-2 border-border bg-card">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={5000}
+                    step="0.1"
+                    value={visit.travelKm ?? ""}
+                    onChange={(event) =>
+                      updateVisit({
+                        travelKm: event.target.value
+                          ? Math.max(0, Number(event.target.value))
+                          : undefined,
+                      })
+                    }
+                    aria-label="Quilômetros de deslocamento"
+                    placeholder="0"
+                    className="min-h-12 min-w-0 flex-1 bg-transparent px-4 text-right font-display text-xl font-black outline-none"
+                  />
+                  <span className="pr-4 text-sm font-bold text-muted-foreground">km</span>
+                </div>
+                {(visit.travelKm ?? 0) > 0 ? (
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {visit.travelKm?.toLocaleString("pt-BR")} km ×{" "}
+                    {formatCurrency(farm.pricing.travelPerKm)} ={" "}
+                    {formatCurrency((visit.travelKm ?? 0) * farm.pricing.travelPerKm)}
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
           </section>
         </div>
       )}
@@ -3745,19 +4205,41 @@ function RegisterScreen({
               </div>
             </section>
           )}
-          <DiseasePicker
-            catalog={displayedDiseaseCatalog}
-            diseases={currentFootEntry.diseases ?? []}
-            onChange={(d) => {
-              updateCurrentFoot({ diseases: d, resolved: false, data_liberacao: undefined });
-              updateVisit({ preventivo: false });
-            }}
-          />
+          <button
+            type="button"
+            onClick={() => setStep("feet")}
+            className="flex min-h-11 items-center gap-2 rounded-lg border-2 border-border bg-card px-3 text-sm font-black text-primary"
+          >
+            <ArrowLeft className="h-4 w-4" /> Voltar aos cascos
+          </button>
+          {features.hoofMap ? (
+            <HoofMapPicker
+              areas={farm.hoofAreas}
+              catalog={displayedDiseaseCatalog}
+              selectedZones={currentFootEntry.zones ?? []}
+              diseases={currentFootEntry.diseases ?? []}
+              onZonesChange={(zones) => updateCurrentFoot({ zones })}
+              onDiseasesChange={(diseases) => {
+                updateCurrentFoot({ diseases, resolved: false, data_liberacao: undefined });
+                updateVisit({ preventivo: false });
+              }}
+            />
+          ) : (
+            <DiseasePicker
+              catalog={displayedDiseaseCatalog}
+              diseases={currentFootEntry.diseases ?? []}
+              onChange={(d) => {
+                updateCurrentFoot({ diseases: d, resolved: false, data_liberacao: undefined });
+                updateVisit({ preventivo: false });
+              }}
+            />
+          )}
           {hasCurrentDisease ? (
             <button
               type="button"
+              disabled={features.hoofMap && (currentFootEntry.zones ?? []).length === 0}
               onClick={() => setStep("treatment")}
-              className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp"
+              className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp disabled:opacity-50"
             >
               Confirmar{" "}
               {currentFootEntry.diseases?.filter((disease) => disease.severity > 0).length}{" "}
@@ -3767,8 +4249,9 @@ function RegisterScreen({
           ) : (
             <button
               type="button"
+              disabled={features.hoofMap && (currentFootEntry.zones ?? []).length === 0}
               onClick={() => setStep("treatment")}
-              className="tap flex min-h-14 w-full items-center justify-center rounded-xl border-2 border-border bg-surface px-4 font-display text-sm font-black uppercase text-foreground"
+              className="tap flex min-h-14 w-full items-center justify-center rounded-xl border-2 border-border bg-surface px-4 font-display text-sm font-black uppercase text-foreground disabled:opacity-50"
             >
               Continuar sem lesão
             </button>
@@ -4444,6 +4927,27 @@ function RegisterScreen({
               </div>
             </section>
           ) : null}
+          {visit.preventivo && features.pricing ? (
+            <label className="block rounded-xl border-2 border-border bg-card p-4">
+              <span className="font-display text-sm font-black uppercase">
+                Quantos animais há neste serviço preventivo?
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Define a faixa: até 20, de 21 a 40 ou acima de 40 animais.
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                value={visit.preventiveBatchSize ?? 1}
+                onChange={(event) =>
+                  updateVisit({ preventiveBatchSize: Math.max(1, Number(event.target.value) || 1) })
+                }
+                aria-label="Quantidade de animais no serviço preventivo"
+                className="mt-3 min-h-12 w-full rounded-lg border-2 border-border bg-surface px-4 text-center font-display text-xl font-black outline-none focus:border-primary"
+              />
+            </label>
+          ) : null}
           {hasResolvedFoot && (
             <section className="rounded-2xl border-2 border-good/40 bg-good/5 p-4">
               <p className="font-display text-base font-black uppercase text-good">
@@ -5092,14 +5596,59 @@ function HistoryScreen({
 /* ───────────── Meu trabalho ───────────── */
 function EmployeeBillingScreen({ farm }: { farm: FarmConfig }) {
   const context = farmContextService.getContext();
+  const [scope, setScope] = useState("mine");
   if (!context) return null;
-  const visits = loadVisits().filter(
+  if (!canViewFinancial(context, farm.featureOverrides)) {
+    return (
+      <section className="py-12 text-center">
+        <ShieldOff className="mx-auto h-10 w-10 text-danger" />
+        <h1 className="mt-3 font-display text-xl font-black uppercase">Financeiro restrito</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Seu usuário não possui permissão para consultar valores.
+        </p>
+      </section>
+    );
+  }
+  const allVisits = loadVisits().filter(
+    (visit) => visitIsFinalized(visit) && (!visit.farm_id || visit.farm_id === context.farm_id),
+  );
+  const employees = Array.from(
+    new Map(
+      allVisits.map((visit) => [
+        visit.employee_id ?? visit.employee_name ?? "unknown",
+        { id: visit.employee_id ?? "", name: visit.employee_name ?? "Sem responsável" },
+      ]),
+    ).values(),
+  );
+  const visits = allVisits.filter(
     (visit) =>
-      visitIsFinalized(visit) &&
-      visitBelongsToEmployee(visit, context.employee_id, context.employee_name),
+      scope === "team" ||
+      (scope === "mine" &&
+        visitBelongsToEmployee(visit, context.employee_id, context.employee_name)) ||
+      visit.employee_id === scope,
   );
   return (
-    <div className="pb-6">
+    <div className="space-y-4 pb-6">
+      {context.is_admin ? (
+        <label className="block">
+          <span className="text-xs font-black uppercase text-muted-foreground">Dados exibidos</span>
+          <select
+            value={scope}
+            onChange={(event) => setScope(event.target.value)}
+            className="mt-1 min-h-12 w-full rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
+          >
+            <option value="mine">Meus dados</option>
+            <option value="team">Toda a equipe</option>
+            {employees
+              .filter((employee) => employee.id && employee.id !== context.employee_id)
+              .map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
       <BillingDashboard
         visits={visits}
         pricing={farm.pricing}
@@ -5123,6 +5672,8 @@ function EmployeeWorkScreen({
   const [reportTo, setReportTo] = useState(today);
   const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [reportType, setReportType] = useState<"client" | "internal">("client");
+  const [includeValues, setIncludeValues] = useState(false);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -5192,6 +5743,8 @@ function EmployeeWorkScreen({
     month: "long",
   });
   const pricing = loadFarm().pricing;
+  const features = tenantFeatures(context, loadFarm().featureOverrides);
+  const financialAllowed = canViewFinancial(context, loadFarm().featureOverrides);
   const monthBilling = billingSummaryFromVisits(
     employeeVisits.filter((visit) => visit.date.startsWith(today.slice(0, 7))),
     pricing,
@@ -5238,8 +5791,10 @@ function EmployeeWorkScreen({
         visits: loadVisits(),
         agenda: agendaItems,
         farmName: context.farm_name,
-        reportTitle: `Relatório de casqueamento · ${context.employee_name}`,
-        pricing: loadFarm().pricing,
+        reportTitle: `${features.reportTitle} · ${context.employee_name}`,
+        reportType,
+        includeValues: financialAllowed && includeValues,
+        pricing: financialAllowed && includeValues ? loadFarm().pricing : undefined,
         catalog: diseaseCatalog(),
         filters: {
           farmId: context.farm_id,
@@ -5280,27 +5835,29 @@ function EmployeeWorkScreen({
         </div>
       </section>
 
-      <button
-        type="button"
-        onClick={onOpenBilling}
-        className="flex min-h-20 w-full items-center gap-4 rounded-xl border-2 border-primary/30 bg-primary/5 px-4 text-left"
-      >
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[10px] font-black uppercase text-muted-foreground">
-            Meu saldo produzido no mês
+      {financialAllowed ? (
+        <button
+          type="button"
+          onClick={onOpenBilling}
+          className="flex min-h-20 w-full items-center gap-4 rounded-xl border-2 border-primary/30 bg-primary/5 px-4 text-left"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
           </span>
-          <strong className="block truncate font-display text-xl font-black text-primary">
-            {formatCurrency(monthBilling.total)}
-          </strong>
-          <span className="block text-xs text-muted-foreground">
-            Ver serviços, visitas e comparação mensal
+          <span className="min-w-0 flex-1">
+            <span className="block text-[10px] font-black uppercase text-muted-foreground">
+              Meu saldo produzido no mês
+            </span>
+            <strong className="block truncate font-display text-xl font-black text-primary">
+              {formatCurrency(monthBilling.total)}
+            </strong>
+            <span className="block text-xs text-muted-foreground">
+              Ver serviços, visitas e comparação mensal
+            </span>
           </span>
-        </span>
-        <ChevronRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-      </button>
+          <ChevronRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+        </button>
+      ) : null}
 
       <section aria-labelledby="producao-funcionario">
         <div className="mb-3 flex items-end justify-between gap-3">
@@ -5317,15 +5874,15 @@ function EmployeeWorkScreen({
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <WorkMetric label="Hoje" value={metrics.todayVisits} />
-          <WorkMetric label="7 dias" value={metrics.lastSevenDaysVisits} />
-          <WorkMetric label="No mês" value={metrics.monthVisits} />
-          <WorkMetric label="Total" value={metrics.totalVisits} />
+          <WorkMetric label="Visitas hoje" value={metrics.todayVisits} />
+          <WorkMetric label="Visitas em 7 dias" value={metrics.lastSevenDaysVisits} />
+          <WorkMetric label="Visitas no mês" value={metrics.monthVisits} />
+          <WorkMetric label="Visitas realizadas" value={metrics.totalVisits} />
         </div>
       </section>
 
       <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4">
-        <WorkSummary label="Animais com visita" value={metrics.uniqueAnimals} icon={<Users />} />
+        <WorkSummary label="Vacas vistas" value={metrics.uniqueAnimals} icon={<Users />} />
         <WorkSummary label="Sem problema" value={metrics.okVisits} icon={<CheckCircle2 />} />
         <WorkSummary label="Com problema" value={metrics.problemVisits} icon={<AlertTriangle />} />
         <WorkSummary label="Para atender" value={metrics.pendingAnimals} icon={<CalendarDays />} />
@@ -5388,6 +5945,39 @@ function EmployeeWorkScreen({
           </div>
         ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <fieldset className="sm:col-span-2">
+            <legend className="text-xs font-bold uppercase text-muted-foreground">
+              Tipo de relatório
+            </legend>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setReportType("client")}
+                aria-pressed={reportType === "client"}
+                className={cn(
+                  "min-h-14 rounded-lg border-2 px-3 text-left text-sm font-black",
+                  reportType === "client"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card",
+                )}
+              >
+                Para o cliente
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportType("internal")}
+                aria-pressed={reportType === "internal"}
+                className={cn(
+                  "min-h-14 rounded-lg border-2 px-3 text-left text-sm font-black",
+                  reportType === "internal"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card",
+                )}
+              >
+                Interno compacto
+              </button>
+            </div>
+          </fieldset>
           <label>
             <span className="text-xs font-bold uppercase text-muted-foreground">De</span>
             <input
@@ -5398,6 +5988,17 @@ function EmployeeWorkScreen({
               className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
             />
           </label>
+          {financialAllowed ? (
+            <label className="flex min-h-12 items-center gap-3 rounded-lg border-2 border-border bg-card px-3 sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={includeValues}
+                onChange={(event) => setIncludeValues(event.target.checked)}
+                className="h-5 w-5 accent-primary"
+              />
+              <span className="text-sm font-bold">Incluir valores no PDF</span>
+            </label>
+          ) : null}
           <label>
             <span className="text-xs font-bold uppercase text-muted-foreground">Até</span>
             <input
@@ -5431,7 +6032,7 @@ function EmployeeWorkScreen({
           <button
             type="button"
             onClick={() => void handleExportPdf()}
-            disabled={exportingPdf}
+            disabled={exportingPdf || reportVisits.length === 0}
             className="flex min-h-12 items-center gap-2 rounded-xl bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
           >
             {exportingPdf ? (
@@ -5592,6 +6193,7 @@ function ConfigScreen({
 }) {
   const importRef = useRef<HTMLInputElement>(null);
   const context = farmContextService.getContext();
+  const features = tenantFeatures(context, farm.featureOverrides);
   const [managerUnlocked, setManagerUnlocked] = useState(
     () => !isSupabaseConfigured || adminService.isUnlocked(),
   );
@@ -5617,6 +6219,8 @@ function ConfigScreen({
   const [newAnimalLote, setNewAnimalLote] = useState("");
   const [newAnimalSex, setNewAnimalSex] = useState<Sex>("vaca");
   const [diseases, setDiseases] = useState<DiseaseDefinition[]>(() => diseaseCatalog(farm));
+  const [hoofAreas, setHoofAreas] = useState<HoofAreaDefinition[]>(farm.hoofAreas);
+  const [newAreaName, setNewAreaName] = useState("");
   const [diseaseSearch, setDiseaseSearch] = useState("");
   const [newDiseaseName, setNewDiseaseName] = useState("");
   const [newDiseaseDays, setNewDiseaseDays] = useState(30);
@@ -5735,6 +6339,22 @@ function ConfigScreen({
     setNewDiseaseDays(30);
   }
 
+  function toggleDiseaseZone(code: string, zone: Zone) {
+    const disease = diseases.find((item) => item.code === code);
+    const zones = disease?.zones ?? [];
+    updateDisease(code, {
+      zones: zones.includes(zone) ? zones.filter((item) => item !== zone) : [...zones, zone],
+    });
+  }
+
+  function addHoofArea() {
+    const name = newAreaName.trim();
+    if (!name) return;
+    const id = Math.max(20, ...hoofAreas.map((area) => area.id)) + 1;
+    setHoofAreas((current) => [...current, { id, code: String(id), name, active: true }]);
+    setNewAreaName("");
+  }
+
   function currentFarm(): FarmConfig {
     return {
       farmName: name.trim(),
@@ -5745,6 +6365,8 @@ function ConfigScreen({
       animais,
       diseases,
       pricing: farm.pricing,
+      hoofAreas,
+      featureOverrides: farm.featureOverrides,
     };
   }
 
@@ -6196,6 +6818,84 @@ function ConfigScreen({
       {/* ── TAB: AVANÇADO ── */}
       {configTab === "avancado" && (
         <div className="space-y-4">
+          <section className="rounded-lg border-2 border-border bg-card p-4">
+            <div>
+              <p className="font-display text-base font-black uppercase">Áreas do casco</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Edite os nomes usados no mapa. Desativar uma área preserva os registros antigos.
+              </p>
+            </div>
+            <div className="mt-3 space-y-2">
+              {hoofAreas.map((area) => (
+                <div
+                  key={area.id}
+                  className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-surface p-2"
+                >
+                  <input
+                    value={area.code}
+                    onChange={(event) =>
+                      setHoofAreas((current) =>
+                        current.map((item) =>
+                          item.id === area.id
+                            ? { ...item, code: event.target.value.toUpperCase() }
+                            : item,
+                        ),
+                      )
+                    }
+                    aria-label={`Identificação da área ${area.name}`}
+                    className="min-h-10 min-w-0 rounded-md border border-border bg-card px-2 text-center font-display font-black outline-none focus:border-primary"
+                  />
+                  <input
+                    value={area.name}
+                    onChange={(event) =>
+                      setHoofAreas((current) =>
+                        current.map((item) =>
+                          item.id === area.id ? { ...item, name: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    aria-label={`Nome da área ${area.code}`}
+                    className="min-h-10 min-w-0 rounded-md border border-border bg-card px-3 text-sm font-bold outline-none focus:border-primary"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setHoofAreas((current) =>
+                        current.map((item) =>
+                          item.id === area.id ? { ...item, active: !item.active } : item,
+                        ),
+                      )
+                    }
+                    aria-pressed={area.active}
+                    className={cn(
+                      "min-h-10 rounded-md px-3 text-xs font-black uppercase",
+                      area.active ? "bg-good/10 text-good" : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {area.active ? "Ativa" : "Inativa"}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={newAreaName}
+                onChange={(event) => setNewAreaName(event.target.value)}
+                placeholder="Nome da nova área"
+                aria-label="Nome da nova área do casco"
+                className="min-h-12 min-w-0 flex-1 rounded-lg border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={addHoofArea}
+                disabled={!newAreaName.trim()}
+                className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-40"
+                aria-label="Adicionar área do casco"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </div>
+          </section>
           <section className="overflow-hidden rounded-lg border-2 border-border bg-card">
             <div className="border-b-2 border-border p-4">
               <p className="font-display text-base font-black uppercase">Lesões e prazo sugerido</p>
@@ -6274,6 +6974,34 @@ function ConfigScreen({
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
+                  <fieldset className="col-span-2 sm:col-span-3">
+                    <legend className="text-[10px] font-bold uppercase text-muted-foreground">
+                      Áreas sugeridas no mapa
+                    </legend>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {hoofAreas
+                        .filter((area) => area.active)
+                        .map((area) => {
+                          const selected = (disease.zones ?? []).includes(area.id);
+                          return (
+                            <button
+                              key={area.id}
+                              type="button"
+                              onClick={() => toggleDiseaseZone(disease.code, area.id)}
+                              aria-pressed={selected}
+                              className={cn(
+                                "min-h-9 rounded-md border px-2.5 text-xs font-bold",
+                                selected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border bg-surface text-muted-foreground",
+                              )}
+                            >
+                              {area.code} · {area.name}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </fieldset>
                 </div>
               ))}
             </div>
@@ -6362,6 +7090,22 @@ function ConfigScreen({
               <span className="text-sm text-muted-foreground">dias</span>
             </div>
           </section>
+          {features.pricing && canViewFinancial(context, farm.featureOverrides) ? (
+            <section className="rounded-lg border-2 border-border bg-card p-4">
+              <div className="mb-4">
+                <p className="font-display text-base font-black uppercase">Tabela de preços</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Valores desta fazenda. Campos vazios usam a tabela padrão Hullsjob.
+                </p>
+              </div>
+              <PricingEditor
+                pricing={farm.pricing}
+                catalog={diseases}
+                saving={false}
+                onSave={async (pricing) => onSave({ ...currentFarm(), pricing })}
+              />
+            </section>
+          ) : null}
           <button
             disabled={!valid}
             onClick={() => onSave(currentFarm())}

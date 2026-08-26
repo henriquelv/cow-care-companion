@@ -178,7 +178,7 @@ export function BillingDashboard({
           strong
         />
         <ValueMetric
-          label="Atendimentos"
+          label="Visitas cobradas"
           value={String(summary.visits)}
           detail="Somente visitas concluídas"
         />
@@ -388,8 +388,24 @@ export function PricingEditor({
   onSave: (pricing: PricingConfig) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(() => normalizePricingConfig(pricing));
-  const setPrice = (key: keyof Omit<PricingConfig, "diseases">, value: number) =>
-    setDraft((current) => ({ ...current, [key]: value }));
+  const setPrice = (
+    key:
+      | "preventive"
+      | "clinicalVisit"
+      | "bandage"
+      | "tacoApply"
+      | "tacoMaintain"
+      | "tacoRemove"
+      | "travelPerKm",
+    value: number,
+  ) => setDraft((current) => ({ ...current, [key]: value }));
+  const setPreventiveTier = (index: number, value: number) =>
+    setDraft((current) => ({
+      ...current,
+      preventiveTiers: current.preventiveTiers.map((tier, tierIndex) =>
+        tierIndex === index ? { ...tier, price: value } : tier,
+      ),
+    }));
 
   return (
     <form
@@ -402,11 +418,19 @@ export function PricingEditor({
       <section>
         <h3 className="font-display text-base font-black uppercase">Tabela de serviços</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Valor por animal ou por ocorrência no casco. Use zero para não cobrar um item.
+          Valores padrão da fazenda. Use zero para não cobrar um item.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {draft.preventiveTiers.map((tier, index) => (
+            <PriceInput
+              key={`${tier.min}-${tier.max ?? "mais"}`}
+              label={`Preventivo · ${tier.min}${tier.max ? ` a ${tier.max}` : " ou mais"} animais`}
+              value={tier.price}
+              onChange={(value) => setPreventiveTier(index, value)}
+            />
+          ))}
           <PriceInput
-            label="Casqueamento preventivo · por animal"
+            label="Preventivo padrão · sem quantidade informada"
             value={draft.preventive}
             onChange={(value) => setPrice("preventive", value)}
           />
@@ -434,6 +458,11 @@ export function PricingEditor({
             label="Retirada de taco · por casco"
             value={draft.tacoRemove}
             onChange={(value) => setPrice("tacoRemove", value)}
+          />
+          <PriceInput
+            label="Deslocamento · por quilômetro"
+            value={draft.travelPerKm}
+            onChange={(value) => setPrice("travelPerKm", value)}
           />
         </div>
       </section>

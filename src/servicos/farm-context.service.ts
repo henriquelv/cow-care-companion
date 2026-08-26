@@ -9,6 +9,7 @@ export interface FarmContext {
   employee_code?: string;
   employee_login?: string;
   is_admin?: boolean;
+  can_view_financial?: boolean;
   device_id: string;
   session_token?: string;
   session_expires_at?: string;

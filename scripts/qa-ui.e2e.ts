@@ -26,10 +26,15 @@ async function storedVisitCount(page) {
   );
 }
 
+async function selectHoofArea(page, code: string) {
+  await page.getByRole("button", { name: new RegExp(`Selecionar área ${code}:`, "i") }).click();
+}
+
 test("Romano administra Hullsjob no celular", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await expect(page.getByText("Fazenda Vitória", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Solicitar atendimento/i })).toBeVisible();
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await expect(page.getByRole("button", { name: "Administração" })).toBeVisible();
 });
@@ -66,6 +71,7 @@ test("visita abandonada antes do resumo final não é salva", async ({ page }) =
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await selectHoofArea(page, "6E");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.reload();
 
@@ -86,6 +92,28 @@ test("Sandro entra na StarMilk no tablet", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");
   await expect(page.getByText("StarMilk", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Solicitar atendimento/i })).toHaveCount(0);
+});
+
+test("mapa do casco mantém alvos grandes e sem rolagem lateral", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("777002");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /FE Frente Esq/i }).click();
+  await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+
+  await expect(page.getByRole("img", { name: "Mapa das áreas do casco" })).toBeVisible();
+  const areaButton = page.getByRole("button", { name: /Selecionar área 6E:/i });
+  await expect(areaButton).toBeVisible();
+  expect((await areaButton.boundingBox())?.height).toBeGreaterThanOrEqual(48);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("mapa-casco-celular.png"), fullPage: true });
 });
 
 test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) => {
@@ -109,12 +137,9 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await page.getByRole("button", { name: /Ver resumo/i }).click();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
-  await page.getByRole("button", { name: /Meu saldo produzido no mês/i }).click();
-  await expect(page.getByRole("heading", { name: "Produção em valores" })).toBeVisible();
-  await expect(page.getByText("Últimos seis meses", { exact: true })).toBeVisible();
-  await expect(page.getByText("Composição dos serviços", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Voltar" }).click();
+  await expect(page.getByRole("button", { name: /Meu saldo produzido no mês/i })).toHaveCount(0);
   await expect(page.getByText("Este é o seu relatório individual")).toBeVisible();
+  await expect(page.getByText("Incluir valores no PDF")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Abrir relatório da equipe" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Comparativo mensal" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Detalhes do trabalho" })).toBeVisible();
@@ -128,6 +153,29 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
   await download.saveAs(testInfo.outputPath("relatorio-funcionario.pdf"));
+});
+
+test("Hullsjob gera relatório interno compacto com valores opcionais", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await page.getByLabel("Número do brinco").fill("777001");
+  await page.getByRole("button", { name: /Continuar/i }).click();
+  await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
+  await page.getByRole("button", { name: /Salvar visita/i }).click();
+  await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
+  await expect(page.getByText("Incluir valores no PDF")).toBeVisible();
+  await page.getByRole("button", { name: "Interno compacto" }).click();
+  await page.getByText("Incluir valores no PDF").locator("..").getByRole("checkbox").check();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Exportar PDF" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^interno-.*\.pdf$/);
+  await download.saveAs(testInfo.outputPath("relatorio-interno-hullsjob.pdf"));
 });
 
 test("administrador escolhe entre relatório próprio e de toda a equipe", async ({
@@ -162,6 +210,15 @@ test("administrador escolhe entre relatório próprio e de toda a equipe", async
   expect(teamDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
   await teamDownload.saveAs(testInfo.outputPath("relatorio-equipe.pdf"));
 
+  await page.getByRole("button", { name: "Interno · compacto" }).click();
+  await expect(page.getByText("Incluir valores financeiros no PDF")).toBeVisible();
+  const internalDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: /Baixar PDF filtrado da equipe/i }).click();
+  const internalDownload = await internalDownloadPromise;
+  expect(internalDownload.suggestedFilename()).toMatch(/^interno-.*\.pdf$/);
+  await internalDownload.saveAs(testInfo.outputPath("relatorio-interno-equipe.pdf"));
+
+  await page.getByRole("button", { name: "Cliente · detalhado" }).click();
   await mineScope.click();
   await expect(mineScope).toHaveAttribute("aria-pressed", "true");
   const mineDownloadPromise = page.waitForEvent("download");
@@ -309,6 +366,8 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
   await page.getByRole("button", { name: /TD Trás Dir/i }).click();
   await page.getByRole("button", { name: /Continuar com 2 pé/i }).click();
 
+  await selectHoofArea(page, "6E");
+  await selectHoofArea(page, "3");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: "Úlcera de Sola: grau 1" }).click();
   await expect(page.getByText(/2 lesão\(ões\) neste casco/i)).toBeVisible();
@@ -317,6 +376,8 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
   await page.getByRole("button", { name: /Próximo pé/i }).click();
 
+  await selectHoofArea(page, "3");
+  await page.getByRole("button", { name: "Demais doenças" }).click();
   await page.getByRole("button", { name: "Problema de Locomoção: grau 3" }).click();
   await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
@@ -340,6 +401,7 @@ test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async (
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await selectHoofArea(page, "6E");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
   await expect(page.getByRole("button", { name: /Aplicar bloco/i })).toHaveCount(0);
@@ -367,6 +429,7 @@ test("taco existente é reconhecido e pré-selecionado na próxima visita", asyn
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /TD.*Trás Dir/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await selectHoofArea(page, "6E");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /^Colocar taco/i }).click();
@@ -399,6 +462,7 @@ test("problema curado pode ser liberado para preventivo", async ({ page }) => {
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
+  await selectHoofArea(page, "6E");
   await page.getByRole("button", { name: "Dermatite Digital: grau 1" }).click();
   await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();

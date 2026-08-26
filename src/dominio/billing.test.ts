@@ -10,11 +10,17 @@ import {
 
 const pricing: PricingConfig = {
   preventive: 40,
+  preventiveTiers: [
+    { min: 1, max: 20, price: 40 },
+    { min: 21, max: 40, price: 35 },
+    { min: 41, price: 30 },
+  ],
   clinicalVisit: 20,
   bandage: 12,
   tacoApply: 30,
   tacoMaintain: 8,
   tacoRemove: 10,
+  travelPerKm: 3.3,
   diseases: { DD: 15, SU: 25 },
 };
 
@@ -52,6 +58,21 @@ describe("billing", () => {
     expect(result.lines).toEqual([expect.objectContaining({ key: "preventive", total: 40 })]);
   });
 
+  it("aplica a faixa preventiva e soma o deslocamento informado", () => {
+    const result = billingForVisit(
+      visit({ preventiveBatchSize: 25, travelKm: 10 }),
+      pricing,
+      catalog,
+    );
+    expect(result.total).toBe(68);
+    expect(result.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "preventive", unitPrice: 35 }),
+        expect.objectContaining({ key: "travel", total: 33 }),
+      ]),
+    );
+  });
+
   it("soma atendimento, doenças por casco, curativo e taco", () => {
     const clinical = visit({
       preventivo: false,
@@ -71,7 +92,7 @@ describe("billing", () => {
         { foot: "TD", ok: true },
       ],
     });
-    expect(billingForVisit(clinical, pricing, catalog).total).toBe(102);
+    expect(billingForVisit(clinical, pricing, catalog).total).toBe(90);
   });
 
   it("preserva o valor congelado mesmo depois de reajuste", () => {

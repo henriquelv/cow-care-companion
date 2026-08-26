@@ -25,6 +25,7 @@ export interface BootstrapEmployee {
   name: string;
   status: "active";
   is_admin: boolean;
+  can_view_financial: boolean;
 }
 
 interface BootstrapAccess {
@@ -160,6 +161,7 @@ const TENANTS: BootstrapAccess[] = [
         name: "Sandro",
         status: "active",
         is_admin: true,
+        can_view_financial: false,
         temporary_password: "1234",
       },
     ],
@@ -193,6 +195,7 @@ const TENANTS: BootstrapAccess[] = [
         name: "Romano",
         status: "active",
         is_admin: true,
+        can_view_financial: true,
         temporary_password: "1234",
       },
       {
@@ -204,6 +207,7 @@ const TENANTS: BootstrapAccess[] = [
         name: "Jeová",
         status: "active",
         is_admin: false,
+        can_view_financial: true,
         temporary_password: "1234",
       },
       {
@@ -215,6 +219,7 @@ const TENANTS: BootstrapAccess[] = [
         name: "Patrick",
         status: "active",
         is_admin: false,
+        can_view_financial: false,
         temporary_password: "1234",
       },
     ],

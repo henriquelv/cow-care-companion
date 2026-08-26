@@ -3,10 +3,13 @@
 import { farmContextService } from "@/servicos/farm-context.service";
 import { enqueueOutboxMany, localdb, putLocalRecord } from "@/servicos/localdb";
 import { mediaIdFromRef, mediaRef } from "@/servicos/media.service";
+import { tenantFeatures } from "@/configuracao/tenant-features";
 import {
   DEFAULT_PRICING_CONFIG,
+  HULLSJOB_DEFAULT_PRICING,
   createVisitBillingSnapshot,
   normalizePricingConfig,
+  pricingHasValues,
   type PricingConfig,
   type VisitBillingSnapshot,
 } from "@/dominio/billing";
@@ -14,7 +17,7 @@ import {
 export type Sex = "vaca" | "touro";
 export type FootKey = "FE" | "FD" | "TE" | "TD";
 export type Severity = 0 | 1 | 2 | 3;
-export type Zone = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+export type Zone = number;
 
 export type LesionCode = string;
 
@@ -54,6 +57,14 @@ export interface DiseaseDefinition {
   full: string;
   emoji: string;
   recheckDays: number;
+  active: boolean;
+  zones?: Zone[];
+}
+
+export interface HoofAreaDefinition {
+  id: Zone;
+  code: string;
+  name: string;
   active: boolean;
 }
 
@@ -103,6 +114,8 @@ export interface Visit {
   cancellation_scope?: "visit" | "animal";
   nextPreventiveDate?: string;
   billing?: VisitBillingSnapshot;
+  travelKm?: number;
+  preventiveBatchSize?: number;
   feet: FootEntry[];
 }
 
@@ -121,6 +134,8 @@ export interface FarmConfig {
   animais: RegisteredAnimal[]; // animais cadastrados manualmente
   diseases: DiseaseDefinition[];
   pricing: PricingConfig;
+  hoofAreas: HoofAreaDefinition[];
+  featureOverrides?: import("@/configuracao/tenant-features").TenantFeatureOverrides;
 }
 
 const VISITS_KEY = "casco.visits.v3";
@@ -415,6 +430,45 @@ const REMOVED_DISEASES: Record<string, DiseaseDefinition> = {
   },
 };
 
+export const DEFAULT_HOOF_AREAS: HoofAreaDefinition[] = [
+  { id: 1, code: "1", name: "Pinça", active: true },
+  { id: 2, code: "2", name: "Linha branca / sola frontal", active: true },
+  { id: 3, code: "3", name: "Sola interna", active: true },
+  { id: 4, code: "4", name: "Sola externa", active: true },
+  { id: 5, code: "5", name: "Linha branca lateral", active: true },
+  { id: 6, code: "6E", name: "Extremidades do talão", active: true },
+  { id: 11, code: "6C", name: "Centro interdigital", active: true },
+];
+
+const DEFAULT_DISEASE_ZONES: Record<string, Zone[]> = {
+  TU: [1],
+  LB: [1, 2, 5],
+  SH: [2, 3, 4],
+  SU: [2, 3, 4],
+  BU: [2, 3, 4],
+  SOLE_ABSCESS: [2, 3, 4],
+  TS: [2, 3, 4],
+  DOUBLE_SOLE: [2, 3, 4],
+  DD: [6],
+  HI: [11],
+};
+
+function normalizeHoofAreas(stored?: HoofAreaDefinition[]) {
+  const source = Array.isArray(stored) && stored.length > 0 ? stored : DEFAULT_HOOF_AREAS;
+  const unique = new Map<number, HoofAreaDefinition>();
+  for (const area of source) {
+    const id = Number(area?.id);
+    if (!Number.isFinite(id) || !area?.name?.trim()) continue;
+    unique.set(id, {
+      id,
+      code: area.code?.trim().toUpperCase() || String(id),
+      name: area.name.trim(),
+      active: area.active !== false,
+    });
+  }
+  return Array.from(unique.values()).sort((left, right) => left.id - right.id);
+}
+
 function normalizeRecheckDays(value: unknown, fallback: number = CURATIVE_DEADLINES.other) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -448,6 +502,9 @@ function normalizeDiseaseCatalog(stored?: DiseaseDefinition[]) {
       emoji: saved?.emoji || disease.emoji,
       recheckDays: normalizeRecheckDays(saved?.recheckDays, disease.recheckDays),
       active: saved?.active !== false,
+      zones: Array.isArray(saved?.zones)
+        ? saved.zones.map(Number)
+        : DEFAULT_DISEASE_ZONES[disease.code],
     } satisfies DiseaseDefinition;
   });
   const custom = Array.from(storedByCode.values()).map((disease) => ({
@@ -457,6 +514,7 @@ function normalizeDiseaseCatalog(stored?: DiseaseDefinition[]) {
     emoji: disease.emoji || "🩺",
     recheckDays: normalizeRecheckDays(disease.recheckDays),
     active: disease.active !== false,
+    zones: Array.isArray(disease.zones) ? disease.zones.map(Number) : [],
   }));
   return [...defaults, ...custom].filter((disease) => !(disease.code in REMOVED_DISEASES));
 }
@@ -661,6 +719,7 @@ export interface ActiveDiseaseEpisode {
   foot: FootKey;
   code: LesionCode;
   severity: Severity;
+  zones?: Zone[];
   sinceDate: string;
   sinceCreatedAt: number;
   visits: number;
@@ -721,6 +780,11 @@ export function animalClinicalSnapshotFromVisits(
             foot: foot.foot,
             code: disease.code,
             severity: disease.severity,
+            zones: disease.zones?.length
+              ? [...disease.zones]
+              : foot.zones?.length
+                ? [...foot.zones]
+                : [...(diseaseDefinition(disease.code)?.zones ?? [])],
             sinceDate: previous?.sinceDate ?? visit.date,
             sinceCreatedAt: previous?.sinceCreatedAt ?? visit.createdAt,
             visits: (previous?.visits ?? 0) + 1,
@@ -814,6 +878,12 @@ export const ZONE_LABEL: Record<Zone, string> = {
   11: "Bulbo do Talão Centro",
   12: "Bulbo do Talão Dir.",
 };
+
+export function zoneLabel(zone: Zone, farm = loadFarm()) {
+  return (
+    farm.hoofAreas.find((area) => area.id === zone)?.name ?? ZONE_LABEL[zone] ?? `Área ${zone}`
+  );
+}
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
   0: "Ausente",
@@ -1052,7 +1122,7 @@ export function calendarMonthMetricsFromVisits(
     (visit) =>
       visitIsFinalized(visit) &&
       visit.date.startsWith(prefix) &&
-      visitBelongsToEmployee(visit, employeeId, employeeName),
+      (!employeeId || visitBelongsToEmployee(visit, employeeId, employeeName)),
   );
   const monthAgenda = agendaItems.filter((item) => item.date.startsWith(prefix));
   const uniqueTags = (items: Array<{ tag: string }>) =>
@@ -1295,6 +1365,8 @@ export async function hydrateVisitsFromIndexedDb() {
         cancelled_by: data.cancelled_by ?? payload?.cancelled_by,
         cancellation_scope: data.cancellation_scope ?? payload?.cancellation_scope,
         nextPreventiveDate: payload?.nextPreventiveDate,
+        preventiveBatchSize: payload?.preventiveBatchSize,
+        travelKm: payload?.travelKm,
         billing: payload?.billing,
         feet,
       } satisfies Visit;
@@ -1411,19 +1483,21 @@ export function addVisit(v: Visit) {
   }
 
   const farm = loadFarm();
+  const features = tenantFeatures(farmContextService.getContext(), farm.featureOverrides);
   v = {
     ...v,
     nextPreventiveDate: v.preventivo
       ? (v.nextPreventiveDate ?? dateAfterMonths(6, v.date))
       : undefined,
-    billing:
-      v.billing ??
-      createVisitBillingSnapshot(
-        v,
-        farm.pricing,
-        diseaseCatalog(farm),
-        new Date(v.completedAt!).toISOString(),
-      ),
+    billing: features.pricing
+      ? (v.billing ??
+        createVisitBillingSnapshot(
+          v,
+          farm.pricing,
+          diseaseCatalog(farm),
+          new Date(v.completedAt!).toISOString(),
+        ))
+      : undefined,
   };
 
   all.unshift(v);
@@ -1530,6 +1604,13 @@ function readStoredFarm(): FarmConfig {
 }
 
 function normalizeFarm(stored: Partial<FarmConfig>): FarmConfig {
+  const context = farmContextService.getContext();
+  const features = tenantFeatures(context, stored.featureOverrides);
+  const storedPricing = normalizePricingConfig(stored.pricing);
+  const pricing =
+    features.pricing && !pricingHasValues(storedPricing)
+      ? normalizePricingConfig(HULLSJOB_DEFAULT_PRICING)
+      : storedPricing;
   return {
     farmName: stored.farmName ?? "",
     worker: stored.worker ?? "",
@@ -1546,7 +1627,9 @@ function normalizeFarm(stored: Partial<FarmConfig>): FarmConfig {
         lote: animal.lote?.trim().toUpperCase() || undefined,
       })),
     diseases: normalizeDiseaseCatalog(stored.diseases),
-    pricing: normalizePricingConfig(stored.pricing),
+    pricing,
+    hoofAreas: normalizeHoofAreas(stored.hoofAreas),
+    featureOverrides: stored.featureOverrides,
   };
 }
 
@@ -1797,6 +1880,7 @@ const FARM_DEFAULT: FarmConfig = {
   animais: [],
   diseases: defaultDiseaseCatalog(),
   pricing: DEFAULT_PRICING_CONFIG,
+  hoofAreas: DEFAULT_HOOF_AREAS,
 };
 
 export function loadFarm(): FarmConfig {

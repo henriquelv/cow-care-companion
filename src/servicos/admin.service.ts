@@ -18,6 +18,7 @@ export interface AdminEmployee {
   employee_code: string;
   status: "active" | "blocked";
   is_admin: boolean;
+  can_view_financial?: boolean;
   farm_ids: string[];
   created_at: string;
 }
@@ -153,9 +154,26 @@ export const adminService = {
       this.clear();
       throw new Error(result?.message || "Acesso gerente expirado.");
     }
+    const managerToken = managerTokenOrThrow();
+    const permissionResult = await requireSupabase().rpc("hoof_admin_financial_permissions", {
+      p_manager_token: managerToken,
+    });
+    const permissionRows = permissionResult.error
+      ? []
+      : ((
+          permissionResult.data as {
+            employees?: Array<{ employee_id: string; can_view_financial: boolean }>;
+          } | null
+        )?.employees ?? []);
+    const permissionMap = new Map(
+      permissionRows.map((row) => [row.employee_id, row.can_view_financial]),
+    );
     return {
       farms: result.farms ?? [],
-      employees: result.employees ?? [],
+      employees: (result.employees ?? []).map((employee) => ({
+        ...employee,
+        can_view_financial: permissionMap.get(employee.id) ?? false,
+      })),
       devices: result.devices ?? [],
       licenses: result.licenses ?? [],
       audit: result.audit ?? [],
@@ -165,32 +183,38 @@ export const adminService = {
   async action(action: string, payload: Record<string, unknown>) {
     const managerToken = managerTokenOrThrow();
     const { data, error } =
-      action === "create_farm"
-        ? await requireSupabase().rpc("hoof_admin_create_farm", {
+      action === "set_financial_permission"
+        ? await requireSupabase().rpc("hoof_admin_set_financial_permission", {
             p_manager_token: managerToken,
-            p_name: String(payload.name ?? ""),
+            p_employee_id: String(payload.employee_id ?? ""),
+            p_allowed: payload.allowed === true,
           })
-        : action === "edit_employee"
-          ? await requireSupabase().rpc("hoof_admin_edit_employee", {
+        : action === "create_farm"
+          ? await requireSupabase().rpc("hoof_admin_create_farm", {
               p_manager_token: managerToken,
-              p_payload: payload,
+              p_name: String(payload.name ?? ""),
             })
-          : action === "remove_employee"
-            ? await requireSupabase().rpc("hoof_admin_remove_employee", {
+          : action === "edit_employee"
+            ? await requireSupabase().rpc("hoof_admin_edit_employee", {
                 p_manager_token: managerToken,
                 p_payload: payload,
               })
-            : action === "cancel_visit" || action === "remove_animal"
-              ? await requireSupabase().rpc("hoof_admin_manage_data", {
+            : action === "remove_employee"
+              ? await requireSupabase().rpc("hoof_admin_remove_employee", {
                   p_manager_token: managerToken,
-                  p_action: action,
                   p_payload: payload,
                 })
-              : await requireSupabase().rpc("hoof_admin_action", {
-                  p_manager_token: managerToken,
-                  p_action: action,
-                  p_payload: payload,
-                });
+              : action === "cancel_visit" || action === "remove_animal"
+                ? await requireSupabase().rpc("hoof_admin_manage_data", {
+                    p_manager_token: managerToken,
+                    p_action: action,
+                    p_payload: payload,
+                  })
+                : await requireSupabase().rpc("hoof_admin_action", {
+                    p_manager_token: managerToken,
+                    p_action: action,
+                    p_payload: payload,
+                  });
     if (error) throw new Error("Não foi possível concluir esta ação.");
     const result = data as { ok?: boolean; message?: string; id?: string } | null;
     if (!result?.ok) {

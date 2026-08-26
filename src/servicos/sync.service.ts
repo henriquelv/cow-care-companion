@@ -13,6 +13,7 @@ const SYNC_TABLES = [
   "farm_settings",
   "hoof_media",
   "hoof_corrections",
+  "limping_requests",
 ] as const;
 
 function conflictTarget(tableName: string) {
@@ -141,6 +142,25 @@ export const syncService = {
             mime_type: mediaPayload.mime_type ?? "image/jpeg",
           };
           tableName = "hoof_media";
+        } else if (item.tableName === "limping_requests") {
+          const requestPayload = payload as {
+            id?: string;
+            photo_media_id?: string;
+            photo_storage_path?: string;
+          };
+          if (
+            !requestPayload.photo_storage_path &&
+            requestPayload.photo_media_id &&
+            requestPayload.id
+          ) {
+            requestPayload.photo_storage_path = await uploadPhotoBlob({
+              mediaId: requestPayload.photo_media_id,
+              visitId: `request_${requestPayload.id}`,
+              mimeType: "image/jpeg",
+            });
+          }
+          const { photo_media_id: _photoMediaId, ...remoteRequest } = requestPayload;
+          finalPayload = remoteRequest;
         }
 
         const table = supabase.from(tableName);

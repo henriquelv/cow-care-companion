@@ -28,6 +28,7 @@ export interface RemoteEmployee {
   name: string;
   status?: string | null;
   is_admin?: boolean | null;
+  can_view_financial?: boolean | null;
 }
 
 function normalizeActivationInput(input: string) {
@@ -176,9 +177,17 @@ export const activationService = {
       expires_at: result.session_expires_at,
     });
 
+    const permissionResult = await supabase.rpc("hoof_employee_permissions");
+    const permissions = permissionResult.error
+      ? null
+      : (permissionResult.data as { can_view_financial?: boolean } | null);
+
     return {
       client: { ...result.client, source: "remote" },
-      employee: result.employee,
+      employee: {
+        ...result.employee,
+        can_view_financial: permissions?.can_view_financial === true,
+      },
       farms: result.farms,
     };
   },
@@ -204,6 +213,7 @@ export const activationService = {
         employee_code: employee.employee_code ?? undefined,
         employee_login: employee.login_name ?? undefined,
         is_admin: employee.is_admin === true,
+        can_view_financial: employee.can_view_financial === true,
         device_id: deviceId,
         last_license_check_at: now,
         grace_period_days: farm.grace_period_days ?? 7,
@@ -249,6 +259,7 @@ export const activationService = {
       employee_code: employee.employee_code ?? undefined,
       employee_login: employee.login_name ?? undefined,
       is_admin: employee.is_admin === true,
+      can_view_financial: employee.can_view_financial === true,
       device_id: deviceId,
       session_token: pendingSession.token,
       session_expires_at: pendingSession.expires_at,
@@ -330,12 +341,20 @@ export const activationService = {
       if (!session?.ok) {
         return { ok: false, message: session?.message || "Sessão expirada. Entre novamente." };
       }
+      const permissionResult = await supabase.rpc("hoof_employee_permissions");
+      const permissions = permissionResult.error
+        ? null
+        : (permissionResult.data as { can_view_financial?: boolean } | null);
       farmContextService.updateContext({
         farm_name: session.farm?.name ?? ctx.farm_name,
         employee_name: session.employee?.name ?? ctx.employee_name,
         employee_code: session.employee?.employee_code ?? ctx.employee_code,
         employee_login: session.employee?.login_name ?? ctx.employee_login,
         is_admin: session.employee?.is_admin === true,
+        can_view_financial:
+          permissions?.can_view_financial === undefined
+            ? ctx.can_view_financial
+            : permissions.can_view_financial === true,
         session_expires_at: ctx.session_expires_at,
         last_license_check_at: new Date().toISOString(),
         trial_started_at: session.license_expires_at ? ctx.trial_started_at : undefined,

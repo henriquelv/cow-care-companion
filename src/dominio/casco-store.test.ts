@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import {
   addVisit,
+  DEFAULT_HOOF_AREAS,
   allAnimals,
   animalClinicalSnapshotFromVisits,
   agendaByDate,
@@ -76,6 +77,7 @@ const farm: FarmConfig = {
   dias_para_preventivo: 180,
   animais: [],
   diseases: defaultDiseaseCatalog(),
+  hoofAreas: [],
   pricing: DEFAULT_PRICING_CONFIG,
 };
 
@@ -114,6 +116,19 @@ beforeEach(() => {
 });
 
 describe("casco-store domain rules", () => {
+  it("centraliza as áreas do mapa e as sugestões de doença", () => {
+    const catalog = defaultDiseaseCatalog();
+    expect(DEFAULT_HOOF_AREAS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 1, code: "1" }),
+        expect.objectContaining({ id: 6, code: "6E" }),
+        expect.objectContaining({ id: 11, code: "6C" }),
+      ]),
+    );
+    expect(catalog.find((disease) => disease.code === "LB")?.zones).toEqual([1, 2, 5]);
+    expect(catalog.find((disease) => disease.code === "DD")?.zones).toEqual([6]);
+    expect(catalog.find((disease) => disease.code === "HI")?.zones).toEqual([11]);
+  });
   it("remove bloco dos novos tratamentos e preserva sua leitura no histórico", () => {
     const selectableCodes = SELECTABLE_TREATMENTS.map((treatment) => treatment.code);
     const historicalCodes = TREATMENTS.map((treatment) => treatment.code);
@@ -1000,6 +1015,7 @@ describe("casco-store domain rules", () => {
     saveFarm({
       ...farm,
       pricing: { ...DEFAULT_PRICING_CONFIG, preventive: 75 },
+      featureOverrides: { pricing: true },
     });
 
     addVisit(

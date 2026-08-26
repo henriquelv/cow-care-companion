@@ -3,6 +3,7 @@ import {
   type DiseaseEntry,
   type LesionCode,
   type Severity,
+  type Zone,
 } from "@/dominio/casco-store";
 import { cn } from "@/dominio/utils";
 
@@ -10,6 +11,7 @@ interface Props {
   catalog: DiseaseDefinition[];
   diseases: DiseaseEntry[];
   onChange: (diseases: DiseaseEntry[]) => void;
+  activeZones?: Zone[];
 }
 
 const SEV_STYLES: Record<Severity, string> = {
@@ -106,7 +108,7 @@ function DiseaseRow({
   );
 }
 
-export function DiseasePicker({ catalog, diseases, onChange }: Props) {
+export function DiseasePicker({ catalog, diseases, onChange, activeZones = [] }: Props) {
   function getSeverity(code: LesionCode): Severity {
     return diseases.find((d) => d.code === code)?.severity ?? 0;
   }
@@ -119,9 +121,15 @@ export function DiseasePicker({ catalog, diseases, onChange }: Props) {
       onChange(
         existing
           ? diseases.map((disease) =>
-              disease.code === code ? { ...disease, severity: s } : disease,
+              disease.code === code
+                ? {
+                    ...disease,
+                    severity: s,
+                    zones: Array.from(new Set([...(disease.zones ?? []), ...activeZones])),
+                  }
+                : disease,
             )
-          : [...diseases, { code, severity: s }],
+          : [...diseases, { code, severity: s, zones: [...activeZones] }],
       );
     }
   }
