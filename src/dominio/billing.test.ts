@@ -20,7 +20,6 @@ const pricing: PricingConfig = {
   tacoApply: 30,
   tacoMaintain: 8,
   tacoRemove: 10,
-  travelPerKm: 3.3,
   diseases: { DD: 15, SU: 25 },
 };
 
@@ -58,19 +57,10 @@ describe("billing", () => {
     expect(result.lines).toEqual([expect.objectContaining({ key: "preventive", total: 40 })]);
   });
 
-  it("aplica a faixa preventiva e soma o deslocamento informado", () => {
-    const result = billingForVisit(
-      visit({ preventiveBatchSize: 25, travelKm: 10 }),
-      pricing,
-      catalog,
-    );
-    expect(result.total).toBe(68);
-    expect(result.lines).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ key: "preventive", unitPrice: 35 }),
-        expect.objectContaining({ key: "travel", total: 33 }),
-      ]),
-    );
+  it("aplica a faixa preventiva pela quantidade informada", () => {
+    const result = billingForVisit(visit({ preventiveBatchSize: 25 }), pricing, catalog);
+    expect(result.total).toBe(35);
+    expect(result.lines).toEqual([expect.objectContaining({ key: "preventive", unitPrice: 35 })]);
   });
 
   it("soma atendimento, doenças por casco, curativo e taco", () => {

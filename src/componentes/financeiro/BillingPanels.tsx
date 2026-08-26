@@ -389,14 +389,7 @@ export function PricingEditor({
 }) {
   const [draft, setDraft] = useState(() => normalizePricingConfig(pricing));
   const setPrice = (
-    key:
-      | "preventive"
-      | "clinicalVisit"
-      | "bandage"
-      | "tacoApply"
-      | "tacoMaintain"
-      | "tacoRemove"
-      | "travelPerKm",
+    key: "preventive" | "clinicalVisit" | "bandage" | "tacoApply" | "tacoMaintain" | "tacoRemove",
     value: number,
   ) => setDraft((current) => ({ ...current, [key]: value }));
   const setPreventiveTier = (index: number, value: number) =>
@@ -458,11 +451,6 @@ export function PricingEditor({
             label="Retirada de taco · por casco"
             value={draft.tacoRemove}
             onChange={(value) => setPrice("tacoRemove", value)}
-          />
-          <PriceInput
-            label="Deslocamento · por quilômetro"
-            value={draft.travelPerKm}
-            onChange={(value) => setPrice("travelPerKm", value)}
           />
         </div>
       </section>

@@ -27,7 +27,16 @@ async function storedVisitCount(page) {
 }
 
 async function selectHoofArea(page, code: string) {
-  await page.getByRole("button", { name: new RegExp(`Selecionar área ${code}:`, "i") }).click();
+  const backToMap = page.getByRole("button", { name: /Escolher outra área/i });
+  if (await backToMap.isVisible().catch(() => false)) await backToMap.click();
+  if (code.toLocaleLowerCase("pt-BR") === "geral") {
+    await page.getByRole("button", { name: "Selecionar doenças gerais" }).click();
+  } else {
+    await page
+      .getByRole("button", { name: new RegExp(`Selecionar área ${code}:`, "i") })
+      .last()
+      .click();
+  }
 }
 
 test("Romano administra Hullsjob no celular", async ({ page }) => {
@@ -71,7 +80,7 @@ test("visita abandonada antes do resumo final não é salva", async ({ page }) =
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
-  await selectHoofArea(page, "6E");
+  await selectHoofArea(page, "6");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.reload();
 
@@ -105,7 +114,7 @@ test("mapa do casco mantém alvos grandes e sem rolagem lateral", async ({ page 
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
 
   await expect(page.getByRole("img", { name: "Mapa das áreas do casco" })).toBeVisible();
-  const areaButton = page.getByRole("button", { name: /Selecionar área 6E:/i });
+  const areaButton = page.getByRole("button", { name: /Selecionar área 6:/i }).last();
   await expect(areaButton).toBeVisible();
   expect((await areaButton.boundingBox())?.height).toBeGreaterThanOrEqual(48);
   expect(
@@ -114,6 +123,12 @@ test("mapa do casco mantém alvos grandes e sem rolagem lateral", async ({ page 
     ),
   ).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("mapa-casco-celular.png"), fullPage: true });
+  await areaButton.click();
+  await expect(page.getByRole("heading", { name: "Doenças da área 6" })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("doencas-area-6-celular.png"),
+    fullPage: true,
+  });
 });
 
 test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) => {
@@ -366,18 +381,18 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
   await page.getByRole("button", { name: /TD Trás Dir/i }).click();
   await page.getByRole("button", { name: /Continuar com 2 pé/i }).click();
 
-  await selectHoofArea(page, "6E");
-  await selectHoofArea(page, "3");
+  await selectHoofArea(page, "6");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await selectHoofArea(page, "3");
   await page.getByRole("button", { name: "Úlcera de Sola: grau 1" }).click();
-  await expect(page.getByText(/2 lesão\(ões\) neste casco/i)).toBeVisible();
+  await page.getByRole("button", { name: /Escolher outra área/i }).click();
+  await expect(page.getByText(/2 lesão\(ões\).*neste casco/i)).toBeVisible();
   await page.getByRole("button", { name: /Confirmar 2 lesão/i }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
   await page.getByRole("button", { name: /Próximo pé/i }).click();
 
-  await selectHoofArea(page, "3");
-  await page.getByRole("button", { name: "Demais doenças" }).click();
+  await selectHoofArea(page, "Geral");
   await page.getByRole("button", { name: "Problema de Locomoção: grau 3" }).click();
   await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
@@ -401,7 +416,7 @@ test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async (
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
-  await selectHoofArea(page, "6E");
+  await selectHoofArea(page, "6");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar/i }).click();
   await expect(page.getByRole("button", { name: /Aplicar bloco/i })).toHaveCount(0);
@@ -429,7 +444,7 @@ test("taco existente é reconhecido e pré-selecionado na próxima visita", asyn
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /TD.*Trás Dir/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
-  await selectHoofArea(page, "6E");
+  await selectHoofArea(page, "6");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
   await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /^Colocar taco/i }).click();
@@ -462,7 +477,7 @@ test("problema curado pode ser liberado para preventivo", async ({ page }) => {
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
-  await selectHoofArea(page, "6E");
+  await selectHoofArea(page, "6");
   await page.getByRole("button", { name: "Dermatite Digital: grau 1" }).click();
   await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
   await page.getByRole("button", { name: /Spray.*Produto/i }).click();

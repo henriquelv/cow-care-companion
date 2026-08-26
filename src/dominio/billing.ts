@@ -9,10 +9,9 @@ export interface PricingConfig {
   tacoMaintain: number;
   tacoRemove: number;
   diseases: Record<string, number>;
-  travelPerKm: number;
 }
 
-export type BillingLineKind = "preventive" | "clinical" | "bandage" | "taco" | "disease" | "travel";
+export type BillingLineKind = "preventive" | "clinical" | "bandage" | "taco" | "disease";
 
 export interface BillingLine {
   key: string;
@@ -71,7 +70,6 @@ export const DEFAULT_PRICING_CONFIG: PricingConfig = {
   tacoMaintain: 0,
   tacoRemove: 0,
   diseases: {},
-  travelPerKm: 0,
 };
 
 export const HULLSJOB_DEFAULT_PRICING: PricingConfig = {
@@ -87,7 +85,6 @@ export const HULLSJOB_DEFAULT_PRICING: PricingConfig = {
   tacoMaintain: 0,
   tacoRemove: 0,
   diseases: { DD: 15 },
-  travelPerKm: 3.3,
 };
 
 const TACO_LABELS: Record<TacoAction, string> = {
@@ -127,7 +124,6 @@ export function normalizePricingConfig(value?: Partial<PricingConfig> | null): P
     diseases: Object.fromEntries(
       Object.entries(value?.diseases ?? {}).map(([code, price]) => [code, money(price)]),
     ),
-    travelPerKm: money(value?.travelPerKm),
   };
 }
 
@@ -140,8 +136,7 @@ export function pricingHasValues(pricing: PricingConfig) {
     pricing.tacoApply > 0 ||
     pricing.tacoMaintain > 0 ||
     pricing.tacoRemove > 0 ||
-    Object.values(pricing.diseases).some((price) => price > 0) ||
-    pricing.travelPerKm > 0
+    Object.values(pricing.diseases).some((price) => price > 0)
   );
 }
 
@@ -229,19 +224,6 @@ export function billingLinesForVisit(
         }),
       );
     }
-  }
-
-  if ((visit.travelKm ?? 0) > 0 && pricing.travelPerKm > 0) {
-    const quantity = Math.round((visit.travelKm ?? 0) * 10) / 10;
-    const unitPrice = pricing.travelPerKm;
-    lines.push({
-      key: "travel",
-      kind: "travel",
-      label: `Deslocamento (${quantity.toLocaleString("pt-BR")} km)`,
-      quantity,
-      unitPrice,
-      total: money(quantity * unitPrice),
-    });
   }
 
   return lines;

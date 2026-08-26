@@ -114,7 +114,6 @@ export interface Visit {
   cancellation_scope?: "visit" | "animal";
   nextPreventiveDate?: string;
   billing?: VisitBillingSnapshot;
-  travelKm?: number;
   preventiveBatchSize?: number;
   feet: FootEntry[];
 }
@@ -1366,7 +1365,6 @@ export async function hydrateVisitsFromIndexedDb() {
         cancellation_scope: data.cancellation_scope ?? payload?.cancellation_scope,
         nextPreventiveDate: payload?.nextPreventiveDate,
         preventiveBatchSize: payload?.preventiveBatchSize,
-        travelKm: payload?.travelKm,
         billing: payload?.billing,
         feet,
       } satisfies Visit;

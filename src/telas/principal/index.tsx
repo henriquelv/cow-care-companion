@@ -4068,41 +4068,6 @@ function RegisterScreen({
                 </div>
               </div>
             )}
-            {features.pricing ? (
-              <label className="mt-4 block border-t border-border pt-3">
-                <span className="text-xs font-bold uppercase text-muted-foreground">
-                  Quilômetros de deslocamento (opcional)
-                </span>
-                <div className="mt-2 flex items-center rounded-lg border-2 border-border bg-card">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    max={5000}
-                    step="0.1"
-                    value={visit.travelKm ?? ""}
-                    onChange={(event) =>
-                      updateVisit({
-                        travelKm: event.target.value
-                          ? Math.max(0, Number(event.target.value))
-                          : undefined,
-                      })
-                    }
-                    aria-label="Quilômetros de deslocamento"
-                    placeholder="0"
-                    className="min-h-12 min-w-0 flex-1 bg-transparent px-4 text-right font-display text-xl font-black outline-none"
-                  />
-                  <span className="pr-4 text-sm font-bold text-muted-foreground">km</span>
-                </div>
-                {(visit.travelKm ?? 0) > 0 ? (
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {visit.travelKm?.toLocaleString("pt-BR")} km ×{" "}
-                    {formatCurrency(farm.pricing.travelPerKm)} ={" "}
-                    {formatCurrency((visit.travelKm ?? 0) * farm.pricing.travelPerKm)}
-                  </span>
-                ) : null}
-              </label>
-            ) : null}
           </section>
         </div>
       )}
@@ -4237,7 +4202,6 @@ function RegisterScreen({
           {hasCurrentDisease ? (
             <button
               type="button"
-              disabled={features.hoofMap && (currentFootEntry.zones ?? []).length === 0}
               onClick={() => setStep("treatment")}
               className="tap-lg flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-5 font-display text-xl uppercase text-primary-foreground stamp disabled:opacity-50"
             >
@@ -4249,7 +4213,6 @@ function RegisterScreen({
           ) : (
             <button
               type="button"
-              disabled={features.hoofMap && (currentFootEntry.zones ?? []).length === 0}
               onClick={() => setStep("treatment")}
               className="tap flex min-h-14 w-full items-center justify-center rounded-xl border-2 border-border bg-surface px-4 font-display text-sm font-black uppercase text-foreground disabled:opacity-50"
             >

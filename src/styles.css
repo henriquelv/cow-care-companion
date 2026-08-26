@@ -234,6 +234,7 @@
   }
   .skip-link {
     position: fixed;
+    visibility: hidden;
     left: 1rem;
     top: 1rem;
     z-index: 60;
@@ -246,6 +247,7 @@
     text-transform: uppercase;
   }
   .skip-link:focus-visible {
+    visibility: visible;
     transform: translateY(0);
   }
   .tap {

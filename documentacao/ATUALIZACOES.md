@@ -8,6 +8,42 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-08-26 - Novo casco por áreas e diagnóstico guiado
+
+### O que foi feito
+
+- Redesenhado o mapa da Hullsjob com as duas unhas do casco, seis regiões anatômicas coloridas, contornos mais claros e números amplos seguindo a referência de campo.
+- A área 6 reúne visualmente as extremidades do talão e o centro interdigital, sem perder as associações clínicas já gravadas como `6E` e `6C`.
+- Tocar no desenho ou no botão de uma área agora abre uma etapa própria com o título `Doenças da área X`, o nome da região e apenas os diagnósticos relacionados.
+- Adicionado o botão `Geral`, que mostra doenças sem associação com uma região específica do casco.
+- O funcionário pode voltar ao mapa, escolher outra área e registrar várias doenças e regiões no mesmo casco.
+- O mapa destaca somente áreas com diagnóstico registrado; abrir uma região e voltar sem escolher doença não gera uma seleção falsa.
+- Retirados da visita, da tabela de serviços e do cálculo financeiro o campo e a cobrança por quilômetros rodados.
+- Corrigida a captura visual da navegação acessível para o atalho `Pular para conteúdo` permanecer oculto até receber foco pelo teclado.
+- Validação concluída com `82` testes unitários e `21` fluxos de navegador; `20` passaram e `1` permaneceu ignorado por depender do painel remoto no modo local.
+- Atualizado o cache offline para `v34`.
+
+### Por que foi feito
+
+- Tornar o reconhecimento das regiões imediato para quem trabalha no campo e reduzir dúvidas entre área, doença e gravidade.
+- Evitar uma lista longa misturando doenças incompatíveis com a região selecionada.
+- Manter diagnósticos gerais disponíveis sem obrigar o funcionário a informar uma área incorreta.
+- Remover uma cobrança de deslocamento que não fará parte da operação.
+
+### Como validar
+
+- Entrar na Hullsjob e iniciar uma visita clínica em celular ou tablet.
+- Tocar nas áreas 1 a 6 pelo desenho e pelos botões e conferir o título e a lista filtrada de doenças.
+- Selecionar Dermatite Digital na área 6, voltar ao casco, selecionar Úlcera de Sola na área 3 e confirmar que as duas lesões continuam registradas.
+- Abrir `Geral` e confirmar que Locomoção e demais diagnósticos sem região específica aparecem nessa tela.
+- Conferir que quilômetros não aparecem no início da visita nem na configuração de preços.
+
+### Próximos passos
+
+1. Validar com Romano os nomes usados em campo para as seis regiões, mantendo a numeração da referência.
+2. Observar o primeiro atendimento real com duas doenças em áreas diferentes e ajustar somente os textos que ainda causarem dúvida.
+3. Após a validação clínica, aplicar o mesmo padrão de clareza às telas de tratamento e revisão sem alterar a sequência principal.
+
 ## 2026-08-26 - Fluxo Hullsjob, financeiro por permissão e relatórios operacionais
 
 ### O que foi feito
@@ -18,7 +54,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - O atendimento permite várias áreas e várias doenças no mesmo casco, vários cascos na mesma visita, retorno aos cascos e edição antes da confirmação final.
 - A administração clínica permite criar, editar, ativar e desativar áreas e doenças, além de alterar as sugestões de doenças por área.
 - Diagnósticos anteriores agora preservam ou recuperam a região correspondente, evitando exigir que o funcionário redescubra a área em uma revisão.
-- Adicionada a tabela padrão Hullsjob: preventivo por faixas de quantidade, Dermatite Digital, curativo, taco e deslocamento a R$ 3,30 por quilômetro.
+- Adicionada a tabela padrão Hullsjob: preventivo por faixas de quantidade, Dermatite Digital, curativo e taco.
 - O valor vigente é congelado somente quando a visita é concluída. StarMilk não gera cobrança escondida.
 - Criada a permissão `can_view_financial`; Romano e Jeová foram autorizados inicialmente no Supabase e o gerente pode conceder ou retirar o acesso por funcionário.
 - Aparelhos já ativados atualizam a permissão financeira automaticamente durante a sincronização.
@@ -32,7 +68,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Métricas e textos distinguem visitas realizadas de vacas vistas, sem contar rascunhos ou telas abandonadas.
 - Aplicada no Supabase a migração de permissões financeiras, solicitações, índices, RLS e funções administrativas.
 - Auditoria de produção confirmou RLS público bloqueado, fazendas isoladas, criação de fazenda protegida e nenhuma visita ativa sem animal cadastrado.
-- Adicionados testes para empresas, permissões, áreas, faixas preventivas, KM, solicitações offline e retorno com diagnóstico anterior.
+- Adicionados testes para empresas, permissões, áreas, faixas preventivas, solicitações offline e retorno com diagnóstico anterior.
 - Validação concluída com `82` testes unitários e `21` fluxos de navegador em celular e tablet; `20` passaram e `1` foi ignorado por exigir o painel remoto durante o modo local de QA.
 - Os PDFs detalhado e interno foram renderizados como imagem e conferidos visualmente; a exportação vazia passou a ser bloqueada.
 - Atualizado o cache offline para `v33`.
@@ -49,7 +85,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 
 - Entrar na Hullsjob, registrar dois cascos com problemas, selecionar regiões e doenças diferentes, concluir os tratamentos e conferir o resumo final.
 - Reabrir um animal tratado e confirmar que diagnóstico, região e taco anteriores aparecem pré-selecionados.
-- Entrar na StarMilk e confirmar que mapa, KM, solicitações e financeiro não aparecem.
+- Entrar na StarMilk e confirmar que mapa, solicitações e financeiro não aparecem.
 - Como Romano, alternar a agenda entre `Somente a minha`, `Toda a equipe` e um funcionário.
 - Criar uma solicitação de animal mancando offline, voltar à internet, aceitar, agendar e iniciar o atendimento.
 - Gerar os formatos `Cliente · detalhado` e `Interno · compacto`, com e sem valores.
