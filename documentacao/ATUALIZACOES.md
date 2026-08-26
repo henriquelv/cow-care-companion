@@ -17,11 +17,13 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Tocar no desenho ou no botão de uma área agora abre uma etapa própria com o título `Doenças da área X`, o nome da região e apenas os diagnósticos relacionados.
 - Adicionado o botão `Geral`, que mostra doenças sem associação com uma região específica do casco.
 - O funcionário pode voltar ao mapa, escolher outra área e registrar várias doenças e regiões no mesmo casco.
+- A tela de tratamento agora mostra `Adicionar doença em outra área`; ela retorna ao mapa sem apagar doença, gravidade, taco ou tratamento já selecionado.
+- No resumo final, cada casco com problema possui `Editar áreas, doenças e tratamento`, permitindo corrigir o atendimento antes de salvar.
 - O mapa destaca somente áreas com diagnóstico registrado; abrir uma região e voltar sem escolher doença não gera uma seleção falsa.
 - Retirados da visita, da tabela de serviços e do cálculo financeiro o campo e a cobrança por quilômetros rodados.
 - Corrigida a captura visual da navegação acessível para o atalho `Pular para conteúdo` permanecer oculto até receber foco pelo teclado.
 - Validação concluída com `82` testes unitários e `21` fluxos de navegador; `20` passaram e `1` permaneceu ignorado por depender do painel remoto no modo local.
-- Atualizado o cache offline para `v34`.
+- Atualizado o cache offline para `v35`.
 
 ### Por que foi feito
 
@@ -35,6 +37,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Entrar na Hullsjob e iniciar uma visita clínica em celular ou tablet.
 - Tocar nas áreas 1 a 6 pelo desenho e pelos botões e conferir o título e a lista filtrada de doenças.
 - Selecionar Dermatite Digital na área 6, voltar ao casco, selecionar Úlcera de Sola na área 3 e confirmar que as duas lesões continuam registradas.
+- Depois de escolher um tratamento, usar `Adicionar doença em outra área` e confirmar que o tratamento anterior permanece marcado.
 - Abrir `Geral` e confirmar que Locomoção e demais diagnósticos sem região específica aparecem nessa tela.
 - Conferir que quilômetros não aparecem no início da visita nem na configuração de preços.
 

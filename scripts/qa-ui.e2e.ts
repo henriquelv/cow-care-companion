@@ -383,12 +383,14 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
 
   await selectHoofArea(page, "6");
   await page.getByRole("button", { name: "Dermatite Digital: grau 2" }).click();
+  await page.getByRole("button", { name: /Confirmar 1 lesão/i }).click();
+  const sprayTreatment = page.getByRole("button", { name: /Spray.*Produto/i });
+  await sprayTreatment.click();
+  await page.getByRole("button", { name: "Adicionar doença em outra área" }).click();
   await selectHoofArea(page, "3");
   await page.getByRole("button", { name: "Úlcera de Sola: grau 1" }).click();
-  await page.getByRole("button", { name: /Escolher outra área/i }).click();
-  await expect(page.getByText(/2 lesão\(ões\).*neste casco/i)).toBeVisible();
   await page.getByRole("button", { name: /Confirmar 2 lesão/i }).click();
-  await page.getByRole("button", { name: /Spray.*Produto/i }).click();
+  await expect(sprayTreatment).toHaveClass(/bg-primary/);
   await page.getByRole("button", { name: /^Confirmar$/i }).click();
   await page.getByRole("button", { name: /Próximo pé/i }).click();
 
@@ -401,6 +403,9 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
   await expect(page.getByText("Derm. Digital", { exact: true })).toBeVisible();
   await expect(page.getByText("Úlcera Sola", { exact: true })).toBeVisible();
   await expect(page.getByText("Locomoção", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Editar áreas, doenças e tratamento" }),
+  ).toHaveCount(2);
   await expect(
     page.locator("#conteudo-principal").getByText("Preventivo", { exact: true }),
   ).toHaveCount(0);

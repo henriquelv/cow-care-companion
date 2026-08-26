@@ -4231,6 +4231,39 @@ function RegisterScreen({
             </p>
             <h2 className="font-display text-2xl font-black uppercase">Tratamento</h2>
           </div>
+          <section className="rounded-xl border-2 border-primary/35 bg-card p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-good" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="font-display text-sm font-black uppercase">
+                  {(currentFootEntry.diseases ?? []).filter((disease) => disease.severity > 0)
+                    .length || 0}{" "}
+                  lesão(ões) neste casco
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {(currentFootEntry.diseases ?? [])
+                    .filter((disease) => disease.severity > 0)
+                    .map(
+                      (disease) =>
+                        fullDiseaseCatalog.find((item) => item.code === disease.code)?.full ??
+                        disease.code,
+                    )
+                    .join(", ") || "Nenhuma doença selecionada"}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStep("disease")}
+              className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-lg border-2 border-primary bg-primary/5 px-4 font-display text-sm font-black uppercase text-primary"
+            >
+              <Plus className="h-5 w-5" aria-hidden="true" />
+              {features.hoofMap ? "Adicionar doença em outra área" : "Alterar doenças"}
+            </button>
+            <p className="mt-2 text-center text-xs font-semibold text-muted-foreground">
+              As doenças e os tratamentos já marcados não serão apagados.
+            </p>
+          </section>
           <section className="space-y-3 rounded-lg border-2 border-primary/25 bg-primary/5 p-4">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -4857,6 +4890,18 @@ function RegisterScreen({
                           <p className="text-xs">Primeira: {f.recheckDate ?? "a definir"}</p>
                         </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const selectedFootIndex = badFeet.indexOf(f.foot);
+                          if (selectedFootIndex >= 0) setFootIdx(selectedFootIndex);
+                          setStep("disease");
+                        }}
+                        className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-primary bg-card px-3 font-display text-xs font-black uppercase text-primary"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                        Editar áreas, doenças e tratamento
+                      </button>
                     </div>
                   );
                 })}
