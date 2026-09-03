@@ -151,6 +151,7 @@ import { BillingDashboard, PricingEditor } from "@/componentes/financeiro/Billin
 import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
 import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features";
 import { limpingRequestService, type LimpingRequest } from "@/servicos/limping-request.service";
+import { AgendaStatusReport } from "@/componentes/agenda/AgendaStatusReport";
 
 const AdminScreen = lazy(() =>
   import("@/telas/administrador/AdminScreen").then((module) => ({ default: module.AdminScreen })),
@@ -254,6 +255,17 @@ export function Index() {
   const refresh = () => setTick((t) => t + 1);
   const goToday = () => setScreen({ name: "today" });
   const appContext = farmContextService.getContext();
+
+  useEffect(() => {
+    const isHullsApp = appContext?.client_code?.trim().toUpperCase() === "HULLSJOB";
+    const iconPath = isHullsApp ? "/hullsapp-icon.svg" : "/icon.svg";
+    const manifestPath = isHullsApp ? "/hullsapp.webmanifest" : "/manifest.webmanifest";
+    document.title = isHullsApp ? "HullsApp" : "Gestão de Cascos";
+    document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.setAttribute("href", iconPath);
+    document
+      .querySelector<HTMLLinkElement>('link[rel="manifest"]')
+      ?.setAttribute("href", manifestPath);
+  }, [appContext?.client_code]);
 
   useEffect(() => {
     document.documentElement.scrollTop = 0;
@@ -874,8 +886,16 @@ function ActivationScreen({
                 <ArrowLeft className="h-6 w-6" />
               </button>
             ) : (
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground stamp sm:h-16 sm:w-16">
-                <ShieldCheck className="h-8 w-8" aria-hidden="true" />
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary text-primary-foreground stamp sm:h-16 sm:w-16">
+                {client?.activation_code === "HULLSJOB" ? (
+                  <img
+                    src="/hullsapp-icon.svg"
+                    alt="HullsApp"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <ShieldCheck className="h-8 w-8" aria-hidden="true" />
+                )}
               </div>
             )}
             <div className="min-w-0">
@@ -1455,6 +1475,8 @@ function Header({
   onDeactivate?: () => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const isHullsApp =
+    farmContextService.getContext()?.client_code?.trim().toUpperCase() === "HULLSJOB";
   const titles: Record<string, string> = {
     today: "",
     calendar: "Calendário",
@@ -1481,8 +1503,12 @@ function Header({
             <ArrowLeft className="h-6 w-6" />
           </button>
         ) : (
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground stamp">
-            <Scissors className="h-5 w-5" />
+          <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-primary text-primary-foreground stamp">
+            {isHullsApp ? (
+              <img src="/hullsapp-icon.svg" alt="HullsApp" className="h-full w-full object-cover" />
+            ) : (
+              <Scissors className="h-5 w-5" />
+            )}
           </div>
         )}
         <div className="flex-1 min-w-0 leading-tight">
@@ -3005,7 +3031,8 @@ function CalendarScreen({
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [selectedDate, setSelectedDate] = useState(today);
-  const [agendaScope, setAgendaScope] = useState("mine");
+  const [agendaScope, setAgendaScope] = useState("team");
+  const [showAgendaReport, setShowAgendaReport] = useState(false);
   const [limpingRequests, setLimpingRequests] = useState<LimpingRequest[]>([]);
   const farmFeatures = tenantFeatures(employeeContext, loadFarm().featureOverrides);
   const agendaEmployees = useMemo(() => {
@@ -3025,14 +3052,15 @@ function CalendarScreen({
       a.name.localeCompare(b.name, "pt-BR"),
     );
   }, [employeeContext?.employee_id, employeeContext?.employee_name]);
-  const agendaEmployeeId =
-    !employeeContext?.is_admin || agendaScope === "mine"
-      ? employeeContext?.employee_id
+  const agendaEmployeeId = employeeContext?.is_admin
+    ? agendaScope === "mine"
+      ? employeeContext.employee_id
       : agendaScope === "team"
         ? undefined
-        : agendaScope;
+        : agendaScope
+    : undefined;
   const agendaEmployeeName =
-    agendaScope === "mine"
+    employeeContext?.is_admin && agendaScope === "mine"
       ? employeeContext?.employee_name
       : agendaEmployees.find((employee) => employee.id === agendaScope)?.name;
 
@@ -3149,19 +3177,40 @@ function CalendarScreen({
     setSelectedDate(date);
   }
 
+  if (showAgendaReport) {
+    return (
+      <AgendaStatusReport
+        items={agendaItems}
+        today={today}
+        farmName={employeeContext?.farm_name ?? "Fazenda"}
+        onBack={() => setShowAgendaReport(false)}
+        onOpenHistory={onOpenHistory}
+        onStartVisit={onNew}
+        onAddToCalendar={(item) => downloadAgendaEvent(item)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
         <User className="h-5 w-5 text-primary" />
         <div>
           <p className="text-[10px] font-bold uppercase text-muted-foreground">
-            {employeeContext?.is_admin && agendaScope === "team"
-              ? "Agenda da equipe"
-              : "Minha agenda"}
+            {!employeeContext?.is_admin || agendaScope === "team"
+              ? "Agenda da fazenda"
+              : agendaScope === "mine"
+                ? "Minha agenda"
+                : `Agenda de ${agendaEmployeeName ?? "funcionário"}`}
           </p>
           <p className="font-display text-sm font-black uppercase">
             Revisões, preventivos e solicitações
           </p>
+          {!employeeContext?.is_admin || agendaScope === "team" ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Todos os funcionários desta fazenda podem consultar
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -3187,6 +3236,25 @@ function CalendarScreen({
           </select>
         </label>
       ) : null}
+
+      <button
+        type="button"
+        onClick={() => setShowAgendaReport(true)}
+        className="flex min-h-16 w-full items-center gap-3 rounded-xl border-2 border-primary bg-card px-4 text-left text-primary"
+      >
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <FileText className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-sm font-black uppercase">
+            Ver relatório da agenda
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            Atrasadas, hoje, próximas e futuras
+          </span>
+        </span>
+        <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+      </button>
 
       {farmFeatures.limpingRequests && openRequests.length > 0 ? (
         <section className="rounded-xl border-2 border-warn/45 bg-warn/5 p-4">
@@ -3350,10 +3418,14 @@ function CalendarScreen({
         <div className="px-2 py-3 text-center sm:py-4">
           <p className="font-display text-2xl font-black sm:text-3xl">{monthMetrics.visits}</p>
           <p className="text-[9px] font-bold uppercase text-muted-foreground sm:text-[10px]">
-            Visitas
+            Visitas concluídas
           </p>
         </div>
       </section>
+      <p className="rounded-lg bg-surface px-3 py-2 text-xs text-muted-foreground">
+        <strong className="text-foreground">Visita</strong> é cada atendimento finalizado. Uma vaca
+        atendida mais de uma vez conta uma nova visita, mas continua sendo uma única vaca atendida.
+      </p>
 
       {/* Grade do calendário */}
       <div className="rounded-2xl bg-card p-3">

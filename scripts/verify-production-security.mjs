@@ -187,7 +187,7 @@ async function main() {
     "Jeová",
     process.env.QA_HULLSJOB_PIN ?? "1234",
     "qa-production-hullsjob-jeova",
-    false,
+    true,
   );
   const patrick = await authenticate(
     "HULLSJOB",
@@ -196,13 +196,24 @@ async function main() {
     "qa-production-hullsjob-patrick",
     false,
   );
+  const farmEmployees = await authenticate(
+    "HULLSJOB",
+    "004",
+    process.env.QA_HULLSJOB_FARM_PIN ?? "1234",
+    "qa-production-hullsjob-farm-employees",
+    false,
+  );
   assert(
-    jeova.farms.length === 1 && jeova.farms[0].id === hullsjob.farm.id,
+    jeova.farms.some((farm) => farm.id === hullsjob.farm.id),
     "Jeová: fazenda incorreta.",
   );
   assert(
-    patrick.farms.length === 1 && patrick.farms[0].id === hullsjob.farm.id,
+    patrick.farms.some((farm) => farm.id === hullsjob.farm.id),
     "Patrick: fazenda incorreta.",
+  );
+  assert(
+    farmEmployees.farms.length === 1 && farmEmployees.farms[0].id === hullsjob.farm.id,
+    "Funcionários da Fazenda: fazenda incorreta.",
   );
 
   assert(
@@ -242,7 +253,7 @@ async function main() {
         hullsjob: {
           farm: hullsjob.farm.name,
           employees: hullsjob.overview.employees.length,
-          common_employees_verified: 2,
+          common_employees_verified: 3,
           clinical_rules: hullsjob.clinicalRules,
           active_visits: hullsjob.activeVisits,
           registered_animals: hullsjob.registeredAnimals,

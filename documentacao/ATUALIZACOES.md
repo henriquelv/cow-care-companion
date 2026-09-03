@@ -8,6 +8,46 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-02 - HullsApp, perfil 004 e agenda compartilhada
+
+### O que foi feito
+
+- Criados o ícone e o manifesto instalável da HullsApp. A marca aparece no cabeçalho da Hullsjob e passa a ser usada como ícone do app quando essa empresa está ativa; a entrada genérica continua neutra para não confundir clientes da StarMilk.
+- Criado no catálogo offline e no Supabase o funcionário `Funcionários da Fazenda`, código `004` e senha provisória `1234`, vinculado somente à Fazenda Vitória.
+- O perfil `004` foi travado como operacional: sem Administração, Gestão da Fazenda e informações financeiras.
+- Alterada a agenda interna para ser compartilhada entre todos os funcionários da fazenda. Assim, uma revisão criada em um atendimento do Romano também aparece para Jeová, Patrick e o perfil `004` quando estiverem na mesma fazenda.
+- Mantida a autoria dos compromissos e das visitas: a agenda informa quem gerou o retorno, e a nova visita concluída fica no nome de quem realizou o atendimento.
+- Criado o `Relatório de pendências` dentro do calendário, com totais e filtros para `Atrasadas`, `Hoje`, `Próximos 7 dias`, `Futuras` e `Em dia`.
+- O relatório também permite buscar brinco/lote, filtrar Revisões, Curativos e Preventivos, iniciar o atendimento, abrir o histórico e adicionar o compromisso ao calendário do celular.
+- Renomeada a métrica mensal para `Visitas concluídas` e adicionada uma explicação direta: visita é cada atendimento finalizado, não login. A mesma vaca atendida três vezes representa uma vaca e três visitas.
+- Confirmado em produção que a Fazenda Nossa Senhora de Fátima possui `20` visitas ativas, feitas pelo Romano para `20` animais diferentes; portanto, o número 20 está correto para essa fazenda.
+- Preservada a promoção administrativa de Jeová realizada pelo Romano em 29/08, conforme auditoria do próprio Supabase. Patrick e o perfil `004` permanecem sem acesso administrativo.
+- Aplicada no Supabase a migração `202609020001_hullsjob_farm_employee.sql` e atualizado o cache offline para `v36`.
+
+### Por que foi feito
+
+- Dar identidade própria à apresentação da Hullsjob sem deixar a aplicação compartilhada confusa para outras empresas.
+- Oferecer um acesso simples para funcionários da fazenda sem expor cadastros, configurações, relatórios administrativos ou valores.
+- Garantir continuidade do trabalho: o próximo atendimento pertence à fazenda e não pode desaparecer quando outro funcionário abre o aplicativo.
+- Transformar a grade mensal em uma lista prática de trabalho, principalmente para localizar rapidamente vacas atrasadas.
+- Evitar interpretações erradas dos indicadores de visitas, animais e acessos ao sistema.
+
+### Como validar
+
+- Entrar com empresa `HULLSJOB`, funcionário `004` e senha `1234`; selecionar Fazenda Vitória e confirmar que Nova visita, Animais, Preventivo, Calendário e Trabalho estão disponíveis.
+- Abrir o menu do perfil `004` e confirmar que Administração e Gestão da Fazenda não aparecem.
+- Entrar na Hullsjob, abrir Calendário e tocar em `Ver relatório da agenda`; testar todos os filtros, a busca e os três tipos de compromisso.
+- Criar uma revisão com um funcionário, sincronizar e entrar com outro funcionário da mesma fazenda; confirmar que o compromisso aparece na agenda da fazenda com o nome de quem o originou.
+- Instalar o app após ativar a Hullsjob e conferir o ícone HullsApp na tela inicial do aparelho.
+- Validação técnica concluída com `88` testes unitários, `22` fluxos de navegador aprovados e `1` ignorado por depender do painel remoto no modo local, além de typecheck, lint, build de produção e auditoria remota de RLS e isolamento entre empresas.
+
+### Próximos passos
+
+1. Trocar a senha provisória do perfil `004` na primeira entrega ao cliente e definir quem ficará responsável por esse acesso compartilhado.
+2. Confirmar com o cliente se o perfil `004` deve continuar exclusivo da Fazenda Vitória ou também acessar a Fazenda Nossa Senhora de Fátima.
+3. Acompanhar a primeira semana da agenda compartilhada para decidir se será necessário atribuir previamente cada compromisso a um funcionário específico.
+4. Substituir o ícone vetorial provisório pelo arquivo oficial da marca em alta resolução quando o cliente fornecer a arte original com fundo transparente.
+
 ## 2026-08-26 - Novo casco por áreas e diagnóstico guiado
 
 ### O que foi feito

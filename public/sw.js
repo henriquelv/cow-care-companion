@@ -1,5 +1,11 @@
-const CACHE_NAME = "caderninho-casco-v35";
-const CORE_ASSETS = ["/", "/manifest.webmanifest", "/icon.svg"];
+const CACHE_NAME = "caderninho-casco-v36";
+const CORE_ASSETS = [
+  "/",
+  "/manifest.webmanifest",
+  "/hullsapp.webmanifest",
+  "/icon.svg",
+  "/hullsapp-icon.svg",
+];
 
 async function cacheAppShell() {
   const cache = await caches.open(CACHE_NAME);

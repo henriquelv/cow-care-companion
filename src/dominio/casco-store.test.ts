@@ -730,6 +730,29 @@ describe("casco-store domain rules", () => {
     expect(romanoItems?.map((item) => item.tag)).toEqual(["100"]);
   });
 
+  it("compartilha a agenda clínica quando a fazenda não filtra um funcionário", () => {
+    const visits = [
+      visit({
+        id: "agenda-romano",
+        tag: "100",
+        employee_id: "employee-romano",
+        employee_name: "Romano",
+        feet: [foot({ ok: false, recheck: true, recheckDate: "2026-05-25" })],
+      }),
+      visit({
+        id: "agenda-jeova",
+        tag: "200",
+        employee_id: "employee-jeova",
+        employee_name: "Jeová",
+        feet: [foot({ ok: false, recheck: true, recheckDate: "2026-05-25" })],
+      }),
+    ];
+
+    const sharedItems = agendaByDateFromVisits(visits, "2026-05-22").get("2026-05-25");
+    expect(sharedItems?.map((item) => item.tag)).toEqual(["100", "200"]);
+    expect(sharedItems?.map((item) => item.employee_name)).toEqual(["Romano", "Jeová"]);
+  });
+
   it("mantém compromissos do mesmo brinco separados por fazenda", () => {
     const visits = [
       visit({

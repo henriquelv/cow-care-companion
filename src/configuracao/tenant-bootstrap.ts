@@ -222,6 +222,18 @@ const TENANTS: BootstrapAccess[] = [
         can_view_financial: false,
         temporary_password: "1234",
       },
+      {
+        id: "30000000-0000-4000-8000-000000000005",
+        client_id: "10000000-0000-4000-8000-000000000002",
+        farm_id: "20000000-0000-4000-8000-000000000002",
+        employee_code: "004",
+        login_name: "Funcionários da Fazenda",
+        name: "Funcionários da Fazenda",
+        status: "active",
+        is_admin: false,
+        can_view_financial: false,
+        temporary_password: "1234",
+      },
     ],
   },
 ];

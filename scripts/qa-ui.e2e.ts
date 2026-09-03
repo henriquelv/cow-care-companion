@@ -97,6 +97,47 @@ test("Jeová não recebe ações de gerente", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Gestão da fazenda" })).toHaveCount(0);
 });
 
+test("perfil 004 acessa somente o trabalho de campo", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByLabel("Link ou código da empresa").fill("HULLSJOB");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByLabel("Nome ou código do funcionário").fill("004");
+  await page.getByLabel("PIN de acesso").fill("1234");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: /Entrar na fazenda/i }).click();
+
+  await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
+  await expect(page.getByAltText("HullsApp")).toBeVisible();
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await expect(page.getByRole("button", { name: "Administração" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Gestão da fazenda" })).toHaveCount(0);
+});
+
+test("agenda da fazenda possui relatório por prazo no celular", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Patrick");
+  await page.getByRole("button", { name: "Calendário" }).click();
+  await expect(page.getByText("Agenda da fazenda", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(/Todos os funcionários desta fazenda podem consultar/i),
+  ).toBeVisible();
+  await expect(page.getByText("Visitas concluídas", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Ver relatório da agenda/i }).click();
+  await expect(page.getByRole("heading", { name: "Relatório de pendências" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Atrasadas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Em dia" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("relatorio-agenda-celular.png"),
+    fullPage: true,
+  });
+});
+
 test("Sandro entra na StarMilk no tablet", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");

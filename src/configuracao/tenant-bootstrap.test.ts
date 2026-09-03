@@ -51,6 +51,7 @@ describe("catálogo inicial de empresas", () => {
     ["Romano", "001"],
     ["Jeová", "002"],
     ["Patrick", "003"],
+    ["Funcionários da Fazenda", "004"],
   ])("autentica %s pelo nome e pelo código %s", (name, code) => {
     const byName = authenticateBootstrapEmployee("HULLSJOB", name, "1234");
     const byCode = authenticateBootstrapEmployee("HULLSJOB", code, "1234");
@@ -59,6 +60,14 @@ describe("catálogo inicial de empresas", () => {
     expect(byCode?.employee.name).toBe(name);
     expect(byName?.farms[0].name).toBe("Fazenda Vitória");
     expect(byName?.farms[0].client_id).toBe(byName?.client.id);
+  });
+
+  it("mantém o perfil 004 somente com as funções operacionais", () => {
+    const employee = authenticateBootstrapEmployee("HULLSJOB", "004", "1234")?.employee;
+
+    expect(employee?.name).toBe("Funcionários da Fazenda");
+    expect(employee?.is_admin).toBe(false);
+    expect(employee?.can_view_financial).toBe(false);
   });
 
   it("não aceita funcionário, empresa ou senha incorretos", () => {

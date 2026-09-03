@@ -930,6 +930,8 @@ export interface CurativeFollowup {
   category: CurativeCategory;
   diseases: LesionCode[];
   status: "overdue" | "today" | "upcoming";
+  employee_id?: string;
+  employee_name?: string;
 }
 
 export interface CurativeMetrics {
@@ -971,6 +973,8 @@ export interface ScheduledRecheck {
   sequence: number;
   total: number;
   intervalDays: number;
+  employee_id?: string;
+  employee_name?: string;
 }
 
 export interface EmployeeWorkMetrics {
@@ -2114,6 +2118,8 @@ export function rechecksByDateFromVisits(
             sequence,
             total,
             intervalDays,
+            employee_id: v.employee_id,
+            employee_name: v.employee_name ?? v.visitante_nome,
           });
         }
         map.set(date, existing);
@@ -2184,6 +2190,8 @@ export function curativeFollowupsFromVisits(
         diseases: activeDiseases.map((d) => d.code),
         status:
           dueDate < referenceDate ? "overdue" : dueDate === referenceDate ? "today" : "upcoming",
+        employee_id: visit.employee_id,
+        employee_name: visit.employee_name ?? visit.visitante_nome,
       });
     }
   }
@@ -2250,6 +2258,8 @@ export function agendaByDateFromVisits(
         reviewNumber: item.sequence,
         reviewTotal: item.total,
         reviewIntervalDays: item.intervalDays,
+        employee_id: item.employee_id,
+        employee_name: item.employee_name,
       });
     }
   }
@@ -2269,6 +2279,8 @@ export function agendaByDateFromVisits(
       title: "Prazo de curativo",
       detail: `${FOOT_LABEL[item.foot]} · ${item.targetDays} dias após tratamento`,
       overdue: item.status === "overdue",
+      employee_id: item.employee_id,
+      employee_name: item.employee_name,
     });
   }
 
