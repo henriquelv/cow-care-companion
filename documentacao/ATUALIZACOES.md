@@ -8,6 +8,29 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-04 - Login mestra dentro da Hullsjob e StarMilk
+
+### O que foi feito
+
+- Corrigido o acesso `000` para funcionar também quando o usuário informa primeiro o código `HULLSJOB` ou `STARMILK`.
+- O mesmo conjunto `login 000 + PIN 1234` agora lista as fazendas da empresa informada e entra diretamente na unidade escolhida.
+- Mantido o código `000` na primeira etapa como caminho direto para a Administração central completa.
+- Criada uma autenticação específica no Supabase para a conta mestra, com bloqueio por tentativas, sessão temporária e ativação segura do aparelho na fazenda selecionada.
+- A permissão cruzada continua exclusiva do funcionário marcado no banco como `is_platform_admin`; nenhum gerente ou funcionário comum recebeu acesso a outra empresa.
+- Aplicada a migração `202609040003_master_login_any_company.sql` no Supabase de produção.
+
+### Como validar
+
+- Informar `HULLSJOB`, depois login `000` e PIN `1234`; selecionar Fazenda Vitória e entrar.
+- Sair, informar `STARMILK`, depois login `000` e PIN `1234`; selecionar a fazenda StarMilk e entrar.
+- Informar `000` na primeira etapa para abrir diretamente a Administração central.
+- Confirmar que Romano, Jeová, Patrick, perfil 004 e Sandro continuam limitados às próprias empresas e fazendas.
+
+### Próximos passos
+
+1. Trocar o PIN provisório `1234` da conta mestra depois de validar os três caminhos de entrada.
+2. Guardar o novo PIN apenas no gerenciador seguro do responsável técnico.
+
 ## 2026-09-04 - Conta mestra de administração central
 
 ### O que foi feito

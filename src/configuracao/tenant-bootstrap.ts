@@ -284,6 +284,23 @@ export function authenticateBootstrapEmployee(code: string, login: string, pin: 
 
   const normalizedLogin = login.trim().toLocaleLowerCase("pt-BR");
   const pinOverrides = readLocalPinOverrides();
+  const platformTenant = TENANTS.find((item) => item.client.activation_code === "000");
+  const platformEmployee = platformTenant?.employees.find((item) => item.is_platform_admin);
+  const platformPin = platformEmployee
+    ? (pinOverrides[platformEmployee.id] ?? platformEmployee.temporary_password)
+    : "";
+  if (
+    platformEmployee &&
+    platformPin === pin &&
+    (login.trim() === "000" || normalizedLogin === platformEmployee.login_name.toLocaleLowerCase("pt-BR"))
+  ) {
+    const { temporary_password: _temporaryPassword, ...safePlatformEmployee } = platformEmployee;
+    return {
+      client: tenant.client,
+      employee: safePlatformEmployee,
+      farms: tenant.farms,
+    };
+  }
   const employee = tenant.employees.find(
     (item) =>
       (pinOverrides[item.id] ?? item.temporary_password) === pin &&

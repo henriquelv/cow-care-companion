@@ -144,11 +144,15 @@ export const activationService = {
     }
 
     const supabase = requireSupabase();
-    const { data, error } = await supabase.rpc("authenticate_hoof_employee", {
+    const isMasterLogin = login.trim() === "000";
+    const { data, error } = await supabase.rpc(
+      isMasterLogin ? "authenticate_hoof_platform_employee" : "authenticate_hoof_employee",
+      {
       p_activation_code: normalizedCode,
       p_login: login.trim(),
       p_password: pin,
-    });
+      },
+    );
     if (error) throw new Error("Não foi possível validar o acesso. Tente novamente.");
     if (!data) throw new Error("Funcionário ou PIN inválidos.");
 
@@ -201,6 +205,10 @@ export const activationService = {
     const deviceId = farmContextService.getDeviceId();
     const now = new Date().toISOString();
     const localActivation = client?.source === "bootstrap" || !canReachServer();
+    const isPlatformAdmin =
+      employee.is_platform_admin === true || employee.employee_code === "000";
+    const platformFarmMode =
+      isPlatformAdmin && client?.activation_code?.trim().toUpperCase() !== "000";
 
     if (localActivation) {
       const ctx: FarmContext = {
@@ -215,8 +223,8 @@ export const activationService = {
         employee_login: employee.login_name ?? undefined,
         is_admin: employee.is_admin === true,
         is_platform_admin:
-          employee.is_platform_admin === true ||
-          (client?.activation_code === "000" && employee.employee_code === "000"),
+          isPlatformAdmin,
+        platform_farm_mode: platformFarmMode,
         can_view_financial: employee.can_view_financial === true,
         device_id: deviceId,
         last_license_check_at: now,
@@ -231,11 +239,14 @@ export const activationService = {
     const pendingSession = farmContextService.getPendingSession();
     if (!pendingSession?.token) throw new Error("Sessão de ativação inválida. Entre novamente.");
 
-    const activationResult = await supabase.rpc("activate_hoof_device", {
-      p_farm_id: farm.id,
-      p_device_name:
-        typeof navigator === "undefined" ? "Navegador" : navigator.userAgent.slice(0, 120),
-    });
+    const activationResult = await supabase.rpc(
+      isPlatformAdmin ? "activate_hoof_platform_device" : "activate_hoof_device",
+      {
+        p_farm_id: farm.id,
+        p_device_name:
+          typeof navigator === "undefined" ? "Navegador" : navigator.userAgent.slice(0, 120),
+      },
+    );
     if (activationResult.error) {
       if (isMissingRpc(activationResult.error)) {
         throw new Error("O servidor precisa da atualização de segurança antes deste acesso.");
@@ -264,8 +275,8 @@ export const activationService = {
       employee_login: employee.login_name ?? undefined,
       is_admin: employee.is_admin === true,
       is_platform_admin:
-        employee.is_platform_admin === true ||
-        (client?.activation_code === "000" && employee.employee_code === "000"),
+        isPlatformAdmin,
+      platform_farm_mode: platformFarmMode,
       can_view_financial: employee.can_view_financial === true,
       device_id: deviceId,
       session_token: pendingSession.token,
