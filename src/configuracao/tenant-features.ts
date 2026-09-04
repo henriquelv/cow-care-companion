@@ -50,8 +50,14 @@ export function tenantFeatures(
 }
 
 export function canViewFinancial(
-  context: Pick<FarmContext, "client_code" | "can_view_financial"> | null | undefined,
+  context:
+    | Pick<FarmContext, "client_code" | "can_view_financial" | "is_platform_admin">
+    | null
+    | undefined,
   overrides?: TenantFeatureOverrides,
 ) {
-  return tenantFeatures(context, overrides).financial && context?.can_view_financial === true;
+  return (
+    tenantFeatures(context, overrides).financial &&
+    (context?.is_platform_admin === true || context?.can_view_financial === true)
+  );
 }

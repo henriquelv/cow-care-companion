@@ -8,6 +8,29 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-04 - Valores liberados para a conta mestra
+
+### O que foi feito
+
+- Corrigida a permissão financeira da conta `000`, que era reconhecida no login mas acabava substituída pela permissão comum de funcionário durante a ativação e a sincronização.
+- A conta mestra agora sempre visualiza os recursos financeiros disponíveis na empresa aberta.
+- Adicionado o botão `Valores` nos cartões das fazendas Hullsjob dentro da Administração central.
+- O botão abre diretamente `Gestão da fazenda > Regras clínicas`, onde ficam a tabela de serviços, preço do curativo por casco, ações de taco e valores individuais por doença.
+- Mantida a StarMilk sem módulo financeiro, conforme a configuração específica dessa empresa; isso não reduz o acesso administrativo aos demais dados da StarMilk.
+- Adicionado teste automatizado garantindo que a conta mestra Hullsjob não perca novamente a permissão de valores.
+
+### Como validar
+
+- Entrar com código `000`, login `000` e PIN `1234`.
+- Selecionar Hullsjob e tocar em `Valores` na fazenda desejada.
+- Confirmar o PIN novamente e verificar `Tabela de preços`, incluindo `Curativo por casco` e `Valor por doença`.
+- Alterar um valor, salvar e reabrir a mesma fazenda para confirmar a persistência.
+
+### Próximos passos
+
+1. Cadastrar e validar com o cliente os valores reais de cada fazenda Hullsjob.
+2. Definir futuramente se a StarMilk também deverá contratar e habilitar o módulo financeiro.
+
 ## 2026-09-04 - Acesso total da conta mestra e atalho da agenda
 
 ### O que foi feito

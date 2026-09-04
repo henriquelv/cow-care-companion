@@ -292,7 +292,8 @@ export function authenticateBootstrapEmployee(code: string, login: string, pin: 
   if (
     platformEmployee &&
     platformPin === pin &&
-    (login.trim() === "000" || normalizedLogin === platformEmployee.login_name.toLocaleLowerCase("pt-BR"))
+    (login.trim() === "000" ||
+      normalizedLogin === platformEmployee.login_name.toLocaleLowerCase("pt-BR"))
   ) {
     const { temporary_password: _temporaryPassword, ...safePlatformEmployee } = platformEmployee;
     return {

@@ -148,9 +148,9 @@ export const activationService = {
     const { data, error } = await supabase.rpc(
       isMasterLogin ? "authenticate_hoof_platform_employee" : "authenticate_hoof_employee",
       {
-      p_activation_code: normalizedCode,
-      p_login: login.trim(),
-      p_password: pin,
+        p_activation_code: normalizedCode,
+        p_login: login.trim(),
+        p_password: pin,
       },
     );
     if (error) throw new Error("Não foi possível validar o acesso. Tente novamente.");
@@ -191,7 +191,10 @@ export const activationService = {
       client: { ...result.client, source: "remote" },
       employee: {
         ...result.employee,
-        can_view_financial: permissions?.can_view_financial === true,
+        can_view_financial:
+          result.employee.is_platform_admin === true ||
+          result.employee.employee_code === "000" ||
+          permissions?.can_view_financial === true,
       },
       farms: result.farms,
     };
@@ -205,8 +208,7 @@ export const activationService = {
     const deviceId = farmContextService.getDeviceId();
     const now = new Date().toISOString();
     const localActivation = client?.source === "bootstrap" || !canReachServer();
-    const isPlatformAdmin =
-      employee.is_platform_admin === true || employee.employee_code === "000";
+    const isPlatformAdmin = employee.is_platform_admin === true || employee.employee_code === "000";
     const platformFarmMode =
       isPlatformAdmin && client?.activation_code?.trim().toUpperCase() !== "000";
 
@@ -222,8 +224,7 @@ export const activationService = {
         employee_code: employee.employee_code ?? undefined,
         employee_login: employee.login_name ?? undefined,
         is_admin: employee.is_admin === true,
-        is_platform_admin:
-          isPlatformAdmin,
+        is_platform_admin: isPlatformAdmin,
         platform_farm_mode: platformFarmMode,
         can_view_financial: employee.can_view_financial === true,
         device_id: deviceId,
@@ -274,8 +275,7 @@ export const activationService = {
       employee_code: employee.employee_code ?? undefined,
       employee_login: employee.login_name ?? undefined,
       is_admin: employee.is_admin === true,
-      is_platform_admin:
-        isPlatformAdmin,
+      is_platform_admin: isPlatformAdmin,
       platform_farm_mode: platformFarmMode,
       can_view_financial: employee.can_view_financial === true,
       device_id: deviceId,
@@ -371,9 +371,11 @@ export const activationService = {
         is_admin: session.employee?.is_admin === true,
         is_platform_admin: ctx.is_platform_admin === true,
         can_view_financial:
-          permissions?.can_view_financial === undefined
-            ? ctx.can_view_financial
-            : permissions.can_view_financial === true,
+          ctx.is_platform_admin === true
+            ? true
+            : permissions?.can_view_financial === undefined
+              ? ctx.can_view_financial
+              : permissions.can_view_financial === true,
         session_expires_at: ctx.session_expires_at,
         last_license_check_at: new Date().toISOString(),
         trial_started_at: session.license_expires_at ? ctx.trial_started_at : undefined,

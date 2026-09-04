@@ -22,6 +22,13 @@ describe("tenant features", () => {
   it("exige permissão individual para mostrar valores", () => {
     expect(canViewFinancial({ client_code: "HULLSJOB", can_view_financial: true })).toBe(true);
     expect(canViewFinancial({ client_code: "HULLSJOB", can_view_financial: false })).toBe(false);
+    expect(
+      canViewFinancial({
+        client_code: "HULLSJOB",
+        can_view_financial: false,
+        is_platform_admin: true,
+      }),
+    ).toBe(true);
     expect(canViewFinancial({ client_code: "STARMILK", can_view_financial: true })).toBe(false);
   });
 

@@ -474,7 +474,13 @@ export function Index() {
             };
             saveFarm(nextFarm);
             setFarm(nextFarm);
-            setScreen(destination === "calendar" ? { name: "calendar" } : { name: "today" });
+            setScreen(
+              destination === "calendar"
+                ? { name: "calendar" }
+                : destination === "config"
+                  ? { name: "config", section: "avancado" }
+                  : { name: "today" },
+            );
             setActiveWorkSession(workSessionService.getActive());
             refresh();
             void runSync();

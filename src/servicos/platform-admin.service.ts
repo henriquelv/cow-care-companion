@@ -53,7 +53,9 @@ type PlatformSession = { token: string; expires_at: string };
 
 function readSession(): PlatformSession | null {
   try {
-    const value = JSON.parse(sessionStorage.getItem(PLATFORM_SESSION_KEY) ?? "null") as PlatformSession | null;
+    const value = JSON.parse(
+      sessionStorage.getItem(PLATFORM_SESSION_KEY) ?? "null",
+    ) as PlatformSession | null;
     if (!value?.token || new Date(value.expires_at).getTime() <= Date.now()) {
       sessionStorage.removeItem(PLATFORM_SESSION_KEY);
       return null;
@@ -86,7 +88,12 @@ export const platformAdminService = {
       p_password: pin,
     });
     if (error) throw new Error("Não foi possível validar a conta mestra.");
-    const result = data as { ok?: boolean; message?: string; manager_token?: string; expires_at?: string } | null;
+    const result = data as {
+      ok?: boolean;
+      message?: string;
+      manager_token?: string;
+      expires_at?: string;
+    } | null;
     if (!result?.ok || !result.manager_token || !result.expires_at) {
       throw new Error(result?.message || "PIN incorreto.");
     }
