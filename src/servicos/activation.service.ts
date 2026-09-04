@@ -39,6 +39,7 @@ interface OfflineAccessRecord {
   pin_hash: string;
   session_token?: string;
   session_expires_at?: string;
+  activated_farm_ids?: string[];
   cached_at: string;
 }
 
@@ -76,6 +77,11 @@ async function cacheOfflineAccess(
   session?: { token?: string; expires_at?: string },
 ) {
   if (typeof localStorage === "undefined") return;
+  const previous = readOfflineAccess().find(
+    (item) =>
+      item.client.activation_code.trim().toUpperCase() === companyCode.trim().toUpperCase() &&
+      item.employee.id === employee.id,
+  );
   const record: OfflineAccessRecord = {
     client,
     employee,
@@ -83,19 +89,56 @@ async function cacheOfflineAccess(
     pin_hash: await hashOfflinePin(companyCode, employee.id, pin),
     session_token: session?.token,
     session_expires_at: session?.expires_at,
+    activated_farm_ids: previous?.activated_farm_ids ?? [],
     cached_at: new Date().toISOString(),
   };
   const next = readOfflineAccess().filter(
     (item) =>
-      !(item.client.activation_code === client.activation_code && item.employee.id === employee.id),
+      !(
+        item.client.activation_code.trim().toUpperCase() === companyCode.trim().toUpperCase() &&
+        item.employee.id === employee.id
+      ),
   );
   localStorage.setItem(OFFLINE_ACCESS_KEY, JSON.stringify([...next, record]));
+}
+
+function updateOfflineAccessRecord(
+  companyCode: string,
+  employeeId: string,
+  update: (record: OfflineAccessRecord) => OfflineAccessRecord,
+) {
+  if (typeof localStorage === "undefined") return;
+  const normalizedCode = companyCode.trim().toUpperCase();
+  const records = readOfflineAccess();
+  const next = records.map((record) =>
+    record.client.activation_code.trim().toUpperCase() === normalizedCode &&
+    record.employee.id === employeeId
+      ? update(record)
+      : record,
+  );
+  localStorage.setItem(OFFLINE_ACCESS_KEY, JSON.stringify(next));
+}
+
+function markOfflineFarmActivated(companyCode: string, employeeId: string, farmId: string) {
+  updateOfflineAccessRecord(companyCode, employeeId, (record) => ({
+    ...record,
+    activated_farm_ids: Array.from(new Set([...(record.activated_farm_ids ?? []), farmId])),
+  }));
+}
+
+async function updateOfflinePin(companyCode: string, employeeId: string, pin: string) {
+  const pinHash = await hashOfflinePin(companyCode, employeeId, pin);
+  updateOfflineAccessRecord(companyCode, employeeId, (record) => ({
+    ...record,
+    pin_hash: pinHash,
+    cached_at: new Date().toISOString(),
+  }));
 }
 
 function findOfflineAccess(companyCode: string, login: string) {
   return readOfflineAccess().find(
     (item) =>
-      item.client.activation_code === companyCode.trim().toUpperCase() &&
+      item.client.activation_code.trim().toUpperCase() === companyCode.trim().toUpperCase() &&
       sameLogin(item.employee, login),
   );
 }
@@ -168,7 +211,9 @@ export const activationService = {
     }
 
     if (!canReachServer()) {
-      const cached = readOfflineAccess().find((item) => item.client.activation_code === normalized);
+      const cached = readOfflineAccess().find(
+        (item) => item.client.activation_code.trim().toUpperCase() === normalized,
+      );
       if (!cached) {
         throw new Error(
           "Este aparelho ainda não tem o acesso offline desta empresa. Entre uma vez com internet.",
@@ -210,6 +255,13 @@ export const activationService = {
       const { authenticateBootstrapEmployee } = await developmentBootstrap();
       const localResult = authenticateBootstrapEmployee(normalizedCode, login, pin);
       if (!localResult) throw new Error("Funcionário ou PIN inválidos.");
+      await cacheOfflineAccess(
+        normalizedCode,
+        localResult.client,
+        localResult.employee,
+        localResult.farms,
+        pin,
+      );
       return localResult;
     }
 
@@ -325,6 +377,13 @@ export const activationService = {
 
     if (localActivation) {
       const localSession = farmContextService.getPendingSession();
+      const cachedAccess = findOfflineAccess(
+        client?.activation_code ?? "",
+        employee.employee_code ?? employee.login_name ?? employee.name,
+      );
+      const farmAlreadyActivated =
+        client?.source === "bootstrap" ||
+        cachedAccess?.activated_farm_ids?.includes(farm.id) === true;
       const ctx: FarmContext = {
         client_id: client?.id ?? farm.client_id ?? undefined,
         client_name: client?.name,
@@ -342,10 +401,14 @@ export const activationService = {
         device_id: deviceId,
         session_token: localSession?.token,
         session_expires_at: localSession?.expires_at,
+        device_activation_pending: !farmAlreadyActivated,
         last_license_check_at: now,
         grace_period_days: farm.grace_period_days ?? 7,
       };
       farmContextService.saveContext(ctx);
+      if (client?.source === "bootstrap" && client.activation_code) {
+        markOfflineFarmActivated(client.activation_code, employee.id, farm.id);
+      }
       return ctx;
     }
 
@@ -395,6 +458,7 @@ export const activationService = {
       device_id: deviceId,
       session_token: pendingSession.token,
       session_expires_at: pendingSession.expires_at,
+      device_activation_pending: false,
       last_license_check_at: now,
       grace_period_days: farm.grace_period_days ?? 7,
       trial_started_at: activation.license_expires_at
@@ -403,7 +467,73 @@ export const activationService = {
       trial_expires_at: activation.license_expires_at ?? undefined,
     };
     farmContextService.saveContext(ctx);
+    if (client?.activation_code) {
+      markOfflineFarmActivated(client.activation_code, employee.id, farm.id);
+    }
     return ctx;
+  },
+
+  cachedFarmsForCurrentEmployee(): RemoteFarm[] {
+    const context = farmContextService.getContext();
+    if (!context) return [];
+    const cached = readOfflineAccess().find(
+      (record) =>
+        record.client.activation_code.trim().toUpperCase() ===
+          context.client_code?.trim().toUpperCase() && record.employee.id === context.employee_id,
+    );
+    if (cached?.farms.length) return cached.farms.filter((farm) => farm.status !== "blocked");
+    return [
+      {
+        id: context.farm_id,
+        name: context.farm_name,
+        client_id: context.client_id,
+        status: "active",
+        grace_period_days: context.grace_period_days,
+      },
+    ];
+  },
+
+  rememberFarmForOffline(companyCode: string, employeeId: string, farm: RemoteFarm) {
+    updateOfflineAccessRecord(companyCode, employeeId, (record) => ({
+      ...record,
+      farms: [...record.farms.filter((item) => item.id !== farm.id), farm],
+      cached_at: new Date().toISOString(),
+    }));
+  },
+
+  async switchFarm(farmId: string): Promise<FarmContext> {
+    const context = farmContextService.getContext();
+    if (!context?.client_code) throw new Error("Acesso da empresa não encontrado neste aparelho.");
+    const cached = readOfflineAccess().find(
+      (record) =>
+        record.client.activation_code.trim().toUpperCase() ===
+          context.client_code?.trim().toUpperCase() && record.employee.id === context.employee_id,
+    );
+    const farm = cached?.farms.find((item) => item.id === farmId && item.status !== "blocked");
+    if (!cached || !farm) {
+      throw new Error("Esta fazenda ainda não está disponível offline neste aparelho.");
+    }
+    if (farm.id === context.farm_id) return context;
+
+    if (canReachServer()) {
+      if (context.session_token) {
+        farmContextService.savePendingSession({
+          token: context.session_token,
+          expires_at: context.session_expires_at,
+        });
+      }
+      return this.activate(farm, cached.employee, cached.client);
+    }
+
+    return (
+      farmContextService.updateContext({
+        farm_id: farm.id,
+        farm_name: farm.name,
+        grace_period_days: farm.grace_period_days ?? context.grace_period_days,
+        device_activation_pending: !cached.activated_farm_ids?.includes(farm.id),
+        platform_farm_mode: false,
+      }) ?? context
+    );
   },
 
   async changeEmployeePin(currentPin: string, newPin: string) {
@@ -427,6 +557,7 @@ export const activationService = {
         newPin,
       );
       if (!changed) throw new Error("PIN atual incorreto.");
+      await updateOfflinePin(context.client_code, context.employee_id, newPin);
       return;
     }
     if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -446,6 +577,7 @@ export const activationService = {
     const message = result?.message ?? "";
 
     if (!changed) throw new Error(message || "Não foi possível alterar o PIN.");
+    await updateOfflinePin(context.client_code, context.employee_id, newPin);
   },
 
   async validateCurrentAccess(): Promise<{ ok: boolean; message?: string; offline?: boolean }> {
@@ -459,6 +591,28 @@ export const activationService = {
     }
 
     const supabase = requireSupabase();
+    if (ctx.device_activation_pending) {
+      const activationResult = await supabase.rpc(
+        ctx.is_platform_admin ? "activate_hoof_platform_device" : "activate_hoof_device",
+        {
+          p_farm_id: ctx.farm_id,
+          p_device_name:
+            typeof navigator === "undefined" ? "Navegador" : navigator.userAgent.slice(0, 120),
+        },
+      );
+      const activation = activationResult.data as { ok?: boolean; message?: string } | null;
+      if (activationResult.error || !activation?.ok) {
+        return {
+          ok: false,
+          message: activation?.message || "Entre novamente para liberar esta fazenda no aparelho.",
+        };
+      }
+      farmContextService.updateContext({
+        device_activation_pending: false,
+        last_license_check_at: new Date().toISOString(),
+      });
+      if (ctx.client_code) markOfflineFarmActivated(ctx.client_code, ctx.employee_id, ctx.farm_id);
+    }
     const sessionResult = await supabase.rpc("validate_hoof_access", {
       p_farm_id: ctx.farm_id,
     });

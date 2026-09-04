@@ -8,6 +8,34 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-04 - Login persistente e troca de fazenda offline
+
+### O que foi feito
+
+- O aparelho continua entrando diretamente na última fazenda usada depois do primeiro acesso válido; empresa e funcionário permanecem identificados localmente.
+- O menu agora separa `Trocar fazenda` de `Trocar empresa ou funcionário`.
+- A troca entre fazendas já autorizadas para o funcionário funciona sem internet e não solicita novamente nome, código ou PIN.
+- A tela de troca mostra claramente a empresa, o funcionário, a fazenda atual e as demais fazendas disponíveis no aparelho.
+- A troca é bloqueada enquanto uma visita à fazenda estiver em andamento, evitando que atendimentos sejam vinculados à unidade errada.
+- Fazendas novas passam a ser incluídas no acesso offline do funcionário que as criou.
+- Ao voltar a ficar online, uma fazenda selecionada pela primeira vez offline tem sua ativação de aparelho validada antes da sincronização.
+- Mantido o isolamento por `farm_id`: configuração, animais, visitas, agenda e pendências são carregados apenas da fazenda selecionada.
+- Atualizado o cache do aplicativo para a versão `v38` e o registrador do Service Worker para `v22`.
+
+### Como validar
+
+- Entrar uma vez com internet, fechar e reabrir o app; ele deve abrir diretamente na última fazenda.
+- Com um funcionário vinculado a duas fazendas, desligar a internet e abrir `Menu > Trocar fazenda ou acesso`.
+- Escolher outra fazenda e confirmar que o funcionário continua conectado e que os animais da unidade anterior não aparecem.
+- Voltar à fazenda anterior ainda offline e confirmar que seus registros reaparecem.
+- Iniciar uma visita à fazenda e confirmar que a troca fica bloqueada até tocar em `Encerrar`.
+- Usar `Trocar empresa ou funcionário` e confirmar que somente essa ação retorna à identificação inicial.
+
+### Próximos passos
+
+1. Validar a troca offline em celulares Android reais após abrir todas as fazendas ao menos uma vez com internet.
+2. Avaliar uma indicação no cabeçalho quando a fazenda foi selecionada offline e ainda aguarda validação do servidor.
+
 ## 2026-09-04 - Valores liberados para a conta mestra
 
 ### O que foi feito

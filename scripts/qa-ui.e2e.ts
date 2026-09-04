@@ -349,7 +349,7 @@ test("somente administrador pode adicionar fazenda na seleção", async ({ page 
   await expect(page.getByRole("button", { name: /Adicionar nova fazenda/i })).toHaveCount(0);
 });
 
-test("nova fazenda mantém visitas isoladas da Fazenda Vitória", async ({ page }) => {
+test("troca fazenda offline mantendo login e dados isolados", async ({ page, context }) => {
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
@@ -373,20 +373,33 @@ test("nova fazenda mantém visitas isoladas da Fazenda Vitória", async ({ page 
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: /^Todos/ }).click();
   await expect(page.getByText("240824", { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Encerrar", exact: true }).click();
+  await page.getByRole("button", { name: "Encerrar", exact: true }).last().click();
 
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
   await page.getByRole("button", { name: "Abrir menu" }).click();
-  await page.getByRole("button", { name: "Trocar empresa ou fazenda" }).click();
-  await page.getByRole("button", { name: "Trocar acesso" }).click();
-  await page.getByLabel("Link ou código da empresa").fill("HULLSJOB");
-  await page.getByRole("button", { name: "Continuar" }).click();
-  await page.getByLabel("Nome ou código do funcionário").fill("Romano");
-  await page.getByLabel("PIN de acesso").fill("1234");
-  await page.getByRole("button", { name: "Continuar" }).click();
-  await page.getByRole("button", { name: "Fazenda Vitória" }).click();
-  await page.getByRole("button", { name: /Entrar na fazenda/i }).click();
+  await page.getByRole("button", { name: "Trocar fazenda ou acesso" }).click();
+  await expect(page.getByText("Hullsjob · Romano", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Fazenda Vitória.*Entrar nesta fazenda/i }).click();
   await page.getByRole("button", { name: /^Todos/ }).click();
 
   await expect(page.getByText("240824", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Link ou código da empresa")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const contextValue = JSON.parse(localStorage.getItem("casco.farm_context.v2") ?? "null");
+        return `${contextValue?.client_code}:${contextValue?.employee_name}:${contextValue?.farm_name}`;
+      }),
+    )
+    .toBe("HULLSJOB:Romano:Fazenda Vitória");
+
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Trocar fazenda ou acesso" }).click();
+  await page.getByRole("button", { name: /Fazenda Isolada QA.*Entrar nesta fazenda/i }).click();
+  await page.getByRole("button", { name: /^Todos/ }).click();
+  await expect(page.getByText("240824", { exact: true }).first()).toBeVisible();
 });
 
 test("Romano registra casco normal como preventivo com auditoria automática", async ({ page }) => {

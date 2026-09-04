@@ -59,6 +59,7 @@ import {
   CircleDollarSign,
   Play,
   Square,
+  MapPin,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -250,6 +251,8 @@ export function Index() {
   const [tick, setTick] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
+  const [farmSwitchLoading, setFarmSwitchLoading] = useState(false);
+  const [farmSwitchError, setFarmSwitchError] = useState("");
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
   const [toast, setToast] = useState<string | null>(null);
   const [activationMessage, setActivationMessage] = useState("");
@@ -376,6 +379,39 @@ export function Index() {
     } catch (error) {
       setSyncInfo("error");
       showToast(error instanceof Error ? error.message : "Falha ao sincronizar.");
+    }
+  }
+
+  async function switchFarmKeepingLogin(farmId: string) {
+    if (activeWorkSession) {
+      setFarmSwitchError("Encerre a visita à fazenda antes de trocar.");
+      return;
+    }
+    setFarmSwitchLoading(true);
+    setFarmSwitchError("");
+    try {
+      const nextContext = await activationService.switchFarm(farmId);
+      const nextFarm = {
+        ...loadFarm(),
+        farmName: nextContext.farm_name,
+        worker: nextContext.employee_name,
+        configured: true,
+      };
+      saveFarm(nextFarm);
+      setFarm(nextFarm);
+      setActiveWorkSession(workSessionService.getActive());
+      setHomeFilters(EMPTY_FILTERS);
+      setScreen({ name: "today" });
+      setShowDeactivateConfirm(false);
+      refresh();
+      showToast(`Fazenda alterada para ${nextContext.farm_name}.`);
+      if (navigator.onLine) void runSync();
+    } catch (error) {
+      setFarmSwitchError(
+        error instanceof Error ? error.message : "Não foi possível trocar de fazenda.",
+      );
+    } finally {
+      setFarmSwitchLoading(false);
     }
   }
 
@@ -536,7 +572,10 @@ export function Index() {
         onHelp={() => setShowHelp(true)}
         syncInfo={syncInfo}
         onSync={runSync}
-        onDeactivate={() => setShowDeactivateConfirm(true)}
+        onDeactivate={() => {
+          setFarmSwitchError("");
+          setShowDeactivateConfirm(true);
+        }}
       />
 
       <AppStatusStrip />
@@ -760,29 +799,88 @@ export function Index() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="trocar-fazenda-title"
-          onClick={() => setShowDeactivateConfirm(false)}
+          onClick={() => !farmSwitchLoading && setShowDeactivateConfirm(false)}
         >
           <section
             className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 id="trocar-fazenda-title" className="font-display text-xl font-black uppercase">
-              Trocar empresa ou fazenda?
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Você voltará para a identificação inicial. As visitas já salvas neste aparelho não
-              serão apagadas.
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <MapPin className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="trocar-fazenda-title" className="font-display text-xl font-black uppercase">
+                  Trocar fazenda
+                </h2>
+                <p className="mt-1 truncate text-sm font-semibold text-muted-foreground">
+                  {appContext?.client_name} · {appContext?.employee_name}
+                </p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+              Seu login será mantido. Os animais e as visitas continuam separados por fazenda.
             </p>
-            <div className="mt-5 grid grid-cols-2 gap-2">
+
+            <div className="mt-4 grid gap-2" aria-label="Fazendas disponíveis">
+              {activationService.cachedFarmsForCurrentEmployee().map((availableFarm) => {
+                const current = availableFarm.id === appContext?.farm_id;
+                return (
+                  <button
+                    key={availableFarm.id}
+                    type="button"
+                    disabled={farmSwitchLoading || Boolean(activeWorkSession) || current}
+                    onClick={() => void switchFarmKeepingLogin(availableFarm.id)}
+                    className={cn(
+                      "flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border-2 px-4 text-left disabled:cursor-default",
+                      current
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-card hover:border-primary/50 disabled:opacity-55",
+                    )}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-display text-base font-black uppercase">
+                        {availableFarm.name}
+                      </span>
+                      <span className="block text-xs font-semibold text-muted-foreground">
+                        {current ? "Fazenda atual" : "Entrar nesta fazenda"}
+                      </span>
+                    </span>
+                    {current ? (
+                      <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    ) : farmSwitchLoading ? (
+                      <RefreshCw className="h-5 w-5 shrink-0 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {activeWorkSession ? (
+              <p className="mt-3 rounded-lg bg-warn/15 px-3 py-2 text-sm font-semibold text-warn-foreground">
+                Encerre a visita à fazenda antes de trocar.
+              </p>
+            ) : null}
+            {farmSwitchError ? (
+              <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm font-semibold text-danger">
+                {farmSwitchError}
+              </p>
+            ) : null}
+
+            <div className="mt-5 grid gap-2">
               <button
                 type="button"
+                disabled={farmSwitchLoading}
                 onClick={() => setShowDeactivateConfirm(false)}
-                className="min-h-12 rounded-xl border-2 border-border bg-card px-3 font-display text-sm font-black uppercase"
+                className="min-h-12 rounded-xl border-2 border-border bg-card px-3 font-display text-sm font-black uppercase disabled:opacity-50"
               >
-                Continuar aqui
+                Fechar
               </button>
               <button
                 type="button"
+                disabled={farmSwitchLoading}
                 onClick={() => {
                   farmContextService.clearContext();
                   adminService.clear();
@@ -790,9 +888,10 @@ export function Index() {
                   setShowDeactivateConfirm(false);
                   setActivated(false);
                 }}
-                className="min-h-12 rounded-xl bg-primary px-3 font-display text-sm font-black uppercase text-primary-foreground"
+                className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-surface px-3 font-display text-sm font-black uppercase text-danger disabled:opacity-50"
               >
-                Trocar acesso
+                <LogOut className="h-5 w-5" aria-hidden="true" />
+                Trocar empresa ou funcionário
               </button>
             </div>
           </section>
@@ -1065,6 +1164,7 @@ function ActivationScreen({
         ...current.filter((currentFarm) => currentFarm.id !== createdFarm.id),
         createdFarm,
       ]);
+      activationService.rememberFarmForOffline(client.activation_code, employee.id, createdFarm);
       setFarm(createdFarm);
       setShowFarmForm(false);
       setNewFarmName("");
@@ -1861,7 +1961,7 @@ function Header({
                   className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-danger hover:bg-danger/5"
                 >
                   <LogOut className="h-5 w-5" />
-                  Trocar empresa ou fazenda
+                  Trocar fazenda ou acesso
                 </button>
               )}
             </div>

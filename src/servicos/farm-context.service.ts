@@ -15,6 +15,7 @@ export interface FarmContext {
   device_id: string;
   session_token?: string;
   session_expires_at?: string;
+  device_activation_pending?: boolean;
   last_license_check_at: string;
   grace_period_days: number;
   trial_started_at?: string;
