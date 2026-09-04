@@ -5,6 +5,7 @@ export interface TenantFeatures {
   pricing: boolean;
   financial: boolean;
   limpingRequests: boolean;
+  workSessions: boolean;
   reportTitle: string;
 }
 
@@ -17,6 +18,7 @@ const DEFAULT_FEATURES: TenantFeatures = {
   pricing: false,
   financial: false,
   limpingRequests: false,
+  workSessions: false,
   reportTitle: "Gestão de Cascos",
 };
 
@@ -26,6 +28,7 @@ const CLIENT_FEATURES: Record<string, TenantFeatures> = {
     pricing: true,
     financial: true,
     limpingRequests: true,
+    workSessions: true,
     reportTitle: "HullsApp",
   },
   STARMILK: {
@@ -33,6 +36,7 @@ const CLIENT_FEATURES: Record<string, TenantFeatures> = {
     pricing: false,
     financial: false,
     limpingRequests: false,
+    workSessions: false,
     reportTitle: "StarMilk",
   },
 };

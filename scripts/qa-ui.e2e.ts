@@ -11,6 +11,12 @@ async function activate(page, company: string, employee: string) {
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
 }
 
+async function openNewVisit(page) {
+  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  const start = page.getByRole("button", { name: "Iniciar", exact: true });
+  if (await start.isVisible().catch(() => false)) await start.click();
+}
+
 async function storedVisitCount(page) {
   return page.evaluate(() =>
     Object.entries(localStorage)
@@ -43,6 +49,7 @@ test("Romano administra Hullsjob no celular", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await expect(page.getByText("Fazenda Vitória", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Iniciar visita à fazenda/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Solicitar atendimento/i })).toBeVisible();
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await expect(page.getByRole("button", { name: "Administração" })).toBeVisible();
@@ -75,7 +82,7 @@ test("visita abandonada antes do resumo final não é salva", async ({ page }) =
   await activate(page, "HULLSJOB", "Romano");
   const before = await storedVisitCount(page);
 
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("909090");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
@@ -127,6 +134,12 @@ test("agenda da fazenda possui relatório por prazo no celular", async ({ page }
   await expect(page.getByRole("heading", { name: "Relatório de pendências" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Atrasadas" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Em dia" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Baixar agenda em PDF/i })).toBeVisible();
+  const agendaDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: /Baixar agenda em PDF/i }).click();
+  const agendaDownload = await agendaDownloadPromise;
+  expect(agendaDownload.suggestedFilename()).toMatch(/^agenda-.*\.pdf$/);
+  await agendaDownload.saveAs(testInfo.outputPath("agenda.pdf"));
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
@@ -141,6 +154,7 @@ test("agenda da fazenda possui relatório por prazo no celular", async ({ page }
 test("Sandro entra na StarMilk no tablet", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");
+  await expect(page.getByRole("button", { name: /Iniciar visita à fazenda/i })).toHaveCount(0);
   await expect(page.getByText("StarMilk", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: /Solicitar atendimento/i })).toHaveCount(0);
 });
@@ -148,7 +162,7 @@ test("Sandro entra na StarMilk no tablet", async ({ page }) => {
 test("mapa do casco mantém alvos grandes e sem rolagem lateral", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("777002");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
@@ -176,7 +190,7 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 768, height: 1024 });
   await activate(page, "STARMILK", "Sandro");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("PDF-100");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
@@ -217,7 +231,7 @@ test("Hullsjob gera relatório interno compacto com valores opcionais", async ({
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("777001");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
@@ -352,7 +366,7 @@ test("nova fazenda mantém visitas isoladas da Fazenda Vitória", async ({ page 
   await expect(page.getByText(/Fazenda Isolada QA criada e selecionada/i)).toBeVisible();
   await expect(page.getByText("2 fazendas", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Entrar na fazenda/i }).click();
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("240824");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
@@ -386,7 +400,7 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("9876");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
@@ -413,7 +427,7 @@ test("Romano registra casco normal como preventivo com auditoria automática", a
 test("preventivo vira atendimento clínico com várias doenças", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("9101");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
@@ -457,7 +471,7 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
 test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("7654");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
@@ -485,7 +499,7 @@ test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async (
 test("taco existente é reconhecido e pré-selecionado na próxima visita", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("8765");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /TD.*Trás Dir/i }).click();
@@ -501,7 +515,7 @@ test("taco existente é reconhecido e pré-selecionado na próxima visita", asyn
   await expect(page.getByRole("button", { name: /Salvar visita/i })).toBeEnabled();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
 
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("8765");
   await expect(page.getByText(/Taco ativo · Trás Dir/i)).toBeVisible();
   await page.getByRole("button", { name: /Continuar/i }).click();
@@ -518,7 +532,7 @@ test("problema curado pode ser liberado para preventivo", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
 
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("6543");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /FE Frente Esq/i }).click();
@@ -532,7 +546,7 @@ test("problema curado pode ser liberado para preventivo", async ({ page }) => {
   await page.getByRole("button", { name: /Ver resumo/i }).click();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
 
-  await page.getByRole("button", { name: "Nova visita", exact: true }).click();
+  await openNewVisit(page);
   await page.getByLabel("Número do brinco").fill("6543");
   await page.getByRole("button", { name: /Continuar/i }).click();
   await page.getByRole("button", { name: /Continuar com 1 pé/i }).click();
@@ -564,6 +578,7 @@ test("aparelho ativado reabre sem internet", async ({ page, context }) => {
   expect(await page.evaluate(() => localStorage.getItem("casco.device_id.v1"))).toBe(firstDeviceId);
   await context.setOffline(true);
   await page.reload();
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
   await expect(page.getByRole("button", { name: "Nova visita", exact: true })).toBeVisible();
   await expect(page.getByText(/Offline/).first()).toBeVisible();
 });

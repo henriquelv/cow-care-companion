@@ -14,6 +14,7 @@ const SYNC_TABLES = [
   "hoof_media",
   "hoof_corrections",
   "limping_requests",
+  "hoof_work_sessions",
 ] as const;
 
 function conflictTarget(tableName: string) {
@@ -47,7 +48,7 @@ export function scopeSyncPayload(
   } = payload;
   const scopedPayload = { ...tablePayload, farm_id: context.farm_id };
 
-  return tableName === "hoof_visits"
+  return tableName === "hoof_visits" || tableName === "hoof_work_sessions"
     ? {
         ...scopedPayload,
         employee_id: context.employee_id,

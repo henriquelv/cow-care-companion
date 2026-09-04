@@ -46,15 +46,13 @@ export interface EmployeeAgendaResult {
 
 function normalizeVisit(row: RemoteVisitRow): Visit {
   const payload = row.payload;
-  const feet = (payload?.feet ?? []).map(
-    (foot): FootEntry => ({
-      ...foot,
-      diseases: (foot.diseases ?? []).map((disease) => ({
-        ...disease,
-        severity: normalizeSeverity(disease.severity),
-      })),
-    }),
-  );
+  const feet = (payload?.feet ?? []).map((foot): FootEntry => ({
+    ...foot,
+    diseases: (foot.diseases ?? []).map((disease) => ({
+      ...disease,
+      severity: normalizeSeverity(disease.severity),
+    })),
+  }));
 
   return {
     id: payload?.id ?? row.id,
@@ -117,13 +115,11 @@ function buildAgenda(visits: Visit[], employeeId: string, farms: AgendaFarm[]) {
   return [...clinicalItems, ...preventiveItems]
     .flat()
     .filter((item): item is AgendaItem & { farm_id: string } => Boolean(item.farm_id))
-    .map(
-      (item): EmployeeAgendaItem => ({
-        ...item,
-        farm_id: item.farm_id,
-        farm_name: farmNames.get(item.farm_id) ?? "Fazenda",
-      }),
-    )
+    .map((item): EmployeeAgendaItem => ({
+      ...item,
+      farm_id: item.farm_id,
+      farm_name: farmNames.get(item.farm_id) ?? "Fazenda",
+    }))
     .sort(
       (a, b) =>
         Number(b.overdue) - Number(a.overdue) ||

@@ -30,6 +30,7 @@ import {
   normalizePricingConfig,
   type PricingConfig,
 } from "@/dominio/billing";
+import { countFieldVisits } from "@/dominio/field-visit";
 
 export type VisitReportStatus =
   | "all"
@@ -53,6 +54,7 @@ export interface VisitReportFilters {
 }
 
 export interface VisitReportMetrics {
+  fieldVisits: number;
   visits: number;
   animals: number;
   preventive: number;
@@ -186,6 +188,7 @@ export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilte
 export function visitReportMetrics(visits: Visit[], agenda: AgendaItem[] = []): VisitReportMetrics {
   const visibleVisits = visits.filter(visitIsFinalized);
   return {
+    fieldVisits: countFieldVisits(visibleVisits),
     visits: visibleVisits.length,
     animals: new Set(visibleVisits.map((visit) => visit.tag.trim().toLocaleLowerCase("pt-BR")))
       .size,
@@ -515,6 +518,7 @@ export async function exportVisitsPdf(input: {
   filters?: VisitReportFilters;
   reportType?: "client" | "internal";
   includeValues?: boolean;
+  useWorkSessions?: boolean;
 }) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import("jspdf"),
@@ -728,10 +732,26 @@ export async function exportVisitsPdf(input: {
   doc.text(filterDescription, 12, 40, { maxWidth: pageWidth - 24 });
 
   const metricCards = [
-    { label: "Visitas realizadas", value: metrics.visits, color: [31, 91, 48] as const },
-    { label: "Vacas vistas", value: metrics.animals, color: [31, 91, 48] as const },
+    ...(input.useWorkSessions
+      ? [
+          { label: "Visitas à fazenda", value: metrics.fieldVisits, color: [31, 91, 48] as const },
+          { label: "Animais atendidos", value: metrics.visits, color: [31, 91, 48] as const },
+          { label: "Vacas diferentes", value: metrics.animals, color: [31, 91, 48] as const },
+        ]
+      : [
+          { label: "Visitas realizadas", value: metrics.visits, color: [31, 91, 48] as const },
+          { label: "Vacas vistas", value: metrics.animals, color: [31, 91, 48] as const },
+        ]),
     { label: "Cascos avaliados", value: feetEvaluated, color: [52, 120, 67] as const },
-    { label: "Cascos em acompanhamento", value: feetInTreatment, color: [174, 109, 20] as const },
+    ...(!input.useWorkSessions
+      ? [
+          {
+            label: "Cascos em acompanhamento",
+            value: feetInTreatment,
+            color: [174, 109, 20] as const,
+          },
+        ]
+      : []),
     { label: "Preventivos", value: metrics.preventive, color: [52, 120, 67] as const },
     { label: "Com problema", value: metrics.withProblem, color: [174, 109, 20] as const },
     {
@@ -797,7 +817,14 @@ export async function exportVisitsPdf(input: {
   autoTable(doc, {
     startY: 118,
     margin: { left: 12, right: 12 },
-    head: [["Tipo de atendimento", "Visitas realizadas", "Vacas vistas", "Leitura"]],
+    head: [
+      [
+        "Tipo de atendimento",
+        input.useWorkSessions ? "Atendimentos" : "Visitas realizadas",
+        "Vacas vistas",
+        "Leitura",
+      ],
+    ],
     body: composition.map((row) => [
       row.label,
       row.visits,
@@ -827,7 +854,16 @@ export async function exportVisitsPdf(input: {
       startY: compositionEndY + 11,
       margin: { left: 12, right: 12 },
       head: [
-        ["Funcionário", "Visitas", "Vacas vistas", "Preventivos", "Problemas", "G1", "G2", "G3"],
+        [
+          "Funcionário",
+          input.useWorkSessions ? "Atendimentos" : "Visitas",
+          "Vacas vistas",
+          "Preventivos",
+          "Problemas",
+          "G1",
+          "G2",
+          "G3",
+        ],
       ],
       body: employees.map((employee) => [
         employee.employeeName,
@@ -870,9 +906,9 @@ export async function exportVisitsPdf(input: {
 
     const financialCards = [
       ["Valor produzido", formatCurrency(financial.total)],
-      ["Visitas cobradas", String(financial.visits)],
-      ["Média por visita", formatCurrency(financial.averagePerVisit)],
-      ["Visitas estimadas", String(financial.estimatedVisits)],
+      ["Atendimentos cobrados", String(financial.visits)],
+      ["Média por atendimento", formatCurrency(financial.averagePerVisit)],
+      ["Atendimentos estimados", String(financial.estimatedVisits)],
     ];
     financialCards.forEach(([label, value], index) => {
       const width = (pageWidth - 27) / 4;

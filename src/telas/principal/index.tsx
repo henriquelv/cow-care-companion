@@ -57,6 +57,8 @@ import {
   ListChecks,
   Box,
   CircleDollarSign,
+  Play,
+  Square,
 } from "lucide-react";
 import {
   FOOT_LABEL,
@@ -152,6 +154,7 @@ import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
 import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features";
 import { limpingRequestService, type LimpingRequest } from "@/servicos/limping-request.service";
 import { AgendaStatusReport } from "@/componentes/agenda/AgendaStatusReport";
+import { workSessionService, type HoofWorkSession } from "@/servicos/work-session.service";
 
 const AdminScreen = lazy(() =>
   import("@/telas/administrador/AdminScreen").then((module) => ({ default: module.AdminScreen })),
@@ -244,6 +247,15 @@ export function Index() {
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
   const [toast, setToast] = useState<string | null>(null);
   const [activationMessage, setActivationMessage] = useState("");
+  const [activeWorkSession, setActiveWorkSession] = useState<HoofWorkSession | null>(() =>
+    workSessionService.getActive(),
+  );
+  const [workSessionPrompt, setWorkSessionPrompt] = useState<{
+    tag?: string;
+    registerAfter: boolean;
+  } | null>(null);
+  const [showEndWorkSession, setShowEndWorkSession] = useState(false);
+  const [sessionActionLoading, setSessionActionLoading] = useState(false);
   const [accessBlocked, setAccessBlocked] = useState(() => {
     if (typeof navigator === "undefined" || navigator.onLine || !farmContextService.isActivated()) {
       return "";
@@ -255,6 +267,51 @@ export function Index() {
   const refresh = () => setTick((t) => t + 1);
   const goToday = () => setScreen({ name: "today" });
   const appContext = farmContextService.getContext();
+  const appFeatures = tenantFeatures(appContext, farm.featureOverrides);
+  const activeSessionVisits = activeWorkSession
+    ? loadVisits().filter(
+        (visit) => visitIsFinalized(visit) && visit.work_session_id === activeWorkSession.id,
+      )
+    : [];
+
+  function requestNewVisit(tag?: string) {
+    if (appFeatures.workSessions && !activeWorkSession) {
+      setWorkSessionPrompt({ tag, registerAfter: true });
+      return;
+    }
+    setScreen({ name: "register", tag });
+  }
+
+  async function startWorkSession(registerAfter = false, tag?: string) {
+    setSessionActionLoading(true);
+    try {
+      const session = await workSessionService.start();
+      setActiveWorkSession(session);
+      setWorkSessionPrompt(null);
+      showToast("Visita à fazenda iniciada.");
+      void runSync();
+      if (registerAfter) setScreen({ name: "register", tag });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Não foi possível iniciar a visita.");
+    } finally {
+      setSessionActionLoading(false);
+    }
+  }
+
+  async function endWorkSession() {
+    setSessionActionLoading(true);
+    try {
+      await workSessionService.complete();
+      setActiveWorkSession(null);
+      setShowEndWorkSession(false);
+      showToast("Visita à fazenda encerrada e salva.");
+      void runSync();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Não foi possível encerrar a visita.");
+    } finally {
+      setSessionActionLoading(false);
+    }
+  }
 
   useEffect(() => {
     const isHullsApp = appContext?.client_code?.trim().toUpperCase() === "HULLSJOB";
@@ -278,7 +335,7 @@ export function Index() {
   }
 
   function openEdit(tag: string) {
-    setScreen({ name: "register", tag });
+    requestNewVisit(tag);
   }
 
   async function runSync() {
@@ -338,6 +395,7 @@ export function Index() {
           saveFarm(nextFarm);
           setFarm(nextFarm);
           setActivated(true);
+          setActiveWorkSession(workSessionService.getActive());
           setActivationMessage("");
           setScreen({ name: "today" });
           refresh();
@@ -423,7 +481,11 @@ export function Index() {
       <main id="conteudo-principal" className="mx-auto max-w-2xl px-4 pt-4" key={tick}>
         {screen.name === "today" && (
           <TodayScreen
-            onNew={() => setScreen({ name: "register" })}
+            onNew={() => requestNewVisit()}
+            activeWorkSession={appFeatures.workSessions ? activeWorkSession : null}
+            activeSessionAnimalCount={new Set(activeSessionVisits.map((visit) => visit.tag)).size}
+            onStartWorkSession={() => setWorkSessionPrompt({ registerAfter: false })}
+            onEndWorkSession={() => setShowEndWorkSession(true)}
             onEdit={(tag) => openEdit(tag)}
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
             onCalendar={() => setScreen({ name: "calendar" })}
@@ -443,6 +505,7 @@ export function Index() {
                 ...v,
                 status: "active",
                 completedAt: Date.now(),
+                work_session_id: appFeatures.workSessions ? activeWorkSession?.id : undefined,
               };
               const { animalCreated } = addVisit(completedVisit);
               void limpingRequestService
@@ -512,7 +575,7 @@ export function Index() {
         {screen.name === "calendar" && (
           <CalendarScreen
             onOpenHistory={(tag) => setScreen({ name: "history", tag })}
-            onNew={(tag) => setScreen({ name: "register", tag })}
+            onNew={(tag) => requestNewVisit(tag)}
           />
         )}
         {screen.name === "filters" && (
@@ -571,7 +634,7 @@ export function Index() {
         {screen.name === "preventivo" && (
           <PreventiveScreen
             diasThreshold={farm.dias_para_preventivo}
-            onNew={(tag) => setScreen({ name: "register", tag })}
+            onNew={(tag) => requestNewVisit(tag)}
           />
         )}
       </main>
@@ -599,7 +662,7 @@ export function Index() {
             />
             <button
               aria-label="Nova visita"
-              onClick={() => setScreen({ name: "register" })}
+              onClick={() => requestNewVisit()}
               className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
             >
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground stamp shadow-lg transition-transform active:scale-95">
@@ -671,6 +734,119 @@ export function Index() {
           </section>
         </div>
       )}
+
+      {workSessionPrompt ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="iniciar-visita-fazenda-title"
+          onClick={() => !sessionActionLoading && setWorkSessionPrompt(null)}
+        >
+          <section
+            className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Play className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <h2
+              id="iniciar-visita-fazenda-title"
+              className="mt-4 font-display text-xl font-black uppercase"
+            >
+              Iniciar visita à fazenda?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Todos os animais registrados a seguir ficarão agrupados nesta visita à {farm.farmName}
+              .
+            </p>
+            <dl className="mt-4 rounded-xl bg-surface p-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Responsável</dt>
+                <dd className="font-bold">{appContext?.employee_name}</dd>
+              </div>
+              <div className="mt-2 flex justify-between gap-3">
+                <dt className="text-muted-foreground">Início</dt>
+                <dd className="font-bold">Agora</dd>
+              </div>
+            </dl>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={sessionActionLoading}
+                onClick={() => setWorkSessionPrompt(null)}
+                className="min-h-12 rounded-xl border-2 border-border bg-card px-3 font-display text-sm font-black uppercase disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={sessionActionLoading}
+                onClick={() =>
+                  void startWorkSession(workSessionPrompt.registerAfter, workSessionPrompt.tag)
+                }
+                className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-3 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
+              >
+                <Play className="h-5 w-5" aria-hidden="true" />
+                {sessionActionLoading ? "Iniciando" : "Iniciar"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {showEndWorkSession && activeWorkSession ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="encerrar-visita-fazenda-title"
+          onClick={() => !sessionActionLoading && setShowEndWorkSession(false)}
+        >
+          <section
+            className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-warn/15 text-warn-foreground">
+              <Square className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <h2
+              id="encerrar-visita-fazenda-title"
+              className="mt-4 font-display text-xl font-black uppercase"
+            >
+              Encerrar visita à fazenda?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Foram registrados {activeSessionVisits.length} atendimento(s), com{" "}
+              {new Set(activeSessionVisits.map((visit) => visit.tag)).size} animal(is) diferente(s).
+            </p>
+            {activeSessionVisits.length === 0 ? (
+              <p className="mt-3 rounded-lg bg-warn/15 p-3 text-sm font-bold text-warn-foreground">
+                Nenhum animal foi registrado nesta visita.
+              </p>
+            ) : null}
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={sessionActionLoading}
+                onClick={() => setShowEndWorkSession(false)}
+                className="min-h-12 rounded-xl border-2 border-border bg-card px-3 font-display text-sm font-black uppercase disabled:opacity-50"
+              >
+                Continuar
+              </button>
+              <button
+                type="button"
+                disabled={sessionActionLoading}
+                onClick={() => void endWorkSession()}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-3 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
+              >
+                <Square className="h-5 w-5" aria-hidden="true" />
+                {sessionActionLoading ? "Encerrando" : "Encerrar"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {/* Toast */}
       {toast && (
@@ -1635,6 +1811,10 @@ function Header({
 /* ───────────── Home — Todos os Animais ───────────── */
 function TodayScreen({
   onNew,
+  activeWorkSession,
+  activeSessionAnimalCount,
+  onStartWorkSession,
+  onEndWorkSession,
   onEdit,
   onOpenHistory,
   onCalendar,
@@ -1644,6 +1824,10 @@ function TodayScreen({
   onClearFilters,
 }: {
   onNew: () => void;
+  activeWorkSession: HoofWorkSession | null;
+  activeSessionAnimalCount: number;
+  onStartWorkSession: () => void;
+  onEndWorkSession: () => void;
   onEdit: (tag: string) => void;
   onOpenHistory: (tag: string) => void;
   onCalendar: () => void;
@@ -1768,18 +1952,78 @@ function TodayScreen({
 
   return (
     <div className="space-y-4">
+      {features.workSessions ? (
+        activeWorkSession ? (
+          <section className="rounded-xl border-2 border-primary bg-primary/5 p-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <Clock className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-base font-black uppercase">Visita em andamento</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Iniciada às{" "}
+                  {new Date(activeWorkSession.started_at).toLocaleTimeString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  · {activeSessionAnimalCount} animal(is)
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+              <button
+                type="button"
+                onClick={onNew}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-3 font-display text-xs font-black uppercase text-primary-foreground"
+              >
+                <Plus className="h-5 w-5" aria-hidden="true" /> Registrar animal
+              </button>
+              <button
+                type="button"
+                onClick={onEndWorkSession}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-lg border-2 border-primary bg-card px-3 font-display text-xs font-black uppercase text-primary"
+              >
+                <Square className="h-4 w-4" aria-hidden="true" /> Encerrar
+              </button>
+            </div>
+          </section>
+        ) : (
+          <button
+            type="button"
+            onClick={onStartWorkSession}
+            className="flex min-h-16 w-full items-center gap-3 rounded-xl border-2 border-primary bg-card px-4 text-left"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Play className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-display text-sm font-black uppercase">
+                Iniciar visita à fazenda
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Agrupe todos os animais atendidos nesta ida
+              </span>
+            </span>
+            <ChevronRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          </button>
+        )
+      ) : null}
+
       <section className="rounded-2xl border-2 border-primary/25 bg-card p-4 shadow-sm">
         <p className="text-xs font-bold uppercase text-primary">Trabalho de campo</p>
         <div className="mt-2 flex items-center justify-between gap-4">
           <div>
-            <p className="font-display text-xl font-black uppercase">Registrar atendimento</p>
+            <p className="font-display text-xl font-black uppercase">
+              {features.workSessions ? "Registrar animal" : "Registrar atendimento"}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">Brinco, pés, problema e tratamento</p>
           </div>
           <button
             type="button"
             onClick={onNew}
             className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground"
-            aria-label="Iniciar nova visita"
+            aria-label={features.workSessions ? "Registrar animal" : "Iniciar nova visita"}
           >
             <Plus className="h-7 w-7" strokeWidth={3} />
           </button>
@@ -3063,6 +3307,11 @@ function CalendarScreen({
     employeeContext?.is_admin && agendaScope === "mine"
       ? employeeContext?.employee_name
       : agendaEmployees.find((employee) => employee.id === agendaScope)?.name;
+  const agendaScopeLabel = !employeeContext?.is_admin
+    ? `Agenda de ${employeeContext?.employee_name ?? "funcionário"}`
+    : agendaScope === "team"
+      ? "Agenda de toda a equipe"
+      : `Agenda de ${agendaEmployeeName ?? employeeContext.employee_name}`;
 
   useEffect(() => {
     if (!farmFeatures.limpingRequests) return;
@@ -3183,6 +3432,7 @@ function CalendarScreen({
         items={agendaItems}
         today={today}
         farmName={employeeContext?.farm_name ?? "Fazenda"}
+        scopeLabel={agendaScopeLabel}
         onBack={() => setShowAgendaReport(false)}
         onOpenHistory={onOpenHistory}
         onStartVisit={onNew}
@@ -5876,6 +6126,7 @@ function EmployeeWorkScreen({
         includeValues: financialAllowed && includeValues,
         pricing: financialAllowed && includeValues ? loadFarm().pricing : undefined,
         catalog: diseaseCatalog(),
+        useWorkSessions: features.workSessions,
         filters: {
           farmId: context.farm_id,
           dateFrom: reportFrom,
@@ -5954,10 +6205,22 @@ function EmployeeWorkScreen({
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <WorkMetric label="Visitas hoje" value={metrics.todayVisits} />
-          <WorkMetric label="Visitas em 7 dias" value={metrics.lastSevenDaysVisits} />
-          <WorkMetric label="Visitas no mês" value={metrics.monthVisits} />
-          <WorkMetric label="Visitas realizadas" value={metrics.totalVisits} />
+          <WorkMetric
+            label={features.workSessions ? "Animais hoje" : "Visitas hoje"}
+            value={metrics.todayVisits}
+          />
+          <WorkMetric
+            label={features.workSessions ? "Animais em 7 dias" : "Visitas em 7 dias"}
+            value={metrics.lastSevenDaysVisits}
+          />
+          <WorkMetric
+            label={features.workSessions ? "Animais no mês" : "Visitas no mês"}
+            value={metrics.monthVisits}
+          />
+          <WorkMetric
+            label={features.workSessions ? "Animais atendidos" : "Visitas realizadas"}
+            value={metrics.totalVisits}
+          />
         </div>
       </section>
 

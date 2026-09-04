@@ -2291,3 +2291,48 @@ Critério de sucesso:
 - Monitorar semanalmente o status do projeto gratuito para evitar pausa por inatividade.
 - Rotacionar imediatamente qualquer nova credencial secreta que seja compartilhada fora do gerenciador seguro.
 - Executar uma conferência funcional com Romano e Sandro no aplicativo publicado antes da próxima apresentação ao cliente.
+
+# 2026-09-04 - Visita à fazenda, PDF da agenda e valores auditáveis
+
+## O que foi feito
+
+- Criado para a Hullsjob o fluxo explícito `Iniciar visita à fazenda` e `Encerrar visita`. Vários animais podem ser atendidos dentro da mesma ida à fazenda.
+- A visita em andamento fica salva no aparelho e continua ativa após fechar ou recarregar o aplicativo, inclusive durante trabalho offline.
+- Cada novo atendimento da Hullsjob passa a guardar o identificador da visita à fazenda. A StarMilk mantém o fluxo anterior e não mostra esses controles nem a identidade visual da Hullsjob.
+- Registros antigos da Hullsjob, que ainda não possuíam identificador de visita à fazenda, são agrupados por fazenda, funcionário e dia apenas para a métrica histórica.
+- O painel administrativo agora separa `Visitas à fazenda`, `Animais atendidos` e `Vacas diferentes`, evitando chamar cada vaca de uma nova visita.
+- O relatório detalhado em PDF também usa essa separação para a Hullsjob. Os relatórios da StarMilk preservam os nomes e o comportamento atuais.
+- A tela de relatório da agenda ganhou exportação em PDF respeitando os filtros visíveis de situação, tipo, busca e funcionário/equipe.
+- O PDF da agenda contém fazenda, escopo, atrasadas, compromissos de hoje, próximos sete dias, futuras, datas, brincos, lotes, tipo, motivo e responsável.
+- O valor produzido no painel deixou de aparecer como um total sem explicação. A opção `Ver como o valor foi calculado` mostra serviço, quantidade, subtotal, total e eventual uso de estimativas.
+- Auditado o valor de setembro exibido na Fazenda Vitória: R$ 4.560,00 de 57 preventivos, R$ 910,00 de 26 curativos, R$ 255,00 de 17 dermatites digitais e R$ 45,00 de uma colocação de taco, totalizando R$ 5.770,00.
+- Criada no IndexedDB a tabela local `hoof_work_sessions` e incluída na fila offline e na sincronização completa.
+- Criada no Supabase a tabela `hoof_work_sessions`, a coluna `hoof_visits.work_session_id`, índices, validações, auditoria imutável e políticas RLS isoladas por fazenda, funcionário, dispositivo e sessão.
+- Adicionados testes de agrupamento de visitas antigas e novas, persistência da visita em andamento, payload de sincronização e dados do PDF da agenda.
+
+## Por que foi feito
+
+- Representar corretamente a operação real: uma ida à fazenda pode conter dezenas de vacas.
+- Permitir medir deslocamentos e atendimentos sem misturar os dois conceitos.
+- Tornar a agenda compartilhável em um documento completo e legível fora do aplicativo.
+- Explicar de forma verificável como cada valor financeiro foi formado.
+- Manter o fluxo novo restrito à Hullsjob, sem alterar a rotina já usada na StarMilk.
+
+## Como validar
+
+- Entrar na Hullsjob, tocar em `Iniciar visita à fazenda`, registrar dois animais e confirmar que o painel continua mostrando uma única visita em andamento.
+- Encerrar a visita e conferir no administrador que existe uma visita à fazenda e dois animais atendidos.
+- Fechar o navegador durante uma visita, abrir novamente e confirmar que o estado em andamento foi preservado.
+- Entrar na StarMilk e confirmar que os botões de iniciar e encerrar visita à fazenda não aparecem.
+- Abrir `Calendário > Ver relatório da agenda`, aplicar filtros e baixar o PDF; o arquivo deve conter somente os compromissos filtrados.
+- No painel administrativo, abrir `Ver como o valor foi calculado` e confirmar que a soma dos subtotais coincide com o total destacado.
+- Filtrar setembro na Fazenda Vitória e conferir a separação histórica de 3 visitas à fazenda, 83 atendimentos e 82 vacas diferentes.
+- Validação técnica concluída com 94 testes unitários, lint, TypeScript e build aprovados; 22 testes de interface passaram em celular/tablet e 1 teste opcional foi ignorado.
+- Migração `202609030001_work_sessions.sql` aplicada e conferida no Supabase de produção, incluindo tabela, coluna de vínculo e leitura protegida por RLS.
+
+## Próximos passos
+
+- Validar com Romano se uma visita vazia deve poder ser encerrada ou se o aplicativo deverá exigir pelo menos um animal.
+- Definir se a visita à fazenda deverá receber observação geral, nome do contratante ou ordem de serviço em uma próxima etapa.
+- Redefinir o PIN de Romano pela administração caso ele não se lembre do número alterado; o PIN atual não pode ser recuperado porque é guardado somente como hash seguro.
+- Automatizar backup diário e monitoramento do projeto Supabase gratuito, conforme já recomendado.

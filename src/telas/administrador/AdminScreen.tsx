@@ -563,6 +563,7 @@ export function AdminScreen({
         catalog: pricingCatalog,
         reportType,
         includeValues: financialAllowed && includeValues,
+        useWorkSessions: features.workSessions,
         filters: complete ? { farmId: context?.farm_id, status: "all" } : reportFilters,
       });
     } catch (caught) {
@@ -909,18 +910,30 @@ export function AdminScreen({
               </h3>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Visitas realizadas conta registros finalizados. Vacas vistas conta brincos diferentes,
-              então pode ser menor.
+              {features.workSessions
+                ? "Visita à fazenda agrupa todos os animais atendidos entre iniciar e encerrar. Atendimentos conta os registros finalizados por animal."
+                : "Visitas realizadas conta registros finalizados. Vacas vistas conta brincos diferentes, então pode ser menor."}
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {features.workSessions ? (
+                <MetricTile
+                  value={reportMetrics.fieldVisits}
+                  label="Visitas à fazenda"
+                  help="Idas à fazenda, mesmo quando vários animais foram atendidos"
+                />
+              ) : null}
               <MetricTile
                 value={reportMetrics.visits}
-                label="Visitas realizadas"
-                help="Visitas finalizadas no período"
+                label={features.workSessions ? "Animais atendidos" : "Visitas realizadas"}
+                help={
+                  features.workSessions
+                    ? "Atendimentos finalizados por animal"
+                    : "Visitas finalizadas no período"
+                }
               />
               <MetricTile
                 value={reportMetrics.animals}
-                label="Vacas vistas"
+                label={features.workSessions ? "Vacas diferentes" : "Vacas vistas"}
                 help="Brincos diferentes atendidos"
               />
               <MetricTile
@@ -963,23 +976,58 @@ export function AdminScreen({
           </section>
 
           {financialAllowed ? (
-            <section className="flex min-h-20 w-full items-center gap-4 rounded-lg border-2 border-primary/30 bg-primary/5 px-4 text-left">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[10px] font-black uppercase text-muted-foreground">
-                  Valor produzido nos filtros acima
+            <div className="space-y-2">
+              <section className="flex min-h-20 w-full items-center gap-4 rounded-lg border-2 border-primary/30 bg-primary/5 px-4 text-left">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <CircleDollarSign className="h-6 w-6" aria-hidden="true" />
                 </span>
-                <strong className="block font-display text-xl font-black text-primary">
-                  {formatCurrency(reportBilling.total)}
-                </strong>
-                <span className="block text-xs text-muted-foreground">
-                  {reportBilling.visits} atendimento(s) · média de{" "}
-                  {formatCurrency(reportBilling.averagePerVisit)}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-black uppercase text-muted-foreground">
+                    Valor produzido nos filtros acima
+                  </span>
+                  <strong className="block font-display text-xl font-black text-primary">
+                    {formatCurrency(reportBilling.total)}
+                  </strong>
+                  <span className="block text-xs text-muted-foreground">
+                    Soma dos serviços de {reportBilling.visits} atendimento(s) · média de{" "}
+                    {formatCurrency(reportBilling.averagePerVisit)}
+                  </span>
                 </span>
-              </span>
-            </section>
+              </section>
+              <details className="rounded-lg border border-border bg-card px-4 py-3">
+                <summary className="cursor-pointer font-display text-xs font-black uppercase text-primary">
+                  Ver como o valor foi calculado
+                </summary>
+                <div className="mt-3 divide-y divide-border">
+                  {reportBilling.lines.map((line) => (
+                    <div
+                      key={line.key}
+                      className="flex items-center justify-between gap-3 py-2 text-sm"
+                    >
+                      <span>
+                        <strong className="block">{line.label}</strong>
+                        <span className="text-xs text-muted-foreground">
+                          {line.quantity} ocorrência(s)
+                        </span>
+                      </span>
+                      <strong className="shrink-0 text-primary">
+                        {formatCurrency(line.total)}
+                      </strong>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-3 py-3 font-display font-black uppercase">
+                    <span>Total</span>
+                    <span className="text-primary">{formatCurrency(reportBilling.total)}</span>
+                  </div>
+                </div>
+                {reportBilling.estimatedVisits > 0 ? (
+                  <p className="mt-2 text-xs text-warn-foreground">
+                    {reportBilling.estimatedVisits} atendimento(s) usam a tabela atual porque não
+                    possuem preço congelado.
+                  </p>
+                ) : null}
+              </details>
+            </div>
           ) : null}
 
           <section

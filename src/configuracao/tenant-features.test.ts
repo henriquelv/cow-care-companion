@@ -8,12 +8,14 @@ describe("tenant features", () => {
       pricing: true,
       financial: true,
       limpingRequests: true,
+      workSessions: true,
     });
     expect(tenantFeatures({ client_code: "STARMILK" })).toMatchObject({
       hoofMap: false,
       pricing: false,
       financial: false,
       limpingRequests: false,
+      workSessions: false,
     });
   });
 

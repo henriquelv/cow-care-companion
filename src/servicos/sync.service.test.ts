@@ -20,6 +20,22 @@ describe("payload de sincronização", () => {
     });
   });
 
+  it("inclui auditoria na visita à fazenda", () => {
+    expect(
+      scopeSyncPayload(
+        "hoof_work_sessions",
+        { id: "session-1", employee_id: "old", device_id: "old" },
+        context,
+      ),
+    ).toEqual({
+      id: "session-1",
+      farm_id: "farm-1",
+      employee_id: "employee-1",
+      employee_name: "Romano",
+      device_id: "device-1",
+    });
+  });
+
   it("remove campos incompatíveis das outras tabelas", () => {
     expect(
       scopeSyncPayload(

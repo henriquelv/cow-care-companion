@@ -5,7 +5,9 @@ import {
   CalendarPlus,
   ChevronRight,
   Clock3,
+  Download,
   History,
+  LoaderCircle,
   Search,
 } from "lucide-react";
 import type { AgendaItem } from "@/dominio/casco-store";
@@ -18,11 +20,13 @@ import {
   type AgendaTypeFilter,
 } from "@/dominio/agenda-status";
 import { cn } from "@/dominio/utils";
+import { exportAgendaPdf } from "@/dominio/agenda-report";
 
 interface Props {
   items: AgendaItem[];
   today: string;
   farmName: string;
+  scopeLabel: string;
   onBack: () => void;
   onOpenHistory: (tag: string) => void;
   onStartVisit: (tag: string) => void;
@@ -57,6 +61,7 @@ export function AgendaStatusReport({
   items,
   today,
   farmName,
+  scopeLabel,
   onBack,
   onOpenHistory,
   onStartVisit,
@@ -65,6 +70,8 @@ export function AgendaStatusReport({
   const [status, setStatus] = useState<AgendaStatusFilter>("all");
   const [type, setType] = useState<AgendaTypeFilter>("all");
   const [search, setSearch] = useState("");
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState("");
   const counts = useMemo(() => agendaStatusCounts(items, today), [items, today]);
   const visibleItems = useMemo(
     () => filterAgendaItems(items, { referenceDate: today, status, type, search }),
@@ -85,9 +92,43 @@ export function AgendaStatusReport({
         <p className="text-xs font-black uppercase text-primary">Agenda compartilhada</p>
         <h1 className="mt-1 font-display text-2xl font-black uppercase">Relatório de pendências</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {farmName} · revisões, curativos e preventivos da equipe
+          {farmName} · {scopeLabel}
         </p>
       </section>
+
+      <button
+        type="button"
+        disabled={exportingPdf}
+        onClick={async () => {
+          setExportError("");
+          setExportingPdf(true);
+          try {
+            await exportAgendaPdf({
+              items: visibleItems,
+              referenceDate: today,
+              farmName,
+              scopeLabel,
+            });
+          } catch {
+            setExportError("Não foi possível gerar o PDF. Tente novamente.");
+          } finally {
+            setExportingPdf(false);
+          }
+        }}
+        className="flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
+      >
+        {exportingPdf ? (
+          <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+        ) : (
+          <Download className="h-5 w-5" aria-hidden="true" />
+        )}
+        {exportingPdf ? "Gerando PDF" : "Baixar agenda em PDF"}
+      </button>
+      {exportError ? (
+        <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-bold text-danger">
+          {exportError}
+        </p>
+      ) : null}
 
       <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4">
         {[
@@ -227,7 +268,7 @@ export function AgendaStatusReport({
                     onClick={() => onStartVisit(item.tag)}
                     className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-3 font-display text-xs font-black uppercase text-primary-foreground"
                   >
-                    Iniciar visita <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    Atender este animal <ChevronRight className="h-4 w-4" aria-hidden="true" />
                   </button>
                   <button
                     type="button"

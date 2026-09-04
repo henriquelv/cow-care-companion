@@ -106,6 +106,7 @@ export interface Visit {
   employee_id?: string;
   employee_name?: string;
   device_id?: string;
+  work_session_id?: string;
   correction_of_id?: string;
   correction_reason?: string;
   cancellation_reason?: string;
@@ -177,6 +178,7 @@ export function toHoofVisitPayload(v: Visit) {
     employee_id: v.employee_id,
     employee_name: v.employee_name,
     device_id: v.device_id,
+    work_session_id: v.work_session_id,
     status: v.status ?? "active",
     payload: v,
   };
@@ -1334,6 +1336,7 @@ export async function hydrateVisitsFromIndexedDb() {
         employee_id?: string;
         employee_name?: string;
         device_id?: string;
+        work_session_id?: string;
         status?: Visit["status"];
         cancellation_reason?: string;
         cancelled_at?: string;
@@ -1360,6 +1363,7 @@ export async function hydrateVisitsFromIndexedDb() {
         employee_id: payload?.employee_id ?? data.employee_id,
         employee_name: payload?.employee_name ?? data.employee_name,
         device_id: payload?.device_id ?? data.device_id,
+        work_session_id: payload?.work_session_id ?? data.work_session_id,
         status: data.status ?? payload?.status ?? "active",
         correction_of_id: payload?.correction_of_id,
         correction_reason: payload?.correction_reason,
@@ -1901,8 +1905,7 @@ export async function hydrateFarmFromIndexedDb() {
   ]);
   const settingsRow = [...settingsRows].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
   const settingsData = settingsRow?.data as
-    | { payload?: Partial<FarmConfig>; dias_para_preventivo?: number }
-    | undefined;
+    { payload?: Partial<FarmConfig>; dias_para_preventivo?: number } | undefined;
   const previous = loadFarm();
   const next = normalizeFarm({
     ...previous,
