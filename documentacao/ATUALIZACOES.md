@@ -8,6 +8,31 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-04 - Acesso total da conta mestra e atalho da agenda
+
+### O que foi feito
+
+- Corrigida a confirmação de PIN da Gestão da fazenda para a conta `000`. O servidor agora reconhece o aparelho da conta mestra mesmo quando ele está ativado dentro de uma fazenda Hullsjob ou StarMilk.
+- Mantido o segundo PIN temporário para operações administrativas sensíveis, mas removido o bloqueio incorreto `Ative este aparelho em uma fazenda antes de administrar` para a conta mestra já ativada.
+- Adicionado o botão `Agenda e PDF` em cada fazenda da Administração central. Ele abre diretamente o calendário da unidade, onde `Ver relatório da agenda` permite filtrar e baixar o PDF.
+- A conta mestra continua podendo abrir as telas operacionais e a Gestão da fazenda de todas as unidades ativas.
+- Na redefinição de PIN, foi adicionado o controle mostrar/ocultar para conferir o novo PIN antes de salvar.
+- Senhas atuais continuam sem exibição porque não existem em texto no banco: somente o hash é guardado. A conta mestra pode substituir o PIN e visualizar o novo número enquanto o define.
+- Aplicada a migração `202609040004_platform_manager_access.sql` no Supabase de produção.
+
+### Como validar
+
+- Entrar por Hullsjob ou StarMilk usando login `000` e PIN `1234`, escolher uma fazenda e abrir `Menu > Gestão da fazenda`; confirmar novamente `1234`.
+- Confirmar que animais, lotes, doenças, prazos e demais regras da fazenda podem ser alterados.
+- Entrar pelo código inicial `000`, escolher uma empresa e tocar em `Agenda e PDF` na fazenda desejada.
+- No calendário, tocar em `Ver relatório da agenda`, aplicar filtros e usar `Baixar agenda em PDF`.
+- Na Administração central, abrir um funcionário, tocar em `Redefinir PIN` e usar o ícone de olho para conferir o novo número antes de salvar.
+
+### Próximos passos
+
+1. Trocar o PIN inicial da conta mestra depois da validação em celular e tablet.
+2. Registrar o novo PIN em um gerenciador de senhas; o sistema não poderá recuperar o valor posteriormente.
+
 ## 2026-09-04 - Login mestra dentro da Hullsjob e StarMilk
 
 ### O que foi feito

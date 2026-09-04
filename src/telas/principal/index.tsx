@@ -455,7 +455,7 @@ export function Index() {
         }
       >
         <PlatformAdminScreen
-          onOpenFarm={async (selection) => {
+          onOpenFarm={async (selection, destination = "today") => {
             farmContextService.updateContext({
               client_id: selection.client.id,
               client_name: selection.client.name,
@@ -474,7 +474,7 @@ export function Index() {
             };
             saveFarm(nextFarm);
             setFarm(nextFarm);
-            setScreen({ name: "today" });
+            setScreen(destination === "calendar" ? { name: "calendar" } : { name: "today" });
             setActiveWorkSession(workSessionService.getActive());
             refresh();
             void runSync();

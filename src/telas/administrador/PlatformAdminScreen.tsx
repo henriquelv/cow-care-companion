@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Building2,
+  CalendarDays,
   ChevronLeft,
   CircleAlert,
   KeyRound,
@@ -12,6 +13,8 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Eye,
+  EyeOff,
   UserCog,
   Users,
 } from "lucide-react";
@@ -52,7 +55,10 @@ export function PlatformAdminScreen({
   onOpenFarm,
 }: {
   onExit: () => void;
-  onOpenFarm: (selection: PlatformFarmSelection) => Promise<void> | void;
+  onOpenFarm: (
+    selection: PlatformFarmSelection,
+    destination?: "today" | "calendar",
+  ) => Promise<void> | void;
 }) {
   const [unlocked, setUnlocked] = useState(() => platformAdminService.isUnlocked());
   const [pin, setPin] = useState("");
@@ -62,6 +68,7 @@ export function PlatformAdminScreen({
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(emptyEmployeeForm);
   const [resetTarget, setResetTarget] = useState<PlatformEmployee | null>(null);
   const [resetPin, setResetPin] = useState("1234");
+  const [showResetPin, setShowResetPin] = useState(false);
   const [editingFarm, setEditingFarm] = useState<PlatformFarm | null>(null);
   const [editingFarmName, setEditingFarmName] = useState("");
   const [editingEmployee, setEditingEmployee] = useState<PlatformEmployee | null>(null);
@@ -141,12 +148,12 @@ export function PlatformAdminScreen({
     return overview?.farms.find((farm) => farm.id === farmId)?.name ?? "Sem fazenda";
   }
 
-  async function openFarm(farm: PlatformFarm) {
+  async function openFarm(farm: PlatformFarm, destination: "today" | "calendar" = "today") {
     setLoading(true);
     setError("");
     try {
       const selection = await platformAdminService.openFarm(farm.id);
-      await onOpenFarm(selection);
+      await onOpenFarm(selection, destination);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível abrir esta fazenda.");
     } finally {
@@ -231,9 +238,12 @@ export function PlatformAdminScreen({
                 <article key={farm.id} className="rounded-xl border-2 border-border bg-surface p-3">
                   <p className="font-display font-black uppercase">{farm.name}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{statusLabel(farm.status)}</p>
-                  <div className="mt-3 flex gap-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:flex">
                     <button type="button" disabled={loading || farm.status !== "active"} onClick={() => void openFarm(farm)} className="min-h-10 rounded-lg bg-primary px-3 text-xs font-bold uppercase text-primary-foreground disabled:opacity-50">
                       Abrir fazenda
+                    </button>
+                    <button type="button" disabled={loading || farm.status !== "active"} onClick={() => void openFarm(farm, "calendar")} className="flex min-h-10 items-center justify-center gap-1 rounded-lg border-2 border-primary bg-card px-3 text-xs font-bold uppercase text-primary disabled:opacity-50">
+                      <CalendarDays className="h-4 w-4" />Agenda e PDF
                     </button>
                     <button type="button" disabled={loading} onClick={() => { setEditingFarm(farm); setEditingFarmName(farm.name); }} className="flex min-h-10 items-center gap-1 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase">
                       <Pencil className="h-4 w-4" />Editar
@@ -283,7 +293,7 @@ export function PlatformAdminScreen({
         </> : <section className="rounded-2xl border-2 border-border bg-card p-6 text-center"><CircleAlert className="mx-auto h-8 w-8 text-warn" /><p className="mt-3 font-bold">Nenhuma empresa operacional cadastrada.</p></section>}
       </div>
 
-      {resetTarget ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setResetTarget(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Redefinir PIN</h2><p className="mt-2 text-sm text-muted-foreground">{resetTarget.name}. O PIN antigo será invalidado e não pode ser consultado.</p><input autoFocus inputMode="numeric" maxLength={6} value={resetPin} onChange={(event) => setResetPin(event.target.value.replace(/\D/g, ""))} className="mt-4 min-h-14 w-full rounded-xl border-2 border-border bg-surface px-4 text-center text-xl font-bold tracking-[0.18em] outline-none [-webkit-text-security:disc] focus:border-primary" /><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setResetTarget(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || resetPin.length < 4} onClick={() => void save("reset_employee_pin", { employee_id: resetTarget.id, pin: resetPin }, `Novo PIN salvo para ${resetTarget.name}.`).then(() => setResetTarget(null))} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar PIN</button></div></section></div> : null}
+      {resetTarget ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setResetTarget(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Redefinir PIN</h2><p className="mt-2 text-sm text-muted-foreground">{resetTarget.name}. O PIN antigo é protegido e não pode ser consultado. Defina abaixo o novo PIN que será entregue ao usuário.</p><div className="relative mt-4"><input autoFocus type={showResetPin ? "text" : "password"} inputMode="numeric" maxLength={6} value={resetPin} onChange={(event) => setResetPin(event.target.value.replace(/\D/g, ""))} className="min-h-14 w-full rounded-xl border-2 border-border bg-surface px-14 text-center text-xl font-bold tracking-[0.18em] outline-none focus:border-primary" /><button type="button" onClick={() => setShowResetPin((visible) => !visible)} className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-primary" aria-label={showResetPin ? "Ocultar novo PIN" : "Mostrar novo PIN"}>{showResetPin ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setResetTarget(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || resetPin.length < 4} onClick={() => void save("reset_employee_pin", { employee_id: resetTarget.id, pin: resetPin }, `Novo PIN salvo para ${resetTarget.name}.`).then(() => { setResetTarget(null); setShowResetPin(false); })} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar PIN</button></div></section></div> : null}
       {editingFarm ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setEditingFarm(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Editar fazenda</h2><label className="mt-4 block text-xs font-bold uppercase text-muted-foreground">Nome da fazenda<input autoFocus value={editingFarmName} onChange={(event) => setEditingFarmName(event.target.value)} className="mt-2 min-h-14 w-full rounded-xl border-2 border-border bg-surface px-4 text-base font-bold outline-none focus:border-primary" /></label><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setEditingFarm(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || editingFarmName.trim().length < 2} onClick={() => void save("update_farm", { farm_id: editingFarm.id, name: editingFarmName, status: editingFarm.status }, "Fazenda atualizada.").then(() => setEditingFarm(null))} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar</button></div></section></div> : null}
       {editingEmployee ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setEditingEmployee(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Editar funcionário</h2><div className="mt-4 space-y-2"><input autoFocus value={editingEmployeeForm.name} onChange={(event) => setEditingEmployeeForm((form) => ({ ...form, name: event.target.value }))} placeholder="Nome" className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary" /><input value={editingEmployeeForm.login_name} onChange={(event) => setEditingEmployeeForm((form) => ({ ...form, login_name: event.target.value }))} placeholder="Login" className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary" /><input value={editingEmployeeForm.employee_code} onChange={(event) => setEditingEmployeeForm((form) => ({ ...form, employee_code: event.target.value }))} placeholder="Código" className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary" /></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setEditingEmployee(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || !editingEmployeeForm.name.trim() || !editingEmployeeForm.login_name.trim() || !editingEmployeeForm.employee_code.trim()} onClick={() => void save("update_employee", { employee_id: editingEmployee.id, ...editingEmployeeForm, status: editingEmployee.status, is_admin: editingEmployee.is_admin }, "Funcionário atualizado.").then(() => setEditingEmployee(null))} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar</button></div></section></div> : null}
     </main>
