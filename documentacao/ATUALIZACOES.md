@@ -2482,3 +2482,22 @@ Critério de sucesso:
 ## Próximos passos
 
 - Continuar adicionando verificações visuais automatizadas para telas internas com listas extensas e teclado aberto.
+
+# 2026-09-04 - Reforço do modo offline
+
+## O que foi feito
+
+- O Service Worker passa a ser registrado assim que a página carrega, reduzindo o tempo em que o primeiro acesso ainda não está preparado para ficar offline.
+- Requisições locais sem cache agora retornam o app salvo quando a rede cai, evitando uma tela de erro durante a abertura.
+- A visita continua sendo salva no aparelho e entra na fila de sincronização para envio posterior.
+
+## Como validar
+
+- Abrir o link com internet pelo menos uma vez e aguardar o app terminar de carregar.
+- Ativar a fazenda e recarregar uma vez ainda online.
+- Desligar a internet, recarregar e confirmar `Offline — salvando no aparelho`.
+- Registrar uma visita offline, religar a internet e confirmar o envio na próxima sincronização.
+
+## Próximos passos
+
+- Testar a instalação como PWA em Android real, especialmente em aparelhos que restringem atividade em segundo plano.

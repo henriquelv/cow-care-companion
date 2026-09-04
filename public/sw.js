@@ -64,13 +64,15 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
-      return fetch(request).then(async (response) => {
-        if (response.ok) {
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put(request, response.clone());
-        }
-        return response;
-      });
+      return fetch(request)
+        .then(async (response) => {
+          if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone());
+          }
+          return response;
+        })
+        .catch(() => caches.match("/"));
     }),
   );
 });

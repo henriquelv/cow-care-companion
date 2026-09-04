@@ -1,5 +1,4 @@
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js", { scope: "/" });
-  });
+  // Registra cedo para que o primeiro acesso online já prepare o uso offline.
+  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
 }
