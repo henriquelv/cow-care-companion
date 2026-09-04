@@ -32,6 +32,74 @@ export interface RemoteEmployee {
   can_view_financial?: boolean | null;
 }
 
+interface OfflineAccessRecord {
+  client: RemoteClient;
+  employee: RemoteEmployee;
+  farms: RemoteFarm[];
+  pin_hash: string;
+  session_token?: string;
+  session_expires_at?: string;
+  cached_at: string;
+}
+
+const OFFLINE_ACCESS_KEY = "casco.offline_access.v1";
+
+function readOfflineAccess(): OfflineAccessRecord[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const stored = JSON.parse(localStorage.getItem(OFFLINE_ACCESS_KEY) ?? "[]") as unknown;
+    return Array.isArray(stored) ? (stored as OfflineAccessRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function hashOfflinePin(companyCode: string, employeeId: string, pin: string) {
+  const input = `${companyCode.trim().toUpperCase()}:${employeeId}:${pin}`;
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function sameLogin(employee: RemoteEmployee, login: string) {
+  const normalized = login.trim().toLocaleLowerCase("pt-BR");
+  return [employee.login_name, employee.employee_code, employee.name].some(
+    (value) => value?.trim().toLocaleLowerCase("pt-BR") === normalized,
+  );
+}
+
+async function cacheOfflineAccess(
+  companyCode: string,
+  client: RemoteClient,
+  employee: RemoteEmployee,
+  farms: RemoteFarm[],
+  pin: string,
+  session?: { token?: string; expires_at?: string },
+) {
+  if (typeof localStorage === "undefined") return;
+  const record: OfflineAccessRecord = {
+    client,
+    employee,
+    farms,
+    pin_hash: await hashOfflinePin(companyCode, employee.id, pin),
+    session_token: session?.token,
+    session_expires_at: session?.expires_at,
+    cached_at: new Date().toISOString(),
+  };
+  const next = readOfflineAccess().filter(
+    (item) =>
+      !(item.client.activation_code === client.activation_code && item.employee.id === employee.id),
+  );
+  localStorage.setItem(OFFLINE_ACCESS_KEY, JSON.stringify([...next, record]));
+}
+
+function findOfflineAccess(companyCode: string, login: string) {
+  return readOfflineAccess().find(
+    (item) =>
+      item.client.activation_code === companyCode.trim().toUpperCase() &&
+      sameLogin(item.employee, login),
+  );
+}
+
 function normalizeActivationInput(input: string) {
   const raw = input.trim();
   if (!raw) return "";
@@ -100,7 +168,13 @@ export const activationService = {
     }
 
     if (!canReachServer()) {
-      throw new Error("Conecte este aparelho à internet para fazer o primeiro acesso.");
+      const cached = readOfflineAccess().find((item) => item.client.activation_code === normalized);
+      if (!cached) {
+        throw new Error(
+          "Este aparelho ainda não tem o acesso offline desta empresa. Entre uma vez com internet.",
+        );
+      }
+      return { client: { ...cached.client, source: "remote" } };
     }
 
     const supabase = requireSupabase();
@@ -140,7 +214,25 @@ export const activationService = {
     }
 
     if (!canReachServer()) {
-      throw new Error("Conecte este aparelho à internet para fazer o primeiro acesso.");
+      const cached = findOfflineAccess(normalizedCode, login);
+      if (!cached) {
+        throw new Error(
+          "Este funcionário ainda não foi liberado para uso offline neste aparelho. Entre uma vez com internet.",
+        );
+      }
+      const pinHash = await hashOfflinePin(normalizedCode, cached.employee.id, pin);
+      if (pinHash !== cached.pin_hash) throw new Error("Funcionário ou PIN inválidos.");
+      if (cached.session_token) {
+        farmContextService.savePendingSession({
+          token: cached.session_token,
+          expires_at: cached.session_expires_at,
+        });
+      }
+      return {
+        client: { ...cached.client, source: "remote" },
+        employee: cached.employee,
+        farms: cached.farms,
+      };
     }
 
     const supabase = requireSupabase();
@@ -187,6 +279,25 @@ export const activationService = {
       ? null
       : (permissionResult.data as { can_view_financial?: boolean } | null);
 
+    try {
+      await cacheOfflineAccess(
+        normalizedCode,
+        { ...result.client, source: "remote" },
+        {
+          ...result.employee,
+          can_view_financial:
+            result.employee.is_platform_admin === true ||
+            result.employee.employee_code === "000" ||
+            permissions?.can_view_financial === true,
+        },
+        result.farms,
+        pin,
+        { token: result.session_token, expires_at: result.session_expires_at },
+      );
+    } catch {
+      // O login online continua funcionando mesmo se o armazenamento local estiver cheio.
+    }
+
     return {
       client: { ...result.client, source: "remote" },
       employee: {
@@ -213,6 +324,7 @@ export const activationService = {
       isPlatformAdmin && client?.activation_code?.trim().toUpperCase() !== "000";
 
     if (localActivation) {
+      const localSession = farmContextService.getPendingSession();
       const ctx: FarmContext = {
         client_id: client?.id ?? farm.client_id ?? undefined,
         client_name: client?.name,
@@ -228,6 +340,8 @@ export const activationService = {
         platform_farm_mode: platformFarmMode,
         can_view_financial: employee.can_view_financial === true,
         device_id: deviceId,
+        session_token: localSession?.token,
+        session_expires_at: localSession?.expires_at,
         last_license_check_at: now,
         grace_period_days: farm.grace_period_days ?? 7,
       };
