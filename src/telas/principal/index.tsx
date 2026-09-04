@@ -212,6 +212,7 @@ type Screen =
       name: "config";
       section?: "dados" | "cadastros" | "avancado";
       registry?: "lotes" | "animais";
+      focus?: "pricing";
     }
   | { name: "admin" }
   | { name: "filters" }
@@ -478,7 +479,7 @@ export function Index() {
               destination === "calendar"
                 ? { name: "calendar" }
                 : destination === "config"
-                  ? { name: "config", section: "avancado" }
+                  ? { name: "config", section: "avancado", focus: "pricing" }
                   : { name: "today" },
             );
             setActiveWorkSession(workSessionService.getActive());
@@ -656,6 +657,7 @@ export function Index() {
             farm={farm}
             initialSection={screen.section}
             initialRegistry={screen.registry}
+            initialFocus={screen.focus}
             onSave={(f) => {
               saveFarm(f);
               setFarm(f);
@@ -6587,16 +6589,19 @@ function ConfigScreen({
   farm,
   initialSection,
   initialRegistry,
+  initialFocus,
   onSave,
   onImport,
 }: {
   farm: FarmConfig;
   initialSection?: "dados" | "cadastros" | "avancado";
   initialRegistry?: "lotes" | "animais";
+  initialFocus?: "pricing";
   onSave: (f: FarmConfig) => void;
   onImport: () => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
+  const pricingRef = useRef<HTMLElement>(null);
   const context = farmContextService.getContext();
   const features = tenantFeatures(context, farm.featureOverrides);
   const [managerUnlocked, setManagerUnlocked] = useState(
@@ -6629,6 +6634,14 @@ function ConfigScreen({
   const [diseaseSearch, setDiseaseSearch] = useState("");
   const [newDiseaseName, setNewDiseaseName] = useState("");
   const [newDiseaseDays, setNewDiseaseDays] = useState(30);
+
+  useEffect(() => {
+    if (initialFocus !== "pricing" || !managerUnlocked) return;
+    const frame = requestAnimationFrame(() =>
+      pricingRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [initialFocus, managerUnlocked]);
 
   const cleanLotes = lotes.map((lote) => lote.trim().toUpperCase()).filter(Boolean);
   const cleanAnimalTags = animais.map((animal) => animal.tag.trim()).filter(Boolean);
@@ -7496,7 +7509,10 @@ function ConfigScreen({
             </div>
           </section>
           {features.pricing && canViewFinancial(context, farm.featureOverrides) ? (
-            <section className="rounded-lg border-2 border-border bg-card p-4">
+            <section
+              ref={pricingRef}
+              className="scroll-mt-24 rounded-lg border-2 border-border bg-card p-4"
+            >
               <div className="mb-4">
                 <p className="font-display text-base font-black uppercase">Tabela de preços</p>
                 <p className="mt-1 text-xs text-muted-foreground">

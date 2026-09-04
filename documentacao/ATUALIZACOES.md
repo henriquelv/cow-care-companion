@@ -2463,3 +2463,22 @@ Critério de sucesso:
 - Definir se a visita à fazenda deverá receber observação geral, nome do contratante ou ordem de serviço em uma próxima etapa.
 - Redefinir o PIN de Romano pela administração caso ele não se lembre do número alterado; o PIN atual não pode ser recuperado porque é guardado somente como hash seguro.
 - Automatizar backup diário e monitoramento do projeto Supabase gratuito, conforme já recomendado.
+
+# 2026-09-04 - Correção visual e acesso direto aos valores
+
+## O que foi feito
+
+- A conta mestra agora reaproveita sua sessão administrativa ao abrir uma fazenda, sem pedir um segundo PIN para acessar os valores.
+- Reforçada a responsividade global para impedir controles maiores que a tela e cortes causados pelo ajuste automático de texto em celulares.
+- Reorganizados os botões das fazendas no painel central em telas estreitas.
+- Atualizado o cache offline para forçar celulares e tablets a receberem o CSS e a interface mais recentes.
+
+## Como validar
+
+- Entrar com a conta `000`, abrir a administração central e tocar em `Valores` em uma fazenda da Hullsjob.
+- Confirmar que a tela abre diretamente em `Regras clínicas`, sem solicitar outro PIN.
+- Conferir o painel em celular, tablet e notebook, inclusive com o aparelho em modo retrato.
+
+## Próximos passos
+
+- Continuar adicionando verificações visuais automatizadas para telas internas com listas extensas e teclado aberto.

@@ -79,7 +79,7 @@ export function deviceDisplayName(deviceName?: string | null) {
   return "Navegador cadastrado";
 }
 
-interface ManagerSession {
+export interface ManagerSession {
   token: string;
   expires_at: string;
 }
@@ -112,6 +112,11 @@ function rpcUnavailable(error: { code?: string | null } | null) {
 }
 
 export const adminService = {
+  adoptSession(session: ManagerSession) {
+    if (typeof sessionStorage === "undefined") return;
+    sessionStorage.setItem(MANAGER_SESSION_KEY, JSON.stringify(session));
+  },
+
   isUnlocked() {
     return Boolean(readManagerSession());
   },

@@ -1,4 +1,5 @@
 import { requireSupabase } from "./supabase";
+import { adminService } from "./admin.service";
 
 const PLATFORM_SESSION_KEY = "casco.platform_manager_session.v1";
 
@@ -97,10 +98,9 @@ export const platformAdminService = {
     if (!result?.ok || !result.manager_token || !result.expires_at) {
       throw new Error(result?.message || "PIN incorreto.");
     }
-    sessionStorage.setItem(
-      PLATFORM_SESSION_KEY,
-      JSON.stringify({ token: result.manager_token, expires_at: result.expires_at }),
-    );
+    const session = { token: result.manager_token, expires_at: result.expires_at };
+    sessionStorage.setItem(PLATFORM_SESSION_KEY, JSON.stringify(session));
+    adminService.adoptSession(session);
   },
 
   async overview(): Promise<PlatformOverview> {
@@ -133,6 +133,8 @@ export const platformAdminService = {
   },
 
   async openFarm(farmId: string): Promise<PlatformFarmSelection> {
+    const session = readSession();
+    if (session) adminService.adoptSession(session);
     const { data, error } = await requireSupabase().rpc("hoof_platform_activate_farm", {
       p_manager_token: tokenOrThrow(),
       p_farm_id: farmId,

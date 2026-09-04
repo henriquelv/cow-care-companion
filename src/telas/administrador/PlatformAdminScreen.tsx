@@ -236,8 +236,12 @@ export function PlatformAdminScreen({
             <ShieldCheck className="h-6 w-6" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-display text-lg font-black uppercase">Administração central</p>
-            <p className="text-xs text-muted-foreground">Conta mestra · empresas independentes</p>
+            <p className="font-display text-sm font-black uppercase sm:text-lg">
+              Administração central
+            </p>
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              Conta mestra · empresas independentes
+            </p>
           </div>
           <button
             type="button"
@@ -324,12 +328,12 @@ export function PlatformAdminScreen({
                   >
                     <p className="font-display font-black uppercase">{farm.name}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{statusLabel(farm.status)}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2 sm:flex">
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                       <button
                         type="button"
                         disabled={loading || farm.status !== "active"}
                         onClick={() => void openFarm(farm)}
-                        className="min-h-10 rounded-lg bg-primary px-3 text-xs font-bold uppercase text-primary-foreground disabled:opacity-50"
+                        className="min-h-11 rounded-lg bg-primary px-2 py-2 text-xs font-bold uppercase leading-tight text-primary-foreground disabled:opacity-50 sm:px-3"
                       >
                         Abrir fazenda
                       </button>
@@ -337,7 +341,7 @@ export function PlatformAdminScreen({
                         type="button"
                         disabled={loading || farm.status !== "active"}
                         onClick={() => void openFarm(farm, "calendar")}
-                        className="flex min-h-10 items-center justify-center gap-1 rounded-lg border-2 border-primary bg-card px-3 text-xs font-bold uppercase text-primary disabled:opacity-50"
+                        className="flex min-h-11 items-center justify-center gap-1 rounded-lg border-2 border-primary bg-card px-2 py-2 text-xs font-bold uppercase leading-tight text-primary disabled:opacity-50 sm:px-3"
                       >
                         <CalendarDays className="h-4 w-4" />
                         Agenda e PDF
@@ -347,7 +351,7 @@ export function PlatformAdminScreen({
                           type="button"
                           disabled={loading || farm.status !== "active"}
                           onClick={() => void openFarm(farm, "config")}
-                          className="flex min-h-10 items-center justify-center gap-1 rounded-lg border-2 border-primary bg-card px-3 text-xs font-bold uppercase text-primary disabled:opacity-50"
+                          className="flex min-h-11 items-center justify-center gap-1 rounded-lg border-2 border-primary bg-card px-2 py-2 text-xs font-bold uppercase leading-tight text-primary disabled:opacity-50 sm:px-3"
                         >
                           <CircleDollarSign className="h-4 w-4" />
                           Valores
@@ -360,7 +364,7 @@ export function PlatformAdminScreen({
                           setEditingFarm(farm);
                           setEditingFarmName(farm.name);
                         }}
-                        className="flex min-h-10 items-center gap-1 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase"
+                        className="flex min-h-11 items-center justify-center gap-1 rounded-lg border-2 border-border bg-card px-2 py-2 text-xs font-bold uppercase leading-tight sm:px-3"
                       >
                         <Pencil className="h-4 w-4" />
                         Editar
@@ -378,7 +382,7 @@ export function PlatformAdminScreen({
                             farm.status === "active" ? "Fazenda bloqueada." : "Fazenda reativada.",
                           )
                         }
-                        className="min-h-10 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase"
+                        className="col-span-2 min-h-11 rounded-lg border-2 border-border bg-card px-3 py-2 text-xs font-bold uppercase leading-tight sm:col-span-1"
                       >
                         {farm.status === "active" ? "Bloquear" : "Reativar"}
                       </button>
