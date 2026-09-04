@@ -10,6 +10,7 @@ export interface FarmContext {
   employee_login?: string;
   is_admin?: boolean;
   is_platform_admin?: boolean;
+  platform_farm_mode?: boolean;
   can_view_financial?: boolean;
   device_id: string;
   session_token?: string;

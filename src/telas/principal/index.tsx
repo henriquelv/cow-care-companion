@@ -444,7 +444,7 @@ export function Index() {
     );
   }
 
-  if (appContext?.is_platform_admin) {
+  if (appContext?.is_platform_admin && !appContext.platform_farm_mode) {
     return (
       <Suspense
         fallback={
@@ -455,6 +455,30 @@ export function Index() {
         }
       >
         <PlatformAdminScreen
+          onOpenFarm={async (selection) => {
+            farmContextService.updateContext({
+              client_id: selection.client.id,
+              client_name: selection.client.name,
+              client_code: selection.client.activation_code,
+              farm_id: selection.farm.id,
+              farm_name: selection.farm.name,
+              grace_period_days: selection.farm.grace_period_days ?? 7,
+              last_license_check_at: new Date().toISOString(),
+              platform_farm_mode: true,
+            });
+            const nextFarm = {
+              ...loadFarm(),
+              farmName: selection.farm.name,
+              worker: appContext.employee_name,
+              configured: true,
+            };
+            saveFarm(nextFarm);
+            setFarm(nextFarm);
+            setScreen({ name: "today" });
+            setActiveWorkSession(workSessionService.getActive());
+            refresh();
+            void runSync();
+          }}
           onExit={() => {
             adminService.clear();
             farmContextService.clearContext();
@@ -489,6 +513,12 @@ export function Index() {
         isAdmin={appContext?.is_admin === true}
         onConfig={() => setScreen({ name: "config" })}
         onAdmin={() => {
+          if (appContext?.is_platform_admin) {
+            farmContextService.updateContext({ platform_farm_mode: false });
+            setScreen({ name: "today" });
+            refresh();
+            return;
+          }
           setScreen({ name: "admin" });
           void runSync();
         }}

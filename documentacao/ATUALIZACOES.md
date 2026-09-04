@@ -41,6 +41,29 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 2. Definir se a administração central também deverá criar novas empresas, além de fazendas e funcionários das empresas atuais.
 3. Adicionar uma tela de auditoria central com filtro por empresa, caso o volume de alterações administrativas cresça.
 
+## 2026-09-04 - Acesso operacional da conta mestra
+
+### O que foi feito
+
+- Adicionado `Abrir fazenda` na Administração central. A conta `000` agora consegue entrar diretamente em qualquer fazenda ativa da StarMilk ou Hullsjob.
+- A abertura cria ou atualiza o vínculo do aparelho da conta mestra somente para a fazenda escolhida e inicia a sincronização daquela unidade.
+- Ao entrar em uma fazenda, a conta mestra usa as telas operacionais normais para consultar animais, agenda, preventivos e histórico.
+- O atalho Administração, quando usado pela conta mestra dentro de uma fazenda, retorna à Administração central em vez de abrir um painel vazio.
+- A exceção de acesso foi implementada apenas no Supabase para sessões com `is_platform_admin`; funcionários e gerentes das empresas continuam sem leitura cruzada entre StarMilk e Hullsjob.
+- Aplicada a migração `202609040002_platform_open_farm.sql` no Supabase de produção.
+
+### Como validar
+
+- Entrar com código `000`, login `000` e PIN `1234`; confirmar o PIN da conta mestra.
+- Selecionar Hullsjob, tocar em `Abrir fazenda` na Fazenda Vitória e confirmar que Animais, Preventivo, Calendário e Histórico carregam os dados dessa fazenda.
+- Voltar por Administração central, selecionar StarMilk e abrir a fazenda StarMilk; confirmar que os dados permanecem separados.
+- Entrar como funcionário comum das duas empresas e confirmar que ele continua vendo somente as fazendas às quais foi vinculado.
+
+### Próximos passos
+
+1. Trocar o PIN provisório da conta mestra antes de delegar a administração a outra pessoa.
+2. Validar no celular principal do desenvolvedor o primeiro acesso da conta `000` às duas fazendas.
+
 ## 2026-09-02 - HullsApp, perfil 004 e agenda compartilhada
 
 ### O que foi feito

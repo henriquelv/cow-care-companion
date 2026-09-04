@@ -21,6 +21,7 @@ import {
   type PlatformClient,
   type PlatformEmployee,
   type PlatformFarm,
+  type PlatformFarmSelection,
   type PlatformOverview,
 } from "@/servicos/platform-admin.service";
 
@@ -46,7 +47,13 @@ function statusLabel(status: string) {
   return status === "active" ? "Ativo" : status === "blocked" ? "Bloqueado" : "Expirado";
 }
 
-export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
+export function PlatformAdminScreen({
+  onExit,
+  onOpenFarm,
+}: {
+  onExit: () => void;
+  onOpenFarm: (selection: PlatformFarmSelection) => Promise<void> | void;
+}) {
   const [unlocked, setUnlocked] = useState(() => platformAdminService.isUnlocked());
   const [pin, setPin] = useState("");
   const [overview, setOverview] = useState<PlatformOverview | null>(null);
@@ -134,6 +141,19 @@ export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
     return overview?.farms.find((farm) => farm.id === farmId)?.name ?? "Sem fazenda";
   }
 
+  async function openFarm(farm: PlatformFarm) {
+    setLoading(true);
+    setError("");
+    try {
+      const selection = await platformAdminService.openFarm(farm.id);
+      await onOpenFarm(selection);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível abrir esta fazenda.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   if (!unlocked) {
     return (
       <main className="min-h-[100dvh] bg-background px-4 py-6">
@@ -212,6 +232,9 @@ export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
                   <p className="font-display font-black uppercase">{farm.name}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{statusLabel(farm.status)}</p>
                   <div className="mt-3 flex gap-2">
+                    <button type="button" disabled={loading || farm.status !== "active"} onClick={() => void openFarm(farm)} className="min-h-10 rounded-lg bg-primary px-3 text-xs font-bold uppercase text-primary-foreground disabled:opacity-50">
+                      Abrir fazenda
+                    </button>
                     <button type="button" disabled={loading} onClick={() => { setEditingFarm(farm); setEditingFarmName(farm.name); }} className="flex min-h-10 items-center gap-1 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase">
                       <Pencil className="h-4 w-4" />Editar
                     </button>

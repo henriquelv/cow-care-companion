@@ -36,6 +36,19 @@ export type PlatformOverview = {
   employees: PlatformEmployee[];
 };
 
+export type PlatformFarmSelection = {
+  client: {
+    id: string;
+    name: string;
+    activation_code: string;
+  };
+  farm: {
+    id: string;
+    name: string;
+    grace_period_days?: number | null;
+  };
+};
+
 type PlatformSession = { token: string; expires_at: string };
 
 function readSession(): PlatformSession | null {
@@ -110,5 +123,23 @@ export const platformAdminService = {
     const result = data as { ok?: boolean; message?: string; id?: string } | null;
     if (!result?.ok) throw new Error(result?.message || "Não foi possível salvar a alteração.");
     return result;
+  },
+
+  async openFarm(farmId: string): Promise<PlatformFarmSelection> {
+    const { data, error } = await requireSupabase().rpc("hoof_platform_activate_farm", {
+      p_manager_token: tokenOrThrow(),
+      p_farm_id: farmId,
+    });
+    if (error) throw new Error("Não foi possível abrir esta fazenda.");
+    const result = data as {
+      ok?: boolean;
+      message?: string;
+      client?: PlatformFarmSelection["client"];
+      farm?: PlatformFarmSelection["farm"];
+    } | null;
+    if (!result?.ok || !result.client || !result.farm) {
+      throw new Error(result?.message || "Não foi possível abrir esta fazenda.");
+    }
+    return { client: result.client, farm: result.farm };
   },
 };
