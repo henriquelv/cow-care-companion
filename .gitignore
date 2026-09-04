@@ -39,3 +39,6 @@ test-results/
 playwright-report/
 
 .vercel
+
+# Credenciais locais fornecidas para configuração e migração
+Credenciais

@@ -1,5 +1,7 @@
 create extension if not exists "pgcrypto";
 
+set search_path = public, extensions;
+
 alter table public.employees add column if not exists client_id uuid references public.clients(id) on delete cascade;
 alter table public.employees add column if not exists employee_code text;
 alter table public.employees add column if not exists login_name text;

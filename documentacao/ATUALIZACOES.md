@@ -2242,3 +2242,52 @@ Critério de sucesso:
 - Se necessário, criar uma etapa futura de pagamentos e repasses com estados `em aberto`, `pago`, desconto e adiantamento; o saldo atual representa produção registrada, não folha de pagamento.
 - Receber a planilha real de animais para concluir a importação preventiva com validação e pré-visualização por linha.
 - Avaliar notificações de agenda no aparelho depois de validar o intervalo preventivo de seis meses durante o uso real.
+
+# 2026-09-03 - Migração definitiva para o Supabase gratuito
+
+## O que foi feito
+
+- Confirmado que a produção estava ligada indevidamente ao projeto `Gestao de Cascos` de outra conta e definido o projeto gratuito `GESTAO DE CASCOS ROMANO` como destino exclusivo do aplicativo.
+- Criado um backup lógico completo antes de qualquer exclusão em `C:\Users\henri\Desktop\Backups Gestao de Cascos\2026-09-03-yorttnljzvkfecazsnvw`.
+- O backup contém banco completo e schema `public` em formato restaurável, SQL de estrutura e dados, funções, políticas, migrações, inventário do Storage, contagens, bundle do código-fonte e hashes SHA-256.
+- Criado também um backup independente do projeto gratuito antes da restauração, permitindo retornar ao estado anterior caso fosse necessário.
+- Restauradas e validadas 21 migrações no projeto gratuito, incluindo 18 tabelas com RLS e 43 políticas de acesso em `public` e `storage`.
+- Migrados 207 animais, 225 visitas concluídas, 896 registros de cascos, 6 correções auditáveis, 5 funcionários, 3 fazendas e os demais cadastros e configurações existentes.
+- Feita uma segunda cópia final da origem imediatamente antes da exclusão, com novos dumps, inventários, listas de IDs, comparação de conteúdo e hashes.
+- Confirmado que todos os IDs operacionais da origem existem no destino: nenhum animal, visita, casco, correção, funcionário, cliente, configuração ou licença ficou ausente.
+- Confirmado conteúdo idêntico em animais, clientes, configurações, correções, cascos, visitas e licenças. As únicas diferenças eram alterações mais recentes no destino em senha/permissões de dois funcionários e data de atualização de uma fazenda; essas alterações foram preservadas.
+- Validada a integridade relacional no destino: zero cascos órfãos, zero visitas sem fazenda e zero cascos vinculados a uma fazenda diferente da visita.
+- Atualizados ambiente local, produção e Vercel para usar somente o projeto gratuito `poajhjvdbdzhzccytmka`.
+- Excluído exclusivamente o projeto antigo `Gestao de Cascos` (`yorttnljzvkfecazsnvw`) após todas as validações.
+- Confirmado depois da exclusão que `Gestão Rural Teste` (`vocnftkhnrfnbfvpnqtb`) continua existente e `ACTIVE_HEALTHY`.
+- Removida a credencial temporária da conta antiga, restaurada a CLI para a conta gratuita, removido o conector temporário do Supabase e apagados os perfis temporários de navegador usados na operação.
+- Removida a chave secreta exposta do projeto gratuito e desativadas as chaves legadas que haviam sido compartilhadas. A produção utiliza apenas a chave pública apropriada para navegador.
+- O arquivo local `Credenciais` passou a ser ignorado pelo Git para impedir publicação acidental.
+- Corrigida a resolução das extensões PostgreSQL em duas migrações antigas para permitir restauração limpa em um projeto novo.
+- Corrigida uma verificação de código da empresa que impedia o TypeScript de validar o fluxo de ativação.
+
+## Por que foi feito
+
+- Isolar definitivamente o Gestão de Cascos do projeto e da conta usados por outro produto.
+- Garantir que a operação em produção tenha uma fonte central conhecida, recuperável e sob a conta correta.
+- Evitar perda de dados durante a transferência e impedir que uma cópia antiga continue recebendo registros.
+- Remover acessos temporários e credenciais expostas assim que a migração terminasse.
+
+## Como foi validado
+
+- Comparação por contagem, ID e hash de conteúdo entre origem e destino antes da exclusão.
+- `npm run test`: 88 testes aprovados.
+- `npm run typecheck`: aprovado.
+- `npm run lint`: aprovado.
+- `npm run build:vercel`: aprovado.
+- `npm run test:e2e`: 22 testes aprovados e 1 teste ignorado, cobrindo celular, tablet e descarte de visita não finalizada.
+- `npm run verify:production`: aprovado durante a migração, incluindo bloqueio público, permissões administrativas, dados das duas empresas e zero registros cruzados entre fazendas.
+- Na repetição final, o verificador confirmou que o PIN padrão `1234` de Romano não é mais válido. A auditoria registrou uma redefinição feita pelo próprio administrador após a migração; o PIN novo foi preservado e deve ser informado em `QA_HULLSJOB_PIN` para repetir a auditoria completa sem alterar a senha real.
+- Aplicação publicada em `https://gestao-de-cascos.vercel.app` apontando para o novo projeto.
+
+## Próximos passos
+
+- Automatizar um backup diário do banco gratuito e guardar uma cópia fora do computador de desenvolvimento.
+- Monitorar semanalmente o status do projeto gratuito para evitar pausa por inatividade.
+- Rotacionar imediatamente qualquer nova credencial secreta que seja compartilhada fora do gerenciador seguro.
+- Executar uma conferência funcional com Romano e Sandro no aplicativo publicado antes da próxima apresentação ao cliente.
