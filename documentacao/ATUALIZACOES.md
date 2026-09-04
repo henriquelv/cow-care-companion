@@ -15,7 +15,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Criada uma conta mestra separada para administrar todas as empresas, fazendas e funcionários sem entrar na operação clínica de uma fazenda.
 - Acesso inicial: código da empresa `000`, login `000` e PIN provisório `1234`.
 - Após a identificação, a conta abre a Administração central, onde as empresas ficam separadas e cada uma mostra suas fazendas e funcionários.
-- A conta mestra pode cadastrar, bloquear e reativar fazendas; cadastrar funcionários; conceder ou remover acesso de gerente; bloquear ou reativar funcionários; e redefinir PINs.
+- A conta mestra pode cadastrar, editar, bloquear e reativar fazendas; cadastrar e editar funcionários; conceder ou remover acesso de gerente; bloquear ou reativar funcionários; e redefinir PINs.
 - PINs e senhas não são exibidos em texto. Eles permanecem protegidos por hash no banco, e a tela informa claramente que a ação disponível é criar um novo PIN.
 - Criada a migração `202609040001_platform_master_account.sql` no Supabase de produção, com autorização central por sessão temporária e auditoria das alterações por empresa.
 - Incluída a conta também no modo de desenvolvimento local para o fluxo não divergir da produção.

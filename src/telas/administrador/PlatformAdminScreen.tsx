@@ -8,6 +8,7 @@ import {
   LockKeyhole,
   LogOut,
   MapPin,
+  Pencil,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -54,6 +55,14 @@ export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(emptyEmployeeForm);
   const [resetTarget, setResetTarget] = useState<PlatformEmployee | null>(null);
   const [resetPin, setResetPin] = useState("1234");
+  const [editingFarm, setEditingFarm] = useState<PlatformFarm | null>(null);
+  const [editingFarmName, setEditingFarmName] = useState("");
+  const [editingEmployee, setEditingEmployee] = useState<PlatformEmployee | null>(null);
+  const [editingEmployeeForm, setEditingEmployeeForm] = useState({
+    name: "",
+    login_name: "",
+    employee_code: "",
+  });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -203,6 +212,9 @@ export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
                   <p className="font-display font-black uppercase">{farm.name}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{statusLabel(farm.status)}</p>
                   <div className="mt-3 flex gap-2">
+                    <button type="button" disabled={loading} onClick={() => { setEditingFarm(farm); setEditingFarmName(farm.name); }} className="flex min-h-10 items-center gap-1 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase">
+                      <Pencil className="h-4 w-4" />Editar
+                    </button>
                     <button type="button" disabled={loading} onClick={() => void save("update_farm", { farm_id: farm.id, status: farm.status === "active" ? "blocked" : "active" }, farm.status === "active" ? "Fazenda bloqueada." : "Fazenda reativada.")} className="min-h-10 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase">
                       {farm.status === "active" ? "Bloquear" : "Reativar"}
                     </button>
@@ -224,6 +236,7 @@ export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
                 <article key={employee.id} className="rounded-xl border-2 border-border bg-surface p-3">
                   <div className="flex gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-card text-primary"><UserCog className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="font-display font-black uppercase">{employee.name}</p><p className="mt-1 text-xs text-muted-foreground">{employee.login_name} · código {employee.employee_code} · {farmName(employee.farm_id)}</p></div><span className={cn("text-xs font-bold", employee.status === "active" ? "text-good" : "text-destructive")}>{statusLabel(employee.status)}</span></div>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => { setEditingEmployee(employee); setEditingEmployeeForm({ name: employee.name, login_name: employee.login_name, employee_code: employee.employee_code }); }} className="flex min-h-10 items-center gap-1 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase"><Pencil className="h-4 w-4" />Editar</button>
                     <button type="button" onClick={() => setResetTarget(employee)} className="min-h-10 rounded-lg bg-primary px-3 text-xs font-bold uppercase text-primary-foreground"><KeyRound className="mr-1 inline h-4 w-4" />Redefinir PIN</button>
                     <button type="button" disabled={loading} onClick={() => void save("update_employee", { employee_id: employee.id, status: employee.status === "active" ? "blocked" : "active" }, employee.status === "active" ? "Funcionário bloqueado." : "Funcionário reativado.")} className="min-h-10 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase">{employee.status === "active" ? "Bloquear" : "Reativar"}</button>
                     <button type="button" disabled={loading} onClick={() => void save("update_employee", { employee_id: employee.id, is_admin: !employee.is_admin }, employee.is_admin ? "Acesso de gerente removido." : "Acesso de gerente concedido.")} className="min-h-10 rounded-lg border-2 border-border bg-card px-3 text-xs font-bold uppercase">{employee.is_admin ? "Remover gerente" : "Tornar gerente"}</button>
@@ -248,6 +261,8 @@ export function PlatformAdminScreen({ onExit }: { onExit: () => void }) {
       </div>
 
       {resetTarget ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setResetTarget(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Redefinir PIN</h2><p className="mt-2 text-sm text-muted-foreground">{resetTarget.name}. O PIN antigo será invalidado e não pode ser consultado.</p><input autoFocus inputMode="numeric" maxLength={6} value={resetPin} onChange={(event) => setResetPin(event.target.value.replace(/\D/g, ""))} className="mt-4 min-h-14 w-full rounded-xl border-2 border-border bg-surface px-4 text-center text-xl font-bold tracking-[0.18em] outline-none [-webkit-text-security:disc] focus:border-primary" /><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setResetTarget(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || resetPin.length < 4} onClick={() => void save("reset_employee_pin", { employee_id: resetTarget.id, pin: resetPin }, `Novo PIN salvo para ${resetTarget.name}.`).then(() => setResetTarget(null))} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar PIN</button></div></section></div> : null}
+      {editingFarm ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setEditingFarm(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Editar fazenda</h2><label className="mt-4 block text-xs font-bold uppercase text-muted-foreground">Nome da fazenda<input autoFocus value={editingFarmName} onChange={(event) => setEditingFarmName(event.target.value)} className="mt-2 min-h-14 w-full rounded-xl border-2 border-border bg-surface px-4 text-base font-bold outline-none focus:border-primary" /></label><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setEditingFarm(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || editingFarmName.trim().length < 2} onClick={() => void save("update_farm", { farm_id: editingFarm.id, name: editingFarmName, status: editingFarm.status }, "Fazenda atualizada.").then(() => setEditingFarm(null))} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar</button></div></section></div> : null}
+      {editingEmployee ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center" role="dialog" aria-modal="true" onClick={() => !loading && setEditingEmployee(null)}><section className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="font-display text-lg font-black uppercase">Editar funcionário</h2><div className="mt-4 space-y-2"><input autoFocus value={editingEmployeeForm.name} onChange={(event) => setEditingEmployeeForm((form) => ({ ...form, name: event.target.value }))} placeholder="Nome" className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary" /><input value={editingEmployeeForm.login_name} onChange={(event) => setEditingEmployeeForm((form) => ({ ...form, login_name: event.target.value }))} placeholder="Login" className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary" /><input value={editingEmployeeForm.employee_code} onChange={(event) => setEditingEmployeeForm((form) => ({ ...form, employee_code: event.target.value }))} placeholder="Código" className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary" /></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" disabled={loading} onClick={() => setEditingEmployee(null)} className="min-h-12 rounded-xl border-2 border-border bg-surface font-display font-black uppercase">Cancelar</button><button type="button" disabled={loading || !editingEmployeeForm.name.trim() || !editingEmployeeForm.login_name.trim() || !editingEmployeeForm.employee_code.trim()} onClick={() => void save("update_employee", { employee_id: editingEmployee.id, ...editingEmployeeForm, status: editingEmployee.status, is_admin: editingEmployee.is_admin }, "Funcionário atualizado.").then(() => setEditingEmployee(null))} className="min-h-12 rounded-xl bg-primary font-display font-black uppercase text-primary-foreground disabled:opacity-50">Salvar</button></div></section></div> : null}
     </main>
   );
 }
