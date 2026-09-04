@@ -159,6 +159,11 @@ import { workSessionService, type HoofWorkSession } from "@/servicos/work-sessio
 const AdminScreen = lazy(() =>
   import("@/telas/administrador/AdminScreen").then((module) => ({ default: module.AdminScreen })),
 );
+const PlatformAdminScreen = lazy(() =>
+  import("@/telas/administrador/PlatformAdminScreen").then((module) => ({
+    default: module.PlatformAdminScreen,
+  })),
+);
 
 type Filters = {
   dateFrom: string;
@@ -436,6 +441,27 @@ export function Index() {
           </button>
         </section>
       </main>
+    );
+  }
+
+  if (appContext?.is_platform_admin) {
+    return (
+      <Suspense
+        fallback={
+          <main className="flex min-h-[100dvh] items-center justify-center bg-background text-primary">
+            <RefreshCw className="h-7 w-7 animate-spin" aria-hidden="true" />
+            <span className="sr-only">Carregando conta mestra</span>
+          </main>
+        }
+      >
+        <PlatformAdminScreen
+          onExit={() => {
+            adminService.clear();
+            farmContextService.clearContext();
+            setActivated(false);
+          }}
+        />
+      </Suspense>
     );
   }
 

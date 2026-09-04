@@ -8,6 +8,39 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-04 - Conta mestra de administração central
+
+### O que foi feito
+
+- Criada uma conta mestra separada para administrar todas as empresas, fazendas e funcionários sem entrar na operação clínica de uma fazenda.
+- Acesso inicial: código da empresa `000`, login `000` e PIN provisório `1234`.
+- Após a identificação, a conta abre a Administração central, onde as empresas ficam separadas e cada uma mostra suas fazendas e funcionários.
+- A conta mestra pode cadastrar, bloquear e reativar fazendas; cadastrar funcionários; conceder ou remover acesso de gerente; bloquear ou reativar funcionários; e redefinir PINs.
+- PINs e senhas não são exibidos em texto. Eles permanecem protegidos por hash no banco, e a tela informa claramente que a ação disponível é criar um novo PIN.
+- Criada a migração `202609040001_platform_master_account.sql` no Supabase de produção, com autorização central por sessão temporária e auditoria das alterações por empresa.
+- Incluída a conta também no modo de desenvolvimento local para o fluxo não divergir da produção.
+
+### Por que foi feito
+
+- Centralizar a manutenção do produto sem dar à administração da StarMilk acesso aos dados da Hullsjob, ou o contrário.
+- Permitir recuperação segura de acesso de funcionários sem a prática insegura de guardar ou mostrar senhas existentes.
+- Manter empresas, fazendas, equipe e dados clínicos separados mesmo quando a manutenção é feita pelo desenvolvedor.
+
+### Como validar
+
+- Na tela inicial, informar `000`, continuar, usar login `000` e PIN `1234`.
+- Confirmar o PIN novamente para abrir Administração central.
+- Selecionar StarMilk ou Hullsjob e conferir que apenas as fazendas e funcionários da empresa escolhida aparecem.
+- Criar um funcionário de teste, redefinir seu PIN e confirmar que o PIN anterior deixa de funcionar.
+- Bloquear e reativar um funcionário ou fazenda e confirmar que a mudança aparece após atualizar a tela.
+- Rodar `npm run typecheck`, `npm run lint` e `npm run build:vercel`.
+
+### Próximos passos
+
+1. Trocar o PIN provisório `1234` da conta mestra antes de compartilhar o acesso com qualquer pessoa.
+2. Definir se a administração central também deverá criar novas empresas, além de fazendas e funcionários das empresas atuais.
+3. Adicionar uma tela de auditoria central com filtro por empresa, caso o volume de alterações administrativas cresça.
+
 ## 2026-09-02 - HullsApp, perfil 004 e agenda compartilhada
 
 ### O que foi feito

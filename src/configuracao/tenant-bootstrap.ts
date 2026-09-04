@@ -25,6 +25,7 @@ export interface BootstrapEmployee {
   name: string;
   status: "active";
   is_admin: boolean;
+  is_platform_admin?: boolean;
   can_view_financial: boolean;
 }
 
@@ -132,6 +133,41 @@ export function changeBootstrapEmployeePin(
 }
 
 const TENANTS: BootstrapAccess[] = [
+  {
+    client: {
+      id: "10000000-0000-4000-8000-000000000000",
+      name: "Administração central",
+      activation_code: "000",
+      status: "active",
+      grace_period_days: 7,
+      source: "bootstrap",
+    },
+    farms: [
+      {
+        id: "20000000-0000-4000-8000-000000000000",
+        client_id: "10000000-0000-4000-8000-000000000000",
+        name: "Administração central",
+        activation_code: "000",
+        status: "active",
+        grace_period_days: 7,
+      },
+    ],
+    employees: [
+      {
+        id: "30000000-0000-4000-8000-000000000000",
+        client_id: "10000000-0000-4000-8000-000000000000",
+        farm_id: "20000000-0000-4000-8000-000000000000",
+        employee_code: "000",
+        login_name: "000",
+        name: "Conta mestra",
+        status: "active",
+        is_admin: true,
+        is_platform_admin: true,
+        can_view_financial: true,
+        temporary_password: "1234",
+      },
+    ],
+  },
   {
     client: {
       id: "10000000-0000-4000-8000-000000000001",

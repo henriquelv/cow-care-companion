@@ -28,6 +28,7 @@ export interface RemoteEmployee {
   name: string;
   status?: string | null;
   is_admin?: boolean | null;
+  is_platform_admin?: boolean | null;
   can_view_financial?: boolean | null;
 }
 
@@ -213,6 +214,9 @@ export const activationService = {
         employee_code: employee.employee_code ?? undefined,
         employee_login: employee.login_name ?? undefined,
         is_admin: employee.is_admin === true,
+        is_platform_admin:
+          employee.is_platform_admin === true ||
+          (client?.activation_code === "000" && employee.employee_code === "000"),
         can_view_financial: employee.can_view_financial === true,
         device_id: deviceId,
         last_license_check_at: now,
@@ -259,6 +263,9 @@ export const activationService = {
       employee_code: employee.employee_code ?? undefined,
       employee_login: employee.login_name ?? undefined,
       is_admin: employee.is_admin === true,
+      is_platform_admin:
+        employee.is_platform_admin === true ||
+        (client?.activation_code === "000" && employee.employee_code === "000"),
       can_view_financial: employee.can_view_financial === true,
       device_id: deviceId,
       session_token: pendingSession.token,
@@ -351,6 +358,7 @@ export const activationService = {
         employee_code: session.employee?.employee_code ?? ctx.employee_code,
         employee_login: session.employee?.login_name ?? ctx.employee_login,
         is_admin: session.employee?.is_admin === true,
+        is_platform_admin: ctx.is_platform_admin === true,
         can_view_financial:
           permissions?.can_view_financial === undefined
             ? ctx.can_view_financial
