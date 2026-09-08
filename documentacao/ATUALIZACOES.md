@@ -8,6 +8,42 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-08 - Solicitações, pesquisas, agenda e ajuda simplificadas
+
+### O que foi feito
+
+- Removida a vaca da identidade visual da HullsApp. O ícone agora exibe somente `HULLS APP`, mantendo preto, verde e o contorno da marca.
+- Criado um campo de pesquisa reutilizável e aplicado às listas de preventivos, agenda individual, solicitações, lotes, animais, fazendas, funcionários, aparelhos, licenças, auditoria e administração central.
+- Adicionada exclusão de solicitação com confirmação. O autor pode excluir a própria solicitação e o gerente pode excluir qualquer solicitação da fazenda.
+- Criada e aplicada no Supabase a política `202609080001_limping_request_delete.sql`, impedindo um funcionário comum de excluir solicitações de terceiros.
+- Solicitações novas e ainda sem responsável agora ficam visíveis aos casqueadores da fazenda para que alguém possa aceitá-las.
+- O acesso às solicitações foi movido para o início do Calendário em um bloco claro `Solicitações pendentes`, com contador, pesquisa e lista recolhível.
+- A tela inicial agora informa dentro da Agenda clínica quantas solicitações aguardam atendimento e orienta onde abri-las.
+- Solicitações agendadas passaram a entrar no relatório e no PDF da agenda como tipo próprio `Solicitação`.
+- O relatório explica a classificação: data vencida é `Atrasada`, a data atual é `Hoje`, até sete dias é `Próximos 7 dias` e as demais são `Futuras`.
+- Solicitações sem data aparecem separadamente como `aguardando aceite ou agendamento`, pois ainda não podem receber uma classificação por prazo.
+- Os seis botões grandes de situação do relatório foram substituídos por dois filtros compactos e claros, `Situação` e `Tipo`, reduzindo o peso visual no celular.
+- A Ajuda ganhou perguntas em linguagem natural sobre solicitações, revisões, preventivos, relatórios, PIN, fazendas e funcionamento offline.
+- A nova ajuda funciona totalmente offline e não envia dados clínicos ou dados da fazenda para serviços externos.
+- Corrigido o sincronizador para não recriar localmente um registro logo após uma exclusão concluída no servidor.
+- Atualizado o cache offline para `v39` e o registrador do Service Worker para `v23`.
+
+### Como validar
+
+- Abrir HullsApp e confirmar que o ícone contém apenas o nome, sem a vaca.
+- Enviar uma solicitação, abrir `Calendário > Solicitações pendentes`, pesquisar pelo brinco e excluí-la.
+- Confirmar que outro funcionário vê uma solicitação nova e pode aceitá-la, mas não pode excluí-la se não for o autor.
+- Aceitar uma solicitação, definir a data e abrir `Relatório e PDF da agenda`; filtrar o tipo `Solicitações` e conferir o animal.
+- Abrir listas de preventivos e da administração e pesquisar por brinco, lote, pessoa ou fazenda.
+- Abrir `Menu > Ajuda`, perguntar `Onde vejo solicitações?` e confirmar a orientação para o Calendário.
+- Validar em celular estreito que filtros, campos e ações não geram rolagem lateral.
+
+### Próximos passos
+
+1. Validar com os casqueadores os termos usados nos estados `Nova`, `Aceita` e `Agendada`.
+2. Avaliar notificações push para novas solicitações quando o app não estiver aberto; isso exigirá autorização do aparelho e serviço de envio.
+3. Ampliar a ajuda local conforme surgirem dúvidas reais dos usuários em campo.
+
 ## 2026-09-04 - Login persistente e troca de fazenda offline
 
 ### O que foi feito

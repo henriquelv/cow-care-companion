@@ -950,7 +950,7 @@ export interface AgendaItem {
   farm_id?: string;
   farm_name?: string;
   date: string;
-  type: "recheck" | "curative" | "preventive";
+  type: "recheck" | "curative" | "preventive" | "request";
   tag: string;
   sex: Sex;
   lote?: string;

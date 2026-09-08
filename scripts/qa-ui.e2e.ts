@@ -130,10 +130,11 @@ test("agenda da fazenda possui relatório por prazo no celular", async ({ page }
     page.getByText(/Todos os funcionários desta fazenda podem consultar/i),
   ).toBeVisible();
   await expect(page.getByText("Visitas concluídas", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /Ver relatório da agenda/i }).click();
+  await page.getByRole("button", { name: /Relatório e PDF da agenda/i }).click();
   await expect(page.getByRole("heading", { name: "Relatório de pendências" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Atrasadas" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Em dia" })).toBeVisible();
+  await expect(page.getByLabel("Situação")).toBeVisible();
+  await expect(page.getByLabel("Tipo")).toBeVisible();
+  await expect(page.getByText(/Como é classificado/i)).toBeVisible();
   await expect(page.getByRole("button", { name: /Baixar agenda em PDF/i })).toBeVisible();
   const agendaDownloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: /Baixar agenda em PDF/i }).click();
@@ -149,6 +150,37 @@ test("agenda da fazenda possui relatório por prazo no celular", async ({ page }
     path: testInfo.outputPath("relatorio-agenda-celular.png"),
     fullPage: true,
   });
+});
+
+test("funcionário encontra, pesquisa e exclui solicitação enviada errada", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "HULLSJOB", "Romano");
+  await page.getByRole("button", { name: /Solicitar atendimento/i }).click();
+  await page.getByLabel("Número do brinco").fill("55119");
+  await page.getByLabel(/Observação/).fill("Solicitação enviada por engano");
+  await page.getByRole("button", { name: /Enviar para a agenda/i }).click();
+
+  await expect(
+    page.getByRole("button", { name: /Solicitações pendentes.*1 para aceitar/i }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Solicitações pendentes/i }).click();
+  await page.getByLabel("Buscar solicitação").fill("55119");
+  await expect(page.getByText("Brinco 55119", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Aceitar para mim" }).click();
+  const today = await page.evaluate(() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  });
+  await page.getByLabel("Data do atendimento").fill(today);
+  await expect(page.getByRole("button", { name: /Iniciar atendimento ·/i })).toBeVisible();
+  await page.getByRole("button", { name: /Relatório e PDF da agenda/i }).click();
+  await page.getByLabel("Tipo").selectOption("request");
+  await expect(page.getByText("Brinco 55119", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Voltar ao calendário/i }).click();
+  await page.getByRole("button", { name: "Excluir solicitação" }).click();
+  const confirmation = page.getByRole("dialog", { name: "Excluir solicitação?" });
+  await confirmation.getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect(page.getByText("Brinco 55119", { exact: true })).toHaveCount(0);
 });
 
 test("Sandro entra na StarMilk no tablet", async ({ page }) => {
@@ -625,6 +657,9 @@ test("ajuda mantém ações acessíveis em tela baixa e bloqueia o fundo", async
   const dialog = page.getByRole("dialog", { name: "Tela inicial" });
   await expect(dialog).toBeVisible();
   await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await dialog.getByLabel("Pergunte como encontrar uma função").fill("Onde vejo solicitações?");
+  await dialog.getByRole("button", { name: "Enviar pergunta" }).click();
+  await expect(dialog.getByText(/Calendário.*Solicitações pendentes/i)).toBeVisible();
   await dialog.getByRole("button", { name: "Entendi" }).scrollIntoViewIfNeeded();
   await expect(dialog.getByRole("button", { name: "Entendi" })).toBeInViewport();
   await page.keyboard.press("Escape");

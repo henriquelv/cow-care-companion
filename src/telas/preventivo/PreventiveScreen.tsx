@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Scissors } from "lucide-react";
 import { preventiveList } from "@/dominio/casco-store";
 import { cn } from "@/dominio/utils";
+import { ListSearch } from "@/componentes/comum/ListSearch";
 
 const DIAS_FILTROS = [
   { label: "Todos", dias: null },
@@ -20,15 +21,25 @@ export function PreventiveScreen({
   onNew: (tag: string) => void;
 }) {
   const [filtroMin, setFiltroMin] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
 
   const todos = useMemo(() => preventiveList(0), []);
 
   const filtered = useMemo(() => {
-    if (filtroMin === null) return todos;
+    const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
     return todos.filter((animal) => {
-      return animal.diasSemCasqueamento < 0 || animal.diasSemCasqueamento >= filtroMin;
+      const matchesDays =
+        filtroMin === null ||
+        animal.diasSemCasqueamento < 0 ||
+        animal.diasSemCasqueamento >= filtroMin;
+      const matchesSearch =
+        !normalizedSearch ||
+        [animal.tag, animal.lote]
+          .filter(Boolean)
+          .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(normalizedSearch));
+      return matchesDays && matchesSearch;
     });
-  }, [todos, filtroMin]);
+  }, [todos, filtroMin, search]);
 
   const nunca = filtered.filter((animal) => animal.diasSemCasqueamento < 0).length;
 
@@ -83,9 +94,14 @@ export function PreventiveScreen({
         </div>
       </section>
 
-      <p className="px-1 text-xs text-muted-foreground">
-        {filtered.length} animal(is) · ordenado do mais urgente
-      </p>
+      <ListSearch
+        value={search}
+        onChange={setSearch}
+        placeholder="Buscar brinco ou lote"
+        resultLabel={`${filtered.length} de ${todos.length} animal(is)`}
+      />
+
+      <p className="px-1 text-xs text-muted-foreground">Ordenado do mais urgente</p>
 
       {filtered.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-10 text-center">

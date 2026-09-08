@@ -69,4 +69,29 @@ describe("limping request service", () => {
       "Informe o número do brinco",
     );
   });
+
+  it("permite ao autor excluir e envia a remoção para o outbox", async () => {
+    const created = await limpingRequestService.create({ tag: "4050", note: "Envio errado" });
+    await localdb.outbox.clear();
+
+    await limpingRequestService.remove(created);
+
+    expect(await limpingRequestService.list()).toEqual([]);
+    expect(await pendingOutbox("farm-a")).toEqual([
+      expect.objectContaining({
+        tableName: "limping_requests",
+        op: "delete",
+        payload: { id: created.id, farm_id: "farm-a" },
+      }),
+    ]);
+  });
+
+  it("impede outro funcionário de excluir a solicitação", async () => {
+    const created = await limpingRequestService.create({ tag: "4051" });
+    farmContextService.updateContext({ employee_id: "employee-b", employee_name: "Jeová" });
+
+    await expect(limpingRequestService.remove(created)).rejects.toThrow(
+      "Somente quem enviou a solicitação",
+    );
+  });
 });

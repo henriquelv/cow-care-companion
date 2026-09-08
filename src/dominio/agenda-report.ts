@@ -5,6 +5,7 @@ const TYPE_LABEL: Record<AgendaItem["type"], string> = {
   recheck: "Revisão",
   curative: "Curativo",
   preventive: "Preventivo",
+  request: "Solicitação",
 };
 
 export function agendaReportData(items: AgendaItem[], referenceDate: string) {

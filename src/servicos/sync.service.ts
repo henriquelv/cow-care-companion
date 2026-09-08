@@ -190,7 +190,12 @@ export const syncService = {
           });
           continue;
         }
-        if (tableName in localdb && finalPayload && typeof finalPayload === "object") {
+        if (
+          item.op !== "delete" &&
+          tableName in localdb &&
+          finalPayload &&
+          typeof finalPayload === "object"
+        ) {
           const row = finalPayload as {
             id?: string;
             farm_id?: string;

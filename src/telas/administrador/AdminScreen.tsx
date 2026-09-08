@@ -65,6 +65,7 @@ import {
 } from "@/componentes/metricas/OperationalAnalysis";
 import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
 import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features";
+import { ListSearch } from "@/componentes/comum/ListSearch";
 
 type AdminTab = "reports" | "data" | "farms" | "employees" | "devices" | "licenses" | "audit";
 
@@ -198,6 +199,7 @@ export function AdminScreen({
   const [exportingPdf, setExportingPdf] = useState(false);
   const [dataMode, setDataMode] = useState<"visits" | "animals">("visits");
   const [dataSearch, setDataSearch] = useState("");
+  const [adminListSearch, setAdminListSearch] = useState("");
   const [removingData, setRemovingData] = useState<
     { kind: "visit"; visit: Visit } | { kind: "animal"; tag: string; totalVisits: number } | null
   >(null);
@@ -265,6 +267,43 @@ export function AdminScreen({
   const blockedDeviceCount = managedDevices.length - activeDeviceCount;
   const farmEmployees = overview.employees.filter(
     (employee) => !context?.farm_id || employee.farm_ids.includes(context.farm_id),
+  );
+  const normalizedAdminSearch = adminListSearch.trim().toLocaleLowerCase("pt-BR");
+  const includesAdminSearch = (...values: Array<string | undefined | null>) =>
+    !normalizedAdminSearch ||
+    values.some((value) =>
+      String(value ?? "")
+        .toLocaleLowerCase("pt-BR")
+        .includes(normalizedAdminSearch),
+    );
+  const filteredAdminFarms = overview.farms.filter((farm) =>
+    includesAdminSearch(farm.name, farm.status),
+  );
+  const filteredAdminEmployees = overview.employees.filter((employee) =>
+    includesAdminSearch(
+      employee.name,
+      employee.login_name,
+      employee.employee_code,
+      ...employee.farm_ids.map((farmId) => farmNames.get(farmId)),
+    ),
+  );
+  const filteredAdminDevices = managedDevices.filter((device) =>
+    includesAdminSearch(
+      deviceDisplayName(device.device_name),
+      employeeNames.get(device.employee_id ?? ""),
+      farmNames.get(device.farm_id),
+      device.status,
+    ),
+  );
+  const filteredAdminLicenses = overview.licenses.filter((license) =>
+    includesAdminSearch(farmNames.get(license.farm_id), license.status),
+  );
+  const filteredAdminAudit = overview.audit.filter((entry) =>
+    includesAdminSearch(
+      ACTION_LABELS[entry.action] ?? entry.action,
+      employeeNames.get(entry.employee_id ?? ""),
+      formatDate(entry.created_at),
+    ),
   );
   const selectedReportEmployee = farmEmployees.find((employee) => employee.id === reportEmployeeId);
   const scopedEmployeeId =
@@ -696,7 +735,10 @@ export function AdminScreen({
               type="button"
               role="tab"
               aria-selected={tab === item.id}
-              onClick={() => setTab(item.id)}
+              onClick={() => {
+                setTab(item.id);
+                setAdminListSearch("");
+              }}
               className={cn(
                 "flex min-h-16 items-center gap-2 rounded-lg border px-3 text-left",
                 tab === item.id
@@ -1524,8 +1566,14 @@ export function AdminScreen({
               </div>
             </form>
           )}
-          <div className="grid gap-3 sm:grid-cols-2">
-            {overview.farms.map((farm) => {
+          <ListSearch
+            value={adminListSearch}
+            onChange={setAdminListSearch}
+            placeholder="Buscar fazenda"
+            resultLabel={`${filteredAdminFarms.length} de ${overview.farms.length} fazenda(s)`}
+          />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {filteredAdminFarms.map((farm) => {
               const employeeCount = overview.employees.filter(
                 (employee) => employee.status === "active" && employee.farm_ids.includes(farm.id),
               ).length;
@@ -1631,6 +1679,12 @@ export function AdminScreen({
               <UserPlus className="h-4 w-4" /> Novo
             </button>
           </div>
+          <ListSearch
+            value={adminListSearch}
+            onChange={setAdminListSearch}
+            placeholder="Buscar nome, login, código ou fazenda"
+            resultLabel={`${filteredAdminEmployees.length} de ${overview.employees.length} funcionário(s)`}
+          />
           {showEmployeeForm && (
             <form
               onSubmit={createEmployee}
@@ -1708,7 +1762,7 @@ export function AdminScreen({
             </form>
           )}
           <div className="divide-y divide-border border-y border-border">
-            {overview.employees.map((employee) => (
+            {filteredAdminEmployees.map((employee) => (
               <article key={employee.id} className="space-y-3 py-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-display font-black text-primary">
@@ -1873,11 +1927,17 @@ export function AdminScreen({
               só deve surgir em outro celular, outro navegador ou após apagar os dados do site.
             </p>
           </div>
+          <ListSearch
+            value={adminListSearch}
+            onChange={setAdminListSearch}
+            placeholder="Buscar aparelho, funcionário ou fazenda"
+            resultLabel={`${filteredAdminDevices.length} de ${managedDevices.length} aparelho(s)`}
+          />
           <div className="divide-y divide-border border-y border-border">
-            {managedDevices.length === 0 ? (
+            {filteredAdminDevices.length === 0 ? (
               <p className="py-6 text-sm text-muted-foreground">Nenhum aparelho ativado.</p>
             ) : (
-              managedDevices.map((device) => (
+              filteredAdminDevices.map((device) => (
                 <article key={device.id} className="flex flex-wrap items-center gap-3 py-4">
                   <Laptop className="h-6 w-6 shrink-0 text-primary" />
                   <div className="min-w-0 flex-1">
@@ -1925,8 +1985,14 @@ export function AdminScreen({
           <p className="mb-3 text-xs text-muted-foreground">
             Controle de acesso comercial por fazenda
           </p>
+          <ListSearch
+            value={adminListSearch}
+            onChange={setAdminListSearch}
+            placeholder="Buscar fazenda ou situação da licença"
+            resultLabel={`${filteredAdminLicenses.length} de ${overview.licenses.length} licença(s)`}
+          />
           <div className="divide-y divide-border border-y border-border">
-            {overview.licenses.map((license) => (
+            {filteredAdminLicenses.map((license) => (
               <article key={license.id} className="space-y-3 py-4">
                 <div className="flex flex-wrap items-center gap-3">
                   <CalendarClock className="h-6 w-6 shrink-0 text-primary" />
@@ -1954,11 +2020,17 @@ export function AdminScreen({
             Auditoria
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">Últimas 50 ações administrativas</p>
+          <ListSearch
+            value={adminListSearch}
+            onChange={setAdminListSearch}
+            placeholder="Buscar ação, funcionário ou data"
+            resultLabel={`${filteredAdminAudit.length} de ${overview.audit.length} ação(ões)`}
+          />
           <ol className="divide-y divide-border border-y border-border">
-            {overview.audit.length === 0 ? (
+            {filteredAdminAudit.length === 0 ? (
               <li className="py-6 text-sm text-muted-foreground">Nenhuma ação registrada.</li>
             ) : (
-              overview.audit.map((entry) => (
+              filteredAdminAudit.map((entry) => (
                 <li key={entry.id} className="flex gap-3 py-3">
                   <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                   <div className="min-w-0">

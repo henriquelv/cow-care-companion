@@ -31,6 +31,7 @@ interface Props {
   onOpenHistory: (tag: string) => void;
   onStartVisit: (tag: string) => void;
   onAddToCalendar: (item: AgendaItem) => void;
+  unscheduledRequestCount?: number;
 }
 
 const STATUS_FILTERS: Array<{ id: AgendaStatusFilter; label: string }> = [
@@ -46,6 +47,7 @@ const TYPE_LABEL: Record<AgendaItem["type"], string> = {
   recheck: "Revisão",
   curative: "Curativo",
   preventive: "Preventivo",
+  request: "Solicitação",
 };
 
 function formatDate(date: string) {
@@ -66,6 +68,7 @@ export function AgendaStatusReport({
   onOpenHistory,
   onStartVisit,
   onAddToCalendar,
+  unscheduledRequestCount = 0,
 }: Props) {
   const [status, setStatus] = useState<AgendaStatusFilter>("all");
   const [type, setType] = useState<AgendaTypeFilter>("all");
@@ -152,26 +155,53 @@ export function AgendaStatusReport({
         ))}
       </section>
 
+      <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-3 text-xs leading-relaxed text-muted-foreground">
+        <strong className="text-foreground">Como é classificado:</strong> a revisão entra pela data
+        escolhida no atendimento. Data vencida fica em Atrasadas; depois aparecem Hoje, Próximos 7
+        dias e Futuras. Solicitações entram nesses grupos somente depois de receberem uma data.
+        {unscheduledRequestCount > 0 ? (
+          <span className="mt-1 block font-bold text-warn-foreground">
+            {unscheduledRequestCount} solicitação(ões) ainda aguardando aceite ou agendamento.
+          </span>
+        ) : null}
+      </div>
+
       <section className="space-y-3 border-y border-border py-4">
-        <div className="grid grid-cols-3 gap-2" role="group" aria-label="Filtrar por situação">
-          {STATUS_FILTERS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setStatus(option.id)}
-              aria-pressed={status === option.id}
-              className={cn(
-                "min-h-12 rounded-lg border-2 px-2 font-display text-[11px] font-black uppercase",
-                status === option.id
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-foreground",
-              )}
+        <div className="grid grid-cols-2 gap-2">
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase text-muted-foreground">
+              Situação
+            </span>
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as AgendaStatusFilter)}
+              className="min-h-12 w-full rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
             >
-              {option.label}
-            </button>
-          ))}
+              {STATUS_FILTERS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase text-muted-foreground">
+              Tipo
+            </span>
+            <select
+              value={type}
+              onChange={(event) => setType(event.target.value as AgendaTypeFilter)}
+              className="min-h-12 w-full rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
+            >
+              <option value="all">Todos</option>
+              <option value="recheck">Revisões</option>
+              <option value="curative">Curativos</option>
+              <option value="preventive">Preventivos</option>
+              <option value="request">Solicitações</option>
+            </select>
+          </label>
         </div>
-        <div className="grid gap-2 sm:grid-cols-[1fr_14rem]">
+        <div>
           <label className="flex min-h-12 items-center gap-2 rounded-lg border-2 border-border bg-card px-3 focus-within:border-primary">
             <Search className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="sr-only">Buscar por brinco ou lote</span>
@@ -181,19 +211,6 @@ export function AgendaStatusReport({
               placeholder="Buscar brinco ou lote"
               className="min-w-0 flex-1 bg-transparent text-base outline-none"
             />
-          </label>
-          <label>
-            <span className="sr-only">Filtrar por tipo de atendimento</span>
-            <select
-              value={type}
-              onChange={(event) => setType(event.target.value as AgendaTypeFilter)}
-              className="min-h-12 w-full rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
-            >
-              <option value="all">Todos os tipos</option>
-              <option value="recheck">Revisões</option>
-              <option value="curative">Curativos</option>
-              <option value="preventive">Preventivos</option>
-            </select>
           </label>
         </div>
       </section>

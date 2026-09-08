@@ -155,6 +155,7 @@ import { billingSummaryFromVisits, formatCurrency } from "@/dominio/billing";
 import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features";
 import { limpingRequestService, type LimpingRequest } from "@/servicos/limping-request.service";
 import { AgendaStatusReport } from "@/componentes/agenda/AgendaStatusReport";
+import { ListSearch } from "@/componentes/comum/ListSearch";
 import { workSessionService, type HoofWorkSession } from "@/servicos/work-session.service";
 
 const AdminScreen = lazy(() =>
@@ -1622,6 +1623,7 @@ function EmployeeAgendaScreen({
   const [source, setSource] = useState<"remote" | "local">("local");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -1656,6 +1658,15 @@ function EmployeeAgendaScreen({
   const overdue = items.filter((item) => item.date < today);
   const dueToday = items.filter((item) => item.date === today);
   const upcoming = items.filter((item) => item.date > today);
+  const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+  const filteredItems = items.filter((item) =>
+    [item.tag, item.farm_name, item.title, item.detail, item.lote]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(normalizedSearch)),
+  );
+  const filteredOverdue = filteredItems.filter((item) => item.date < today);
+  const filteredDueToday = filteredItems.filter((item) => item.date === today);
+  const filteredUpcoming = filteredItems.filter((item) => item.date > today);
 
   function formatDate(date: string) {
     return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", {
@@ -1709,6 +1720,15 @@ function EmployeeAgendaScreen({
           </div>
         )}
 
+        {!loading && !error && items.length > 0 ? (
+          <ListSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="Buscar brinco, fazenda ou compromisso"
+            resultLabel={`${filteredItems.length} de ${items.length} compromisso(s)`}
+          />
+        ) : null}
+
         {loading ? (
           <div className="flex min-h-48 items-center justify-center gap-3 text-muted-foreground">
             <RefreshCw className="h-5 w-5 animate-spin" />
@@ -1721,20 +1741,22 @@ function EmployeeAgendaScreen({
           >
             {error}
           </div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center sm:p-10">
             <CalendarDays className="mx-auto h-9 w-9 text-primary" />
             <h2 className="mt-3 text-lg font-extrabold">Nenhum compromisso pendente</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Revisões e prazos de curativo atribuídos a você aparecerão aqui.
+              {items.length === 0
+                ? "Revisões e prazos de curativo atribuídos a você aparecerão aqui."
+                : "Nenhum compromisso corresponde à busca."}
             </p>
           </div>
         ) : (
           <div className="space-y-5">
             {[
-              ["Atrasadas", overdue],
-              ["Hoje", dueToday],
-              ["Próximas", upcoming],
+              ["Atrasadas", filteredOverdue],
+              ["Hoje", filteredDueToday],
+              ["Próximas", filteredUpcoming],
             ].map(([title, group]) => {
               const agendaGroup = group as EmployeeAgendaItem[];
               if (!agendaGroup.length) return null;
@@ -2004,6 +2026,21 @@ function TodayScreen({
   const features = tenantFeatures(farmContextService.getContext(), homeFarm.featureOverrides);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"treatment" | "recheck" | "registered" | "all">("treatment");
+  const [openRequestCount, setOpenRequestCount] = useState(0);
+
+  useEffect(() => {
+    if (!features.limpingRequests) return;
+    void limpingRequestService
+      .list()
+      .then((requests) =>
+        setOpenRequestCount(
+          requests.filter(
+            (request) => request.status !== "attended" && request.status !== "refused",
+          ).length,
+        ),
+      )
+      .catch(() => setOpenRequestCount(0));
+  }, [features.limpingRequests]);
 
   const visits = useMemo(
     () =>
@@ -2228,7 +2265,7 @@ function TodayScreen({
               Agenda clínica
             </span>
             <span className="block text-xs text-muted-foreground">
-              Próximas revisões e liberações de curativo
+              Revisões, curativos, preventivos e solicitações
             </span>
           </span>
           <ChevronRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
@@ -2276,6 +2313,24 @@ function TodayScreen({
               </span>
             </span>
           </span>
+          {features.limpingRequests ? (
+            <span className="flex items-start gap-3 sm:col-span-2">
+              <ClipboardList
+                className="mt-0.5 h-5 w-5 shrink-0 text-warn-foreground"
+                aria-hidden="true"
+              />
+              <span>
+                <span className="block text-sm font-bold">
+                  {openRequestCount === 0
+                    ? "Nenhuma solicitação pendente"
+                    : `${openRequestCount} solicitação(ões) aguardando atendimento`}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Toque aqui e abra Solicitações pendentes
+                </span>
+              </span>
+            </span>
+          ) : null}
         </span>
         <span className="mt-3 block border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
           Revisão conta animais com retorno agendado. Liberação conta cascos tratados. O mesmo
@@ -3442,6 +3497,11 @@ function CalendarScreen({
   const [agendaScope, setAgendaScope] = useState("team");
   const [showAgendaReport, setShowAgendaReport] = useState(false);
   const [limpingRequests, setLimpingRequests] = useState<LimpingRequest[]>([]);
+  const [showRequests, setShowRequests] = useState(false);
+  const [requestSearch, setRequestSearch] = useState("");
+  const [requestToDelete, setRequestToDelete] = useState<LimpingRequest | null>(null);
+  const [requestActionLoading, setRequestActionLoading] = useState(false);
+  const [requestError, setRequestError] = useState("");
   const farmFeatures = tenantFeatures(employeeContext, loadFarm().featureOverrides);
   const agendaEmployees = useMemo(() => {
     const employees = new Map<string, string>();
@@ -3548,6 +3608,7 @@ function CalendarScreen({
   const visibleRequests = limpingRequests.filter((request) => {
     if (!employeeContext?.is_admin) {
       return (
+        request.status === "new" ||
         request.created_by === employeeContext?.employee_id ||
         request.assigned_employee_id === employeeContext?.employee_id
       );
@@ -3559,6 +3620,36 @@ function CalendarScreen({
   const openRequests = visibleRequests.filter(
     (request) => request.status !== "attended" && request.status !== "refused",
   );
+  const normalizedRequestSearch = requestSearch.trim().toLocaleLowerCase("pt-BR");
+  const searchedRequests = openRequests.filter((request) =>
+    [request.tag, request.note, request.created_by_name]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(normalizedRequestSearch)),
+  );
+  const scheduledRequestItems: AgendaItem[] = openRequests.flatMap((request) =>
+    request.status === "scheduled" && request.scheduled_date
+      ? [
+          {
+            id: `request_${request.id}`,
+            date: request.scheduled_date,
+            type: "request" as const,
+            tag: request.tag,
+            sex: "vaca" as const,
+            lote: undefined,
+            feet: [],
+            title: "Solicitação de atendimento",
+            detail: request.note || `Solicitado por ${request.created_by_name}`,
+            overdue: request.scheduled_date < today,
+            employee_id: request.assigned_employee_id,
+            employee_name: request.created_by_name,
+          },
+        ]
+      : [],
+  );
+  const agendaReportItems = [...agendaItems, ...scheduledRequestItems];
+  const unscheduledRequestCount = openRequests.filter(
+    (request) => request.status !== "scheduled" || !request.scheduled_date,
+  ).length;
   const selectedRequests = openRequests.filter(
     (request) => request.status === "scheduled" && request.scheduled_date === selectedDate,
   );
@@ -3582,6 +3673,24 @@ function CalendarScreen({
     void syncService.syncAll();
   }
 
+  async function deleteRequest() {
+    if (!requestToDelete) return;
+    setRequestActionLoading(true);
+    setRequestError("");
+    try {
+      await limpingRequestService.remove(requestToDelete);
+      setLimpingRequests((current) => current.filter((item) => item.id !== requestToDelete.id));
+      setRequestToDelete(null);
+      void syncService.syncAll();
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "Não foi possível excluir a solicitação.",
+      );
+    } finally {
+      setRequestActionLoading(false);
+    }
+  }
+
   function openFirstPending() {
     if (!firstPending) return;
     const date = firstPending[0];
@@ -3593,7 +3702,7 @@ function CalendarScreen({
   if (showAgendaReport) {
     return (
       <AgendaStatusReport
-        items={agendaItems}
+        items={agendaReportItems}
         today={today}
         farmName={employeeContext?.farm_name ?? "Fazenda"}
         scopeLabel={agendaScopeLabel}
@@ -3601,6 +3710,7 @@ function CalendarScreen({
         onOpenHistory={onOpenHistory}
         onStartVisit={onNew}
         onAddToCalendar={(item) => downloadAgendaEvent(item)}
+        unscheduledRequestCount={unscheduledRequestCount}
       />
     );
   }
@@ -3651,114 +3761,162 @@ function CalendarScreen({
         </label>
       ) : null}
 
+      {farmFeatures.limpingRequests ? (
+        <section className="overflow-hidden rounded-xl border-2 border-warn/45 bg-card">
+          <button
+            type="button"
+            onClick={() => setShowRequests((visible) => !visible)}
+            className="flex min-h-16 w-full items-center gap-3 px-4 text-left"
+            aria-expanded={showRequests}
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-warn/15 text-warn-foreground">
+              <ClipboardList className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-display text-sm font-black uppercase">
+                Solicitações pendentes
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {openRequests.length === 0
+                  ? "Nenhuma solicitação aguardando"
+                  : `${openRequests.length} para aceitar, agendar ou atender`}
+              </span>
+            </span>
+            <ChevronRight
+              className={cn("h-5 w-5 shrink-0 transition-transform", showRequests && "rotate-90")}
+              aria-hidden="true"
+            />
+          </button>
+          {showRequests ? (
+            <div className="space-y-3 border-t border-border bg-warn/5 p-3">
+              <ListSearch
+                value={requestSearch}
+                onChange={setRequestSearch}
+                placeholder="Buscar brinco, nome ou observação"
+                label="Buscar solicitação"
+                resultLabel={`${searchedRequests.length} de ${openRequests.length} solicitação(ões)`}
+              />
+              {searchedRequests.length === 0 ? (
+                <p className="rounded-lg bg-card px-3 py-5 text-center text-sm text-muted-foreground">
+                  Nenhuma solicitação encontrada.
+                </p>
+              ) : null}
+              {searchedRequests.map((request) => (
+                <article key={request.id} className="rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-display font-black uppercase">Brinco {request.tag}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Solicitado por {request.created_by_name}
+                      </p>
+                      {request.note ? <p className="mt-1 text-sm">{request.note}</p> : null}
+                    </div>
+                    <span className="rounded-full bg-surface px-2 py-1 text-[10px] font-black uppercase">
+                      {request.status === "new"
+                        ? "Nova"
+                        : request.status === "accepted"
+                          ? "Aceita"
+                          : "Agendada"}
+                    </span>
+                  </div>
+                  <LimpingRequestPhoto request={request} />
+                  {request.status === "new" ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void updateRequest(request, {
+                            status: "accepted",
+                            assigned_employee_id: employeeContext?.employee_id,
+                          })
+                        }
+                        className="min-h-11 rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
+                      >
+                        Aceitar para mim
+                      </button>
+                      {employeeContext?.is_admin ||
+                      request.created_by === employeeContext?.employee_id ? (
+                        <button
+                          type="button"
+                          onClick={() => void updateRequest(request, { status: "refused" })}
+                          className="min-h-11 rounded-lg bg-surface px-3 text-xs font-black uppercase text-danger"
+                        >
+                          Recusar
+                        </button>
+                      ) : (
+                        <span className="flex min-h-11 items-center justify-center rounded-lg bg-surface px-3 text-center text-[10px] font-bold text-muted-foreground">
+                          Aceite para incluir na sua agenda
+                        </span>
+                      )}
+                    </div>
+                  ) : request.status === "accepted" ? (
+                    <label className="mt-3 block">
+                      <span className="text-[10px] font-black uppercase text-muted-foreground">
+                        Data do atendimento
+                      </span>
+                      <input
+                        type="date"
+                        min={today}
+                        onChange={(event) =>
+                          event.target.value &&
+                          void updateRequest(request, {
+                            status: "scheduled",
+                            scheduled_date: event.target.value,
+                          })
+                        }
+                        className="mt-1 min-h-11 w-full rounded-lg border border-border bg-surface px-3"
+                      />
+                    </label>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onNew(request.tag)}
+                      className="mt-3 min-h-11 w-full rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
+                    >
+                      Iniciar atendimento ·{" "}
+                      {request.scheduled_date
+                        ? new Date(`${request.scheduled_date}T12:00:00`).toLocaleDateString("pt-BR")
+                        : "data pendente"}
+                    </button>
+                  )}
+                  {employeeContext?.is_admin ||
+                  request.created_by === employeeContext?.employee_id ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRequestError("");
+                        setRequestToDelete(request);
+                      }}
+                      className="mt-2 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-danger/25 bg-danger/5 px-3 text-xs font-black uppercase text-danger"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" /> Excluir solicitação
+                    </button>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <button
         type="button"
         onClick={() => setShowAgendaReport(true)}
-        className="flex min-h-16 w-full items-center gap-3 rounded-xl border-2 border-primary bg-card px-4 text-left text-primary"
+        className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-border bg-card px-4 text-left text-primary"
       >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <FileText className="h-5 w-5" aria-hidden="true" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block font-display text-sm font-black uppercase">
-            Ver relatório da agenda
+            Relatório e PDF da agenda
           </span>
           <span className="block text-xs text-muted-foreground">
-            Atrasadas, hoje, próximas e futuras
+            Entenda atrasadas, hoje, próximas e futuras
           </span>
         </span>
         <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
       </button>
-
-      {farmFeatures.limpingRequests && openRequests.length > 0 ? (
-        <section className="rounded-xl border-2 border-warn/45 bg-warn/5 p-4">
-          <h2 className="font-display text-sm font-black uppercase">
-            Solicitações de animais mancando · {openRequests.length}
-          </h2>
-          <div className="mt-3 space-y-2">
-            {openRequests.map((request) => (
-              <article key={request.id} className="rounded-lg border border-border bg-card p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-display font-black uppercase">Brinco {request.tag}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Solicitado por {request.created_by_name}
-                    </p>
-                    {request.note ? <p className="mt-1 text-sm">{request.note}</p> : null}
-                  </div>
-                  <span className="rounded-full bg-surface px-2 py-1 text-[10px] font-black uppercase">
-                    {request.status === "new"
-                      ? "Nova"
-                      : request.status === "accepted"
-                        ? "Aceita"
-                        : "Agendada"}
-                  </span>
-                </div>
-                <LimpingRequestPhoto request={request} />
-                {request.status === "new" ? (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void updateRequest(request, {
-                          status: "accepted",
-                          assigned_employee_id: employeeContext?.employee_id,
-                        })
-                      }
-                      className="min-h-11 rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
-                    >
-                      Aceitar para mim
-                    </button>
-                    {employeeContext?.is_admin ||
-                    request.created_by === employeeContext?.employee_id ? (
-                      <button
-                        type="button"
-                        onClick={() => void updateRequest(request, { status: "refused" })}
-                        className="min-h-11 rounded-lg bg-surface px-3 text-xs font-black uppercase text-danger"
-                      >
-                        Recusar
-                      </button>
-                    ) : (
-                      <span className="flex min-h-11 items-center justify-center rounded-lg bg-surface px-3 text-center text-[10px] font-bold text-muted-foreground">
-                        Aceite para incluir na sua agenda
-                      </span>
-                    )}
-                  </div>
-                ) : request.status === "accepted" ? (
-                  <label className="mt-3 block">
-                    <span className="text-[10px] font-black uppercase text-muted-foreground">
-                      Data do atendimento
-                    </span>
-                    <input
-                      type="date"
-                      min={today}
-                      onChange={(event) =>
-                        event.target.value &&
-                        void updateRequest(request, {
-                          status: "scheduled",
-                          scheduled_date: event.target.value,
-                        })
-                      }
-                      className="mt-1 min-h-11 w-full rounded-lg border border-border bg-surface px-3"
-                    />
-                  </label>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onNew(request.tag)}
-                    className="mt-3 min-h-11 w-full rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
-                  >
-                    Iniciar atendimento ·{" "}
-                    {request.scheduled_date
-                      ? new Date(`${request.scheduled_date}T12:00:00`).toLocaleDateString("pt-BR")
-                      : "data pendente"}
-                  </button>
-                )}
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {/* Resumo pendências */}
       {pendingTotal > 0 && (
@@ -4043,6 +4201,61 @@ function CalendarScreen({
           </p>
         </div>
       )}
+
+      {requestToDelete ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-request-title"
+          onClick={() => !requestActionLoading && setRequestToDelete(null)}
+        >
+          <section
+            className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 text-danger">
+              <Trash2 className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <h2
+              id="delete-request-title"
+              className="mt-4 font-display text-lg font-black uppercase"
+            >
+              Excluir solicitação?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Brinco {requestToDelete.tag}. A solicitação será retirada da agenda de todos os
+              funcionários desta fazenda.
+            </p>
+            {requestError ? (
+              <p
+                role="alert"
+                className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                {requestError}
+              </p>
+            ) : null}
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={requestActionLoading}
+                onClick={() => setRequestToDelete(null)}
+                className="min-h-12 rounded-xl border-2 border-border bg-surface font-display text-sm font-black uppercase"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={requestActionLoading}
+                onClick={() => void deleteRequest()}
+                className="min-h-12 rounded-xl bg-danger px-3 font-display text-sm font-black uppercase text-danger-foreground disabled:opacity-50"
+              >
+                {requestActionLoading ? "Excluindo" : "Excluir"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -6728,6 +6941,7 @@ function ConfigScreen({
   const [newAnimalTag, setNewAnimalTag] = useState("");
   const [newAnimalLote, setNewAnimalLote] = useState("");
   const [newAnimalSex, setNewAnimalSex] = useState<Sex>("vaca");
+  const [registrySearch, setRegistrySearch] = useState("");
   const [diseases, setDiseases] = useState<DiseaseDefinition[]>(() => diseaseCatalog(farm));
   const [hoofAreas, setHoofAreas] = useState<HoofAreaDefinition[]>(farm.hoofAreas);
   const [newAreaName, setNewAreaName] = useState("");
@@ -6765,6 +6979,19 @@ function ConfigScreen({
         .includes(diseaseSearch.trim().toLocaleLowerCase("pt-BR")),
   );
   const inactiveDiseases = diseases.filter((disease) => !disease.active);
+  const normalizedRegistrySearch = registrySearch.trim().toLocaleLowerCase("pt-BR");
+  const visibleLotes = lotes
+    .map((lote, index) => ({ lote, index }))
+    .filter(({ lote }) => lote.toLocaleLowerCase("pt-BR").includes(normalizedRegistrySearch));
+  const visibleAnimals = animais
+    .map((animal, index) => ({ animal, index }))
+    .filter(({ animal }) =>
+      [animal.tag, animal.lote, animal.sex]
+        .filter(Boolean)
+        .some((value) =>
+          String(value).toLocaleLowerCase("pt-BR").includes(normalizedRegistrySearch),
+        ),
+    );
   const lastBackupAt = loadLastBackupAt();
 
   function addLote() {
@@ -7108,13 +7335,19 @@ function ConfigScreen({
           {/* Sub-tabs */}
           <div className="flex gap-1.5 rounded-2xl bg-card p-1.5 stamp">
             <button
-              onClick={() => setCadastrosTab("lotes")}
+              onClick={() => {
+                setCadastrosTab("lotes");
+                setRegistrySearch("");
+              }}
               className={tabBtnCls(cadastrosTab === "lotes")}
             >
               Lotes
             </button>
             <button
-              onClick={() => setCadastrosTab("animais")}
+              onClick={() => {
+                setCadastrosTab("animais");
+                setRegistrySearch("");
+              }}
               className={tabBtnCls(cadastrosTab === "animais")}
             >
               Animais
@@ -7125,11 +7358,17 @@ function ConfigScreen({
           {cadastrosTab === "lotes" && (
             <section className="space-y-3 rounded-2xl bg-card p-4 stamp">
               <p className="text-xs font-bold uppercase text-muted-foreground">Lotes da fazenda</p>
+              <ListSearch
+                value={registrySearch}
+                onChange={setRegistrySearch}
+                placeholder="Buscar lote"
+                resultLabel={`${visibleLotes.length} de ${lotes.length} lote(s)`}
+              />
               {lotes.length === 0 && (
                 <p className="text-sm text-muted-foreground">Nenhum lote cadastrado.</p>
               )}
               <div className="divide-y divide-border rounded-xl border-2 border-border bg-surface px-3">
-                {lotes.map((lt, index) => (
+                {visibleLotes.map(({ lote: lt, index }) => (
                   <div key={index} className="flex items-center gap-2 py-2">
                     <input
                       value={lt}
@@ -7188,6 +7427,12 @@ function ConfigScreen({
                   {animais.length} animal(is) cadastrado(s)
                 </p>
               </div>
+              <ListSearch
+                value={registrySearch}
+                onChange={setRegistrySearch}
+                placeholder="Buscar brinco, lote ou tipo"
+                resultLabel={`${visibleAnimals.length} de ${animais.length} animal(is)`}
+              />
               {animais.length === 0 && (
                 <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-8 text-center">
                   <ClipboardList className="mx-auto h-9 w-9 text-primary" aria-hidden="true" />
@@ -7200,7 +7445,7 @@ function ConfigScreen({
                 </div>
               )}
               <ul className="space-y-2">
-                {animais.map((a, index) => (
+                {visibleAnimals.map(({ animal: a, index }) => (
                   <li
                     key={index}
                     className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-xl border-2 border-border bg-card p-3"

@@ -82,4 +82,26 @@ export const limpingRequestService = {
   ) {
     return persist({ ...request, ...patch, updated_at: new Date().toISOString() });
   },
+
+  async remove(request: LimpingRequest) {
+    const context = contextOrThrow();
+    if (request.farm_id !== context.farm_id) {
+      throw new Error("Esta solicitação pertence a outra fazenda.");
+    }
+    if (!context.is_admin && request.created_by !== context.employee_id) {
+      throw new Error("Somente quem enviou a solicitação ou um gerente pode excluí-la.");
+    }
+    await localdb.transaction("rw", localdb.limping_requests, localdb.outbox, async () => {
+      await localdb.limping_requests.delete(request.id);
+      await enqueueOutboxMany([
+        {
+          farm_id: request.farm_id,
+          tableName: "limping_requests",
+          op: "delete",
+          payload: { id: request.id, farm_id: request.farm_id },
+        },
+      ]);
+    });
+    if (request.photo_media_id) await localdb.hoof_media_blobs.delete(request.photo_media_id);
+  },
 };

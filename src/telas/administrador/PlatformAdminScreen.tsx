@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/dominio/utils";
+import { ListSearch } from "@/componentes/comum/ListSearch";
 import {
   platformAdminService,
   type PlatformClient,
@@ -81,6 +82,7 @@ export function PlatformAdminScreen({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [listSearch, setListSearch] = useState("");
 
   const selectedClient = useMemo(
     () =>
@@ -96,6 +98,27 @@ export function PlatformAdminScreen({
   const employees = useMemo(
     () => overview?.employees.filter((employee) => employee.client_id === selectedClient?.id) ?? [],
     [overview, selectedClient?.id],
+  );
+  const normalizedSearch = listSearch.trim().toLocaleLowerCase("pt-BR");
+  const filteredClients =
+    overview?.clients.filter((client) =>
+      [client.name, client.activation_code, client.status].some((value) =>
+        value.toLocaleLowerCase("pt-BR").includes(normalizedSearch),
+      ),
+    ) ?? [];
+  const filteredFarms = farms.filter((farm) =>
+    [farm.name, farm.status].some((value) =>
+      value.toLocaleLowerCase("pt-BR").includes(normalizedSearch),
+    ),
+  );
+  const filteredEmployees = employees.filter((employee) =>
+    [
+      employee.name,
+      employee.login_name,
+      employee.employee_code,
+      employee.status,
+      farmName(employee.farm_id),
+    ].some((value) => value.toLocaleLowerCase("pt-BR").includes(normalizedSearch)),
   );
 
   async function refresh() {
@@ -280,6 +303,13 @@ export function PlatformAdminScreen({
           </p>
         ) : null}
 
+        <ListSearch
+          value={listSearch}
+          onChange={setListSearch}
+          placeholder="Buscar empresa, fazenda ou funcionário"
+          resultLabel="A busca filtra todas as listas desta administração"
+        />
+
         <section className="rounded-2xl border-2 border-border bg-card p-4">
           <div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 text-primary" />
@@ -290,7 +320,7 @@ export function PlatformAdminScreen({
             isolados entre elas.
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {overview?.clients.map((client) => (
+            {filteredClients.map((client) => (
               <button
                 key={client.id}
                 type="button"
@@ -321,7 +351,7 @@ export function PlatformAdminScreen({
                 </h2>
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {farms.map((farm) => (
+                {filteredFarms.map((farm) => (
                   <article
                     key={farm.id}
                     className="rounded-xl border-2 border-border bg-surface p-3"
@@ -428,7 +458,7 @@ export function PlatformAdminScreen({
                 necessário.
               </p>
               <div className="mt-4 grid gap-2">
-                {employees.map((employee) => (
+                {filteredEmployees.map((employee) => (
                   <article
                     key={employee.id}
                     className="rounded-xl border-2 border-border bg-surface p-3"
