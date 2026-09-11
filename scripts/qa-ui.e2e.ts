@@ -303,6 +303,7 @@ test("administrador escolhe entre relatório próprio e de toda a equipe", async
   const teamScope = page.getByRole("button", { name: /Toda a equipe/i });
   const mineScope = page.getByRole("button", { name: /Só o meu/i });
   await expect(teamScope).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Baixar este relatório em PDF" })).toBeVisible();
   await expect(page.getByText(/inclui todo o histórico ativo da fazenda/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Baixar PDF completo da fazenda" })).toBeVisible();
 

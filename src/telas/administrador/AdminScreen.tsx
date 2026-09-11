@@ -195,7 +195,7 @@ export function AdminScreen({
   const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
   const [reportLote, setReportLote] = useState("all");
   const [reportType, setReportType] = useState<"client" | "internal">("client");
-  const [includeValues, setIncludeValues] = useState(false);
+  const [includeValues, setIncludeValues] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [dataMode, setDataMode] = useState<"visits" | "animals">("visits");
   const [dataSearch, setDataSearch] = useState("");
@@ -942,6 +942,29 @@ export function AdminScreen({
                 </select>
               </label>
             </div>
+          </section>
+
+          <section className="rounded-lg border-2 border-primary/30 bg-primary/5 p-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <h3 className="font-display text-sm font-black uppercase">PDF deste relatório</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Usa os filtros acima e inclui o resumo, os valores permitidos e cada vaca, visita e
+                casco.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void exportAdminPdf("filtered")}
+              disabled={exportingPdf || reportVisits.length === 0}
+              className="mt-3 flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50 sm:mt-0 sm:w-auto"
+            >
+              {exportingPdf ? (
+                <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="h-5 w-5" aria-hidden="true" />
+              )}
+              Baixar este relatório em PDF
+            </button>
           </section>
 
           <section aria-labelledby="production-title">

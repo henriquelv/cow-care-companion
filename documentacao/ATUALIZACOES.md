@@ -8,6 +8,29 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-10 - PDF do relatório de produção em posição visível
+
+### O que foi feito
+
+- Adicionado o botão `Baixar este relatório em PDF` imediatamente depois dos filtros do painel de desempenho.
+- O botão exporta exatamente o funcionário ou equipe, período, tipo de atendimento e lote selecionados na tela.
+- O PDF filtrado mantém resumo operacional, composição, gravidade, valores permitidos e o detalhamento de cada vaca, visita e dos quatro cascos.
+- Para contas com acesso financeiro, a inclusão dos valores no PDF agora começa ativada; o administrador ainda pode desativá-la no bloco de exportação.
+- Mantida mais abaixo a opção de PDF completo, que reúne todo o histórico da fazenda sem obedecer aos filtros do período.
+- Atualizado o cache offline para `v40` e o registrador do Service Worker para `v24`.
+
+### Como validar
+
+- Abrir `Administração > Relatórios`, escolher funcionário ou equipe, datas, tipo e lote.
+- Confirmar que `Baixar este relatório em PDF` aparece logo abaixo dos filtros.
+- Baixar o arquivo e conferir o resumo, valores, animais, visitas e as colunas FE, FD, TE e TD.
+- Alterar os filtros e confirmar que o novo PDF contém somente os registros selecionados.
+
+### Próximos passos
+
+1. Validar com o cliente se o formato detalhado deve ser o padrão definitivo ou se o compacto deve ser lembrado por aparelho.
+2. Avaliar a inclusão do logotipo da fazenda no cabeçalho do PDF quando cada cliente enviar sua arte oficial.
+
 ## 2026-09-08 - Solicitações, pesquisas, agenda e ajuda simplificadas
 
 ### O que foi feito
