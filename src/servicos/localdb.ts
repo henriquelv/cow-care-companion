@@ -123,10 +123,12 @@ export async function enqueueOutboxMany(items: Omit<OutboxItem, "created_at" | "
   );
 }
 
-export async function pendingOutbox(farmId: string, limit = 100) {
-  return localdb.outbox
-    .where("[farm_id+status]")
-    .equals([farmId, "pending"])
-    .sortBy("created_at")
-    .then((rows) => rows.slice(0, limit));
+export async function pendingOutbox(farmId: string, limit = 1000) {
+  const [pending, failed] = await Promise.all([
+    localdb.outbox.where("[farm_id+status]").equals([farmId, "pending"]).toArray(),
+    localdb.outbox.where("[farm_id+status]").equals([farmId, "error"]).toArray(),
+  ]);
+  return [...pending, ...failed]
+    .sort((left, right) => left.created_at.localeCompare(right.created_at))
+    .slice(0, limit);
 }

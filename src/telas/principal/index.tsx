@@ -42,6 +42,7 @@ import {
   ShieldCheck,
   ShieldOff,
   RefreshCw,
+  LoaderCircle,
   LogOut,
   CalendarPlus,
   Bandage,
@@ -348,15 +349,15 @@ export function Index() {
     requestNewVisit(tag);
   }
 
-  async function runSync() {
+  async function runSync(): Promise<boolean> {
     if (!isSupabaseConfigured) {
       setSyncInfo("ok");
-      return;
+      return true;
     }
-    if (!farmContextService.isActivated()) return;
+    if (!farmContextService.isActivated()) return false;
     if (!navigator.onLine) {
       setSyncInfo("offline");
-      return;
+      return false;
     }
     setSyncInfo("syncing");
     try {
@@ -366,7 +367,7 @@ export function Index() {
         adminService.clear();
         farmContextService.clearContext();
         setActivated(false);
-        return;
+        return false;
       }
       if (!result.ok && result.message?.includes("Licença")) {
         setAccessBlocked(result.message);
@@ -377,9 +378,11 @@ export function Index() {
       if (!result.ok && result.message) showToast(result.message);
       if (result.ok) setFarm(loadFarm());
       refresh();
+      return result.ok;
     } catch (error) {
       setSyncInfo("error");
       showToast(error instanceof Error ? error.message : "Falha ao sincronizar.");
+      return false;
     }
   }
 
@@ -603,40 +606,43 @@ export function Index() {
             initialTag={screen.tag ?? ""}
             correctionOfId={screen.correctionOf}
             farm={farm}
-            onSave={(v) => {
+            onSave={async (v) => {
               const completedVisit: Visit = {
                 ...v,
                 status: "active",
                 completedAt: Date.now(),
                 work_session_id: appFeatures.workSessions ? activeWorkSession?.id : undefined,
               };
-              const { animalCreated } = addVisit(completedVisit);
-              void limpingRequestService
-                .list()
-                .then((requests) => {
-                  const linked = requests.find(
-                    (request) =>
-                      request.tag.trim().toLocaleLowerCase("pt-BR") ===
-                        completedVisit.tag.trim().toLocaleLowerCase("pt-BR") &&
-                      request.status !== "attended" &&
-                      request.status !== "refused",
-                  );
-                  return linked
-                    ? limpingRequestService.update(linked, {
-                        status: "attended",
-                        visit_id: completedVisit.id,
-                      })
-                    : undefined;
-                })
-                .catch(() => undefined);
-              void runSync();
+              const { animalCreated, persistenceReady } = addVisit(completedVisit);
+              await persistenceReady;
+              try {
+                const requests = await limpingRequestService.list();
+                const linked = requests.find(
+                  (request) =>
+                    request.tag.trim().toLocaleLowerCase("pt-BR") ===
+                      completedVisit.tag.trim().toLocaleLowerCase("pt-BR") &&
+                    request.status !== "attended" &&
+                    request.status !== "refused",
+                );
+                if (linked) {
+                  await limpingRequestService.update(linked, {
+                    status: "attended",
+                    visit_id: completedVisit.id,
+                  });
+                }
+              } catch {
+                // A visita continua íntegra mesmo se não houver solicitação vinculada.
+              }
+              const synchronized = await runSync();
               refresh();
               showToast(
-                animalCreated
-                  ? `Visita salva. Animal ${v.tag.trim()} cadastrado automaticamente.`
-                  : completedVisit.preventivo
-                    ? `Preventivo salvo. Próximo em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.`
-                    : "Visita registrada com sucesso!",
+                !synchronized
+                  ? "Visita salva neste aparelho. A sincronização continua pendente."
+                  : animalCreated
+                    ? `Visita salva. Animal ${v.tag.trim()} cadastrado automaticamente.`
+                    : completedVisit.preventivo
+                      ? `Preventivo salvo. Próximo em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.`
+                      : "Visita registrada com sucesso!",
               );
               goToday();
             }}
@@ -4274,7 +4280,7 @@ function RegisterScreen({
   initialTag: string;
   correctionOfId?: string;
   farm: FarmConfig;
-  onSave: (v: Visit) => void;
+  onSave: (v: Visit) => void | Promise<void>;
   onCancel: () => void;
   onOpenHistory: (tag: string) => void;
 }) {
@@ -4309,6 +4315,8 @@ function RegisterScreen({
     };
   });
   const [step, setStep] = useState<RegStep>("worker");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [badFeet, setBadFeet] = useState<FootKey[]>(
     () => correctionSource?.feet.filter((foot) => !foot.ok).map((foot) => foot.foot) ?? [],
   );
@@ -4542,6 +4550,20 @@ function RegisterScreen({
               ? "Revisão e foto"
               : "Conferência final";
   const validationIssues = validateVisitClinicalData(visit);
+
+  async function saveCompletedVisit() {
+    if (validationIssues.length > 0 || saving) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await onSave(visit);
+    } catch {
+      setSaveError(
+        "A visita está salva neste aparelho, mas a fila de sincronização não ficou pronta. Toque em salvar novamente.",
+      );
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-4 pb-6">
@@ -5761,18 +5783,31 @@ function RegisterScreen({
               </button>
             </div>
           )}
+          {saveError ? (
+            <p
+              role="alert"
+              className="rounded-lg bg-danger/10 p-3 text-sm font-semibold text-danger"
+            >
+              {saveError}
+            </p>
+          ) : null}
           <button
             type="button"
-            onClick={() => validationIssues.length === 0 && onSave(visit)}
-            disabled={validationIssues.length > 0}
+            onClick={() => void saveCompletedVisit()}
+            disabled={validationIssues.length > 0 || saving}
             className={cn(
               "tap-lg flex w-full items-center justify-center gap-3 rounded-2xl py-6 font-display text-2xl font-black uppercase transition-transform active:scale-[0.98]",
-              validationIssues.length === 0
+              validationIssues.length === 0 && !saving
                 ? "bg-good text-good-foreground stamp"
                 : "bg-muted text-muted-foreground",
             )}
           >
-            <Save className="h-7 w-7" /> Salvar visita concluída
+            {saving ? (
+              <LoaderCircle className="h-7 w-7 animate-spin" aria-hidden="true" />
+            ) : (
+              <Save className="h-7 w-7" aria-hidden="true" />
+            )}
+            {saving ? "Salvando e sincronizando" : "Salvar visita concluída"}
           </button>
           <p className="text-center text-xs leading-relaxed text-muted-foreground">
             A visita só entra no histórico e nas métricas depois deste botão.
@@ -6034,8 +6069,13 @@ function HistoryScreen({
   onCorrect: (visit: Visit) => void;
 }) {
   const items = visitsByTag(tag);
-  const hasRecheck = items.some((v) => v.feet.some((f) => f.recheck));
-  const hasResolved = items.some((v) => v.feet.some((f) => f.resolved));
+  const latestVisit = items[0];
+  const hasRecheck =
+    latestVisit?.feet.some(
+      (foot) => foot.recheck && !foot.resolved && !foot.data_liberacao && foot.recheckDate,
+    ) ?? false;
+  const hasResolved =
+    latestVisit?.feet.some((foot) => foot.resolved || Boolean(foot.data_liberacao)) ?? false;
 
   return (
     <div className="space-y-4">
@@ -6057,7 +6097,7 @@ function HistoryScreen({
         <div className="mt-2 flex flex-wrap gap-2">
           {hasRecheck && (
             <span className="rounded-lg bg-warn/10 px-3 py-1.5 text-sm font-semibold text-warn-foreground">
-              ⏰ Revisão marcada
+              ⏰ Revisão pendente
             </span>
           )}
           {hasResolved && (

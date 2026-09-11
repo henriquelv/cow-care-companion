@@ -1433,7 +1433,7 @@ export function addVisit(v: Visit) {
   if (v.status !== "active" || !v.completedAt || !Number.isFinite(v.completedAt)) {
     throw new Error("A visita só pode ser salva depois da confirmação final.");
   }
-  const all = loadVisits();
+  const all = loadVisits().filter((visit) => visit.id !== v.id);
   const normalizedFeet = v.feet.map((foot) => {
     const normalized = {
       ...foot,
@@ -1513,15 +1513,16 @@ export function addVisit(v: Visit) {
   const registeredAnimal = animalRegistration.payload;
   const syncPayloads = createVisitSyncPayloads(v);
   const updatedAt = new Date().toISOString();
+  const persistenceTasks: Promise<unknown>[] = [];
   if (v.farm_id) {
-    void putLocalRecord("hoof_visits", {
-      id: v.id,
-      farm_id: v.farm_id,
-      data: syncPayloads.visit,
-      updated_at: updatedAt,
-      synced: false,
-    });
-    void Promise.all([
+    persistenceTasks.push(
+      putLocalRecord("hoof_visits", {
+        id: v.id,
+        farm_id: v.farm_id,
+        data: syncPayloads.visit,
+        updated_at: updatedAt,
+        synced: false,
+      }),
       ...syncPayloads.feet.map((payload) =>
         putLocalRecord("hoof_feet", {
           id: payload.id,
@@ -1551,51 +1552,56 @@ export function addVisit(v: Visit) {
             }),
           ]
         : []),
-    ]);
+    );
   }
   if (v.farm_id) {
-    void enqueueOutboxMany([
-      ...(registeredAnimal
-        ? [
-            {
-              farm_id: v.farm_id,
-              tableName: "animals",
-              op: "upsert" as const,
-              payload: registeredAnimal,
-            },
-          ]
-        : []),
-      {
-        farm_id: v.farm_id,
-        tableName: "hoof_visits",
-        op: "upsert",
-        payload: syncPayloads.visit,
-      },
-      ...syncPayloads.feet.map((payload) => ({
-        farm_id: v.farm_id!,
-        tableName: "hoof_feet",
-        op: "upsert" as const,
-        payload,
-      })),
-      ...syncPayloads.media.map((payload) => ({
-        farm_id: v.farm_id!,
-        tableName: "hoof_media",
-        op: "upsert" as const,
-        payload,
-      })),
-      ...(syncPayloads.correction
-        ? [
-            {
-              farm_id: v.farm_id,
-              tableName: "hoof_corrections",
-              op: "insert" as const,
-              payload: syncPayloads.correction,
-            },
-          ]
-        : []),
-    ]);
+    persistenceTasks.push(
+      enqueueOutboxMany([
+        ...(registeredAnimal
+          ? [
+              {
+                farm_id: v.farm_id,
+                tableName: "animals",
+                op: "upsert" as const,
+                payload: registeredAnimal,
+              },
+            ]
+          : []),
+        {
+          farm_id: v.farm_id,
+          tableName: "hoof_visits",
+          op: "upsert",
+          payload: syncPayloads.visit,
+        },
+        ...syncPayloads.feet.map((payload) => ({
+          farm_id: v.farm_id!,
+          tableName: "hoof_feet",
+          op: "upsert" as const,
+          payload,
+        })),
+        ...syncPayloads.media.map((payload) => ({
+          farm_id: v.farm_id!,
+          tableName: "hoof_media",
+          op: "upsert" as const,
+          payload,
+        })),
+        ...(syncPayloads.correction
+          ? [
+              {
+                farm_id: v.farm_id,
+                tableName: "hoof_corrections",
+                op: "insert" as const,
+                payload: syncPayloads.correction,
+              },
+            ]
+          : []),
+      ]),
+    );
   }
-  return { animalCreated };
+  return {
+    animalCreated,
+    persistenceReady: Promise.all(persistenceTasks).then(() => undefined),
+  };
 }
 
 function readStoredFarm(): FarmConfig {

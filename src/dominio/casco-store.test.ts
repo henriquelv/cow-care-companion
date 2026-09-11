@@ -385,7 +385,7 @@ describe("casco-store domain rules", () => {
     const second = addVisit(
       visit({ id: "second-visit", farm_id: "farm-1", tag: "ab-123", sex: "vaca" }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.all([first.persistenceReady, second.persistenceReady]);
 
     expect(first.animalCreated).toBe(true);
     expect(second.animalCreated).toBe(false);
@@ -578,6 +578,48 @@ describe("casco-store domain rules", () => {
     const map = rechecksByDate();
     expect(map.get("2026-05-30")?.[0]?.tag).toBe("100");
     expect(map.has("2026-05-25")).toBe(false);
+  });
+
+  it("dá baixa na revisão antiga quando a visita mais recente libera o casco", () => {
+    saveVisits([
+      visit({
+        id: "baixa-revisao",
+        tag: "1874",
+        date: "2026-06-01",
+        createdAt: new Date("2026-06-01T10:00:00-03:00").getTime(),
+        preventivo: true,
+        feet: [
+          foot({
+            foot: "TE",
+            ok: false,
+            resolved: true,
+            data_liberacao: "2026-06-01",
+            recheck: false,
+          }),
+        ],
+      }),
+      visit({
+        id: "revisao-atrasada",
+        tag: "1874",
+        date: "2026-05-01",
+        createdAt: new Date("2026-05-01T10:00:00-03:00").getTime(),
+        feet: [
+          foot({
+            foot: "TE",
+            ok: false,
+            diseases: [{ code: "HI", severity: 2 }],
+            recheck: true,
+            recheckDate: "2026-05-06",
+          }),
+        ],
+      }),
+    ]);
+
+    expect(rechecksByDate().size).toBe(0);
+    expect(allAnimals().find((animal) => animal.tag === "1874")).toMatchObject({
+      hasRecheck: false,
+      hasProblem: false,
+    });
   });
 
   it("agenda todas as revisões recorrentes sem duplicar o prazo do curativo", () => {
@@ -907,6 +949,29 @@ describe("casco-store domain rules", () => {
     const starMilkQueue = await pendingOutbox("farm-starmilk");
     expect(starMilkQueue).toHaveLength(1);
     expect(starMilkQueue[0].farm_id).toBe("farm-starmilk");
+  });
+
+  it("tenta novamente itens que falharam em uma sincronização anterior", async () => {
+    vi.useRealTimers();
+    await localdb.open();
+    await localdb.outbox.clear();
+    await enqueueOutboxMany([
+      {
+        farm_id: "farm-1",
+        tableName: "hoof_media",
+        op: "upsert",
+        payload: { id: "photo-1", farm_id: "farm-1" },
+      },
+    ]);
+    const queued = await pendingOutbox("farm-1");
+    await localdb.outbox.update(queued[0].id!, {
+      status: "error",
+      errorMessage: "Falha temporária no envio da foto.",
+    });
+
+    expect(await pendingOutbox("farm-1")).toEqual([
+      expect.objectContaining({ id: queued[0].id, status: "error" }),
+    ]);
   });
 
   it("envia remoções de lotes e animais para os outros aparelhos", async () => {

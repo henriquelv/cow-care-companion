@@ -8,6 +8,41 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-11 - Correção da baixa de revisões e recuperação da fila de sincronização
+
+### Diagnóstico confirmado
+
+- O PDF `FazendaVitoria11.09.2026.pdf` contém uma visita finalizada por Patrick para o brinco `1874`, em 11/09/2026 às 13:55.
+- Nessa visita, o casco traseiro esquerdo foi liberado, o animal passou para preventivo e o próximo preventivo ficou para 11/03/2027.
+- No Supabase, o brinco ainda possuía somente a visita anterior de Jeová, de 05/08/2026, com revisão vencida em 10/08/2026.
+- Portanto, a baixa foi salva no aparelho e apareceu no PDF local, mas não chegou ao servidor. Outro aparelho continuou exibindo corretamente os dados antigos que ainda estavam no banco.
+
+### O que foi feito
+
+- O salvamento agora espera a gravação completa da visita, dos quatro cascos e do outbox antes de iniciar a sincronização.
+- O botão final fica bloqueado e mostra `Salvando e sincronizando`, evitando toque duplo e visitas duplicadas.
+- A fila passou de 100 para até 1.000 itens por tentativa, atendendo dias com muitas vacas, cascos e fotos.
+- Itens que falharam voltam a ser tentados nas sincronizações seguintes; antes, o status de erro os deixava parados definitivamente.
+- Falha em uma foto ou em um item não interrompe mais o envio das visitas seguintes.
+- O app não informa mais `Tudo salvo` enquanto ainda existirem itens pendentes ou com erro.
+- O selo geral do histórico agora considera somente a visita mais recente. Uma revisão antiga não aparece mais como pendente depois de uma liberação posterior.
+- O salvamento repetido do mesmo identificador substitui a tentativa anterior em vez de duplicar a visita.
+- Adicionados testes para a baixa de revisão antiga, espera da persistência local e nova tentativa de itens com erro.
+- Atualizado o cache offline para `v41` e o registrador do Service Worker para `v25`.
+
+### Como validar e recuperar os dados do dia 11/09
+
+- No mesmo celular usado por Patrick, abrir o HullsApp com internet sem limpar dados, cache ou armazenamento do aplicativo.
+- Fechar e abrir o app uma vez para receber a versão nova e tocar no botão de sincronização.
+- Aguardar `Tudo salvo`. Se aparecer um número de pendências, tocar novamente; uma foto com problema não impedirá as demais visitas.
+- Em outro aparelho, sincronizar e abrir o histórico do brinco `1874`. A visita de 11/09 deve aparecer, a revisão de 10/08 deve sair da agenda e o próximo preventivo deve ficar em 11/03/2027.
+- Conferir também os demais atendimentos do PDF do dia, pois a comparação revelou outros registros locais ainda não enviados.
+
+### Próximos passos
+
+1. Depois da sincronização do aparelho de Patrick, comparar novamente a quantidade de atendimentos do PDF com o Supabase.
+2. Não desinstalar o PWA nem limpar os dados desse aparelho antes da confirmação, pois ele contém a cópia necessária para recuperação.
+
 ## 2026-09-10 - PDF do relatório de produção em posição visível
 
 ### O que foi feito
