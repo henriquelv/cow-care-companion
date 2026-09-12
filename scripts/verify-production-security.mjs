@@ -28,17 +28,22 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function authenticate(company, login, pin, deviceId, expectedAdmin) {
-  const result = await request("rpc/authenticate_hoof_employee", {
-    method: "POST",
-    deviceId,
-    body: { p_activation_code: company, p_login: login, p_password: pin },
-  });
-  assert(result?.session_token, `${company}: sessão não emitida.`);
-  assert(
-    result?.employee?.is_admin === expectedAdmin,
-    `${login}: permissão administrativa incorreta.`,
+async function authenticate(company, login, pin, deviceId, expectedAdmin, platform = false) {
+  const result = await request(
+    platform ? "rpc/authenticate_hoof_platform_employee" : "rpc/authenticate_hoof_employee",
+    {
+      method: "POST",
+      deviceId,
+      body: { p_activation_code: company, p_login: login, p_password: pin },
+    },
   );
+  assert(result?.session_token, `${company}: sessão não emitida.`);
+  if (typeof expectedAdmin === "boolean") {
+    assert(
+      result?.employee?.is_admin === expectedAdmin,
+      `${login}: permissão administrativa incorreta.`,
+    );
+  }
   assert(result?.farms?.length > 0, `${login}: nenhuma fazenda permitida.`);
   return result;
 }
@@ -50,8 +55,9 @@ async function verifyTenant({
   deviceId,
   expectedFarmName,
   expectedFinancial,
+  platform = false,
 }) {
-  const access = await authenticate(company, login, pin, deviceId, true);
+  const access = await authenticate(company, login, pin, deviceId, true, platform);
   const farm = access.farms.find((candidate) => candidate.name === expectedFarmName);
   assert(farm, `${company}: fazenda ${expectedFarmName} não encontrada.`);
   assert(farm.max_devices == null, `${company}: a fazenda voltou a limitar aparelhos.`);
@@ -63,17 +69,20 @@ async function verifyTenant({
     deviceId,
     body: {},
   });
-  assert(
-    permissions?.can_view_financial === expectedFinancial,
-    `${company}: permissão financeira incorreta.`,
-  );
+  const financialPermission = platform
+    ? access.employee?.can_view_financial === true
+    : permissions?.can_view_financial === true;
+  assert(financialPermission === expectedFinancial, `${company}: permissão financeira incorreta.`);
 
-  const activation = await request("rpc/activate_hoof_device", {
-    method: "POST",
-    session: access.session_token,
-    deviceId,
-    body: { p_farm_id: farm.id, p_device_name: "Auditoria de produção" },
-  });
+  const activation = await request(
+    platform ? "rpc/activate_hoof_platform_device" : "rpc/activate_hoof_device",
+    {
+      method: "POST",
+      session: access.session_token,
+      deviceId,
+      body: { p_farm_id: farm.id, p_device_name: "Auditoria de produção" },
+    },
+  );
   assert(activation?.ok === true, `${company}: aparelho não ativado.`);
   assert(
     activation?.license_expires_at == null,
@@ -144,6 +153,7 @@ async function verifyTenant({
     access,
     farm,
     overview,
+    managerToken: manager.manager_token,
     clinicalRules: diseases.length,
     activeVisits: activeVisits.length,
     registeredAnimals: registeredAnimals.length,
@@ -166,6 +176,7 @@ async function main() {
     "A criação de fazenda aceitou uma chamada sem sessão administrativa.",
   );
 
+  const platformPin = process.env.QA_PLATFORM_PIN ?? "1234";
   const starMilk = await verifyTenant({
     company: "STARMILK",
     login: "Sandro",
@@ -176,25 +187,38 @@ async function main() {
   });
   const hullsjob = await verifyTenant({
     company: "HULLSJOB",
-    login: "Romano",
-    pin: process.env.QA_HULLSJOB_PIN ?? "1234",
+    login: "000",
+    pin: platformPin,
     deviceId: "qa-production-hullsjob",
     expectedFarmName: "Fazenda Vitória",
     expectedFinancial: true,
+    platform: true,
   });
+  const platformOverview = await request("rpc/hoof_platform_overview", {
+    method: "POST",
+    session: hullsjob.access.session_token,
+    deviceId: "qa-production-hullsjob",
+    body: { p_manager_token: hullsjob.managerToken },
+  });
+  assert(platformOverview?.ok === true, "Conta mestra: painel de clientes não carregou.");
+  assert(
+    platformOverview.clients?.some((client) => client.activation_code === "HULLSJOB") &&
+      platformOverview.clients?.some((client) => client.activation_code === "STARMILK"),
+    "Conta mestra: empresas operacionais ausentes no painel.",
+  );
   const jeova = await authenticate(
     "HULLSJOB",
     "Jeová",
     process.env.QA_HULLSJOB_PIN ?? "1234",
     "qa-production-hullsjob-jeova",
-    true,
+    undefined,
   );
   const patrick = await authenticate(
     "HULLSJOB",
     "Patrick",
     process.env.QA_HULLSJOB_PIN ?? "1234",
     "qa-production-hullsjob-patrick",
-    false,
+    undefined,
   );
   const farmEmployees = await authenticate(
     "HULLSJOB",
@@ -257,6 +281,11 @@ async function main() {
           clinical_rules: hullsjob.clinicalRules,
           active_visits: hullsjob.activeVisits,
           registered_animals: hullsjob.registeredAnimals,
+        },
+        platform_panel: {
+          clients: platformOverview.clients?.length ?? 0,
+          farms: platformOverview.farms?.length ?? 0,
+          employees: platformOverview.employees?.length ?? 0,
         },
         cross_tenant_rows: crossFarmRows.length,
       },
