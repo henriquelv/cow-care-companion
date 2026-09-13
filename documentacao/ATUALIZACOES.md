@@ -2803,3 +2803,28 @@ Critério de sucesso:
 - Configurar backup externo automático diário do banco e executar uma restauração de teste documentada.
 - Configurar monitoramento externo do link da Vercel e do Supabase com alerta de indisponibilidade ou pausa do plano gratuito.
 - Revisar mensalmente a Central de saúde pela conta `000` e tratar qualquer fila offline ou alerta de integridade antes do fechamento dos relatórios.
+
+# 2026-09-13 - Monitoramento automático de produção
+
+## O que foi feito
+
+- Criado um monitor externo no GitHub Actions para conferir a produção a cada 30 minutos e também sob demanda.
+- A verificação da Vercel exige resposta HTTP 200 e confirma que o HTML entregue contém a raiz real do aplicativo.
+- A verificação do Supabase executa um RPC público real no projeto gratuito `poajhjvdbdzhzccytmka`, detectando indisponibilidade, pausa ou falha do banco e da API REST.
+- A chave pública do Supabase foi cadastrada em `GitHub Secrets` e não foi adicionada ao código ou ao histórico do repositório.
+- Quando qualquer serviço falhar, o monitor abre uma ocorrência `Produção indisponível: verificar Vercel e Supabase`, aplica a etiqueta `production-monitor` e atribui o alerta ao proprietário do repositório.
+- Falhas repetidas reutilizam a ocorrência aberta para não criar alertas duplicados.
+- Quando Vercel e Supabase voltarem, o monitor comenta o horário da recuperação e encerra automaticamente a ocorrência.
+- O fluxo usa permissões mínimas: leitura do repositório e escrita de ocorrências, sem chave administrativa ou acesso de alteração ao banco.
+
+## Como validar
+
+- No GitHub, abrir `Actions > Monitoramento de produção` e executar `Run workflow`.
+- Conferir no resumo da execução os resultados separados de Vercel e Supabase e seus códigos HTTP.
+- Com os dois serviços disponíveis, a execução deve ficar verde e não deve abrir nenhuma ocorrência.
+- Em uma indisponibilidade real, acompanhar a ocorrência pela aba `Issues` do repositório; ela será encerrada automaticamente após a recuperação.
+
+## Próximos passos
+
+- Confirmar que as notificações de `Issues` e `Actions` do GitHub estão habilitadas na conta `henriquelv` para receber o alerta fora do repositório.
+- Configurar o backup externo automático diário do Supabase e executar uma restauração de teste documentada.

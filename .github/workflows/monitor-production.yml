@@ -1,0 +1,157 @@
+name: Monitoramento de produção
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-health-monitor
+  cancel-in-progress: true
+
+jobs:
+  health-check:
+    name: Verificar Vercel e Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      APP_URL: https://gestao-de-cascos.vercel.app
+      SUPABASE_URL: https://poajhjvdbdzhzccytmka.supabase.co
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - name: Conferir aplicação e banco
+        id: health
+        shell: bash
+        run: |
+          set +e
+
+          app_http="$(curl --location --silent --show-error \
+            --connect-timeout 10 --max-time 30 --retry 2 \
+            --output /tmp/app.html --write-out '%{http_code}' \
+            "$APP_URL/")"
+          app_curl_exit=$?
+          if [[ $app_curl_exit -eq 0 && "$app_http" == "200" ]] \
+            && grep --quiet 'id="root"' /tmp/app.html; then
+            app_ok=true
+          else
+            app_ok=false
+          fi
+
+          supabase_http="$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 30 --retry 2 \
+            --request POST \
+            --header "apikey: $SUPABASE_ANON_KEY" \
+            --header 'Content-Type: application/json' \
+            --data '{"p_activation_code":"HULLSJOB"}' \
+            --output /tmp/supabase.json --write-out '%{http_code}' \
+            "$SUPABASE_URL/rest/v1/rpc/resolve_hoof_client")"
+          supabase_curl_exit=$?
+          if [[ $supabase_curl_exit -eq 0 && "$supabase_http" == "200" ]] \
+            && jq --exit-status '.status == "active" and (.id | type == "string")' \
+              /tmp/supabase.json >/dev/null 2>&1; then
+            supabase_ok=true
+          else
+            supabase_ok=false
+          fi
+
+          if [[ "$app_ok" == "true" && "$supabase_ok" == "true" ]]; then
+            healthy=true
+          else
+            healthy=false
+          fi
+
+          {
+            echo "healthy=$healthy"
+            echo "app_ok=$app_ok"
+            echo "app_http=${app_http:-000}"
+            echo "supabase_ok=$supabase_ok"
+            echo "supabase_http=${supabase_http:-000}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Monitoramento de produção"
+            echo
+            echo "| Serviço | Resultado | HTTP |"
+            echo "| --- | --- | --- |"
+            echo "| Vercel | $app_ok | ${app_http:-000} |"
+            echo "| Supabase | $supabase_ok | ${supabase_http:-000} |"
+            echo
+            echo "Verificação: $(date --utc '+%Y-%m-%d %H:%M:%S UTC')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Abrir alerta de indisponibilidade
+        if: steps.health.outputs.healthy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_OK: ${{ steps.health.outputs.app_ok }}
+          APP_HTTP: ${{ steps.health.outputs.app_http }}
+          SUPABASE_OK: ${{ steps.health.outputs.supabase_ok }}
+          SUPABASE_HTTP: ${{ steps.health.outputs.supabase_http }}
+        shell: bash
+        run: |
+          gh label create production-monitor \
+            --repo "$GITHUB_REPOSITORY" \
+            --color D73A4A \
+            --description "Alerta automático de indisponibilidade em produção" \
+            --force
+
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label production-monitor \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [[ -z "$issue_number" ]]; then
+            cat > /tmp/production-alert.md <<EOF
+          O monitor automático detectou uma falha no Gestão de Cascos.
+
+          | Serviço | Disponível | HTTP |
+          | --- | --- | --- |
+          | Vercel | $APP_OK | $APP_HTTP |
+          | Supabase | $SUPABASE_OK | $SUPABASE_HTTP |
+
+          Detectado em: $(date --utc '+%Y-%m-%d %H:%M:%S UTC')
+
+          O monitor repetirá a verificação a cada 30 minutos e fechará esta ocorrência quando os dois serviços voltarem.
+          EOF
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Produção indisponível: verificar Vercel e Supabase" \
+              --body-file /tmp/production-alert.md \
+              --label production-monitor \
+              --assignee "$GITHUB_REPOSITORY_OWNER"
+          fi
+
+      - name: Registrar recuperação
+        if: steps.health.outputs.healthy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label production-monitor \
+            --json number \
+            --jq '.[0].number // empty' 2>/dev/null || true)"
+
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "Serviços normalizados em $(date --utc '+%Y-%m-%d %H:%M:%S UTC'). Vercel e Supabase responderam corretamente."
+            gh issue close "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --reason completed
+          fi
+
+      - name: Marcar execução com falha
+        if: steps.health.outputs.healthy != 'true'
+        shell: bash
+        run: |
+          echo "Vercel ou Supabase está indisponível. A ocorrência foi registrada no GitHub."
+          exit 1
