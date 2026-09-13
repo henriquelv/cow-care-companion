@@ -8,6 +8,20 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Como validar.
 - Próximos passos.
 
+## 2026-09-13 - Identificação dos cascos e consistência da leitura
+
+- A leitura sincronizada agora usa a identificação explícita do casco na linha do banco, com compatibilidade para o payload antigo. Não assume mais frente esquerdo quando a identificação está ausente ou inválida.
+- Seleção com nomes por extenso e referência explícita aos lados do animal. O mapa e o seletor de doenças reiniciam seu estado visual ao trocar de casco.
+- Histórico tolera registros incompletos sem travar nem transformar ausência de informação em diagnóstico normal.
+- Paginação da sincronização ordenada por ID para manter a ordem estável entre páginas.
+- Testes de regressão para payload com identificação divergente e PDF com cascos recebidos fora de ordem.
+- Validação: 103 testes unitários, 23 cenários mobile/tablet (1 opcional ignorado), TypeScript, lint e build aprovados. O cenário de múltiplas doenças também verifica os códigos efetivamente salvos por casco e passou novamente com essa checagem.
+
+### Como validar e próximos passos
+
+- Registrar doenças diferentes em frente esquerdo e trás direito; conferir resumo, histórico após sincronização e PDF.
+- Conferir com o funcionário brinco, fazenda e cascos do caso relatado. A causa específica da reclamação ainda depende desse exemplo; não foram trocados lados nos registros existentes.
+
 ## 2026-09-12 - Varredura geral de produção, servidor e PDFs
 
 ### O que foi verificado e corrigido

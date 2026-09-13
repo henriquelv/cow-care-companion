@@ -512,6 +512,20 @@ test("preventivo vira atendimento clínico com várias doenças", async ({ page 
   ).toHaveCount(0);
   await page.getByRole("button", { name: /Salvar visita concluída/i }).click();
   await expect(page.getByText(/Animal 9101 cadastrado automaticamente/i)).toBeVisible();
+  const savedFeet = await page.evaluate(() => {
+    const visits = Object.entries(localStorage)
+      .filter(([key]) => key.startsWith("casco.visits.v3"))
+      .flatMap(([, value]) => JSON.parse(value));
+    return visits.find((visit) => visit.tag === "9101")?.feet;
+  });
+  expect(
+    savedFeet.find((foot) => foot.foot === "FE").diseases.map((disease) => disease.code),
+  ).toEqual(expect.arrayContaining(["DD", "SU"]));
+  expect(
+    savedFeet.find((foot) => foot.foot === "TD").diseases.map((disease) => disease.code),
+  ).toEqual(["LOCOMOTION"]);
+  expect(savedFeet.find((foot) => foot.foot === "FD").ok).toBe(true);
+  expect(savedFeet.find((foot) => foot.foot === "TE").ok).toBe(true);
 });
 
 test("Dermatite Digital sugere 7 dias e só agenda após confirmação", async ({ page }) => {

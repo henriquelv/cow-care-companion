@@ -1282,6 +1282,7 @@ describe("casco-store domain rules", () => {
         sex: "vaca",
         date: "2026-05-22",
         created_at: "2026-05-22T12:00:00.000Z",
+        payload: visit({ id: "visit-remote", tag: "900" }),
       },
       updated_at: "2026-05-22T12:00:00.000Z",
       synced: true,
@@ -1294,6 +1295,7 @@ describe("casco-store domain rules", () => {
         farm_id: "farm-1",
         visit_id: "visit-remote",
         foot: "FE",
+        payload: foot({ foot: "TD", ok: false, diseases: [{ code: "DD", severity: 2 }] }),
         ok: false,
         diseases: [{ code: "DD", severity: 2, zones: [6] }],
       },
@@ -1316,6 +1318,11 @@ describe("casco-store domain rules", () => {
 
     const visits = await hydrateVisitsFromIndexedDb();
     expect(visits[0].tag).toBe("900");
+    expect(visits[0].feet).toHaveLength(4);
+    expect(visits[0].feet.find((entry) => entry.foot === "FE")?.diseases).toEqual([
+      { code: "DD", severity: 2 },
+    ]);
+    expect(visits[0].feet.find((entry) => entry.foot === "TD")?.ok).toBe(true);
     expect(visits[0].feet[0].photo).toBe("media:media-remote");
     expect(visits[0].feet[0].photoStoragePath).toContain("media-remote.jpg");
   });

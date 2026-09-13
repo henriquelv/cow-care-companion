@@ -64,6 +64,7 @@ import {
 } from "lucide-react";
 import {
   FOOT_LABEL,
+  FOOT_FULL_LABEL,
   TREATMENTS,
   SELECTABLE_TREATMENTS,
   TACO_ACTIONS,
@@ -4535,7 +4536,7 @@ function RegisterScreen({
           : 2 + footIdx * 3 + (step === "disease" ? 0 : step === "treatment" ? 1 : 2);
   const progress = Math.round((stepIdx / Math.max(totalSteps - 1, 2)) * 100);
   const footStepLabel = currentFoot
-    ? FOOT_LABEL[currentFoot] + " · Pé " + (footIdx + 1) + " de " + badFeet.length
+    ? FOOT_FULL_LABEL[currentFoot] + " · Pé " + (footIdx + 1) + " de " + badFeet.length
     : "";
   const currentStepLabel =
     step === "worker"
@@ -4900,6 +4901,7 @@ function RegisterScreen({
           </button>
           {features.hoofMap ? (
             <HoofMapPicker
+              key={currentFoot}
               areas={farm.hoofAreas}
               catalog={displayedDiseaseCatalog}
               selectedZones={currentFootEntry.zones ?? []}
@@ -4912,6 +4914,7 @@ function RegisterScreen({
             />
           ) : (
             <DiseasePicker
+              key={currentFoot}
               catalog={displayedDiseaseCatalog}
               diseases={currentFootEntry.diseases ?? []}
               onChange={(d) => {
@@ -5849,6 +5852,9 @@ function FeetStep({
         <p className="text-sm text-muted-foreground">
           Observe os quatro cascos antes de escolher uma opção.
         </p>
+        <p className="mt-2 text-sm font-bold text-primary">
+          Esquerdo e direito são os lados do animal.
+        </p>
       </div>
       <button
         type="button"
@@ -5896,6 +5902,7 @@ function FeetStep({
               key={k}
               type="button"
               onClick={() => toggle(k)}
+              aria-pressed={sel}
               className={cn(
                 "tap-lg flex flex-col items-center justify-center gap-2 rounded-lg border-2 py-8 transition-[color,background-color,border-color,transform]",
                 sel ? "border-danger bg-danger/10" : "border-border bg-card",
@@ -5915,7 +5922,7 @@ function FeetStep({
                   sel ? "text-danger" : "text-muted-foreground",
                 )}
               >
-                {FOOT_LABEL[k]}
+                {FOOT_FULL_LABEL[k]}
               </p>
               {sel && (
                 <span className="rounded-full bg-danger px-3 py-0.5 text-xs font-black uppercase text-white">
@@ -6205,7 +6212,14 @@ function HistoryScreen({
                   {/* Mini mapa 4 pés */}
                   <div className="mt-3 grid grid-cols-2 gap-1.5">
                     {(["FE", "FD", "TE", "TD"] as FootKey[]).map((k) => {
-                      const f = v.feet.find((x) => x.foot === k)!;
+                      const f = v.feet.find((x) => x.foot === k);
+                      if (!f)
+                        return (
+                          <div key={k} className="rounded-lg bg-muted px-3 py-2 text-xs">
+                            <strong>{FOOT_FULL_LABEL[k]}</strong>
+                            <p>Sem informação neste registro</p>
+                          </div>
+                        );
                       const ws = footWorstSeverity(f);
                       const topDisease = f.diseases
                         ?.filter((d) => d.severity > 0)

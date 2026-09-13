@@ -281,6 +281,17 @@ export const FOOT_LABEL: Record<FootKey, string> = {
   TD: "Trás Dir.",
 };
 
+export const FOOT_FULL_LABEL: Record<FootKey, string> = {
+  FE: "Frente esquerdo",
+  FD: "Frente direito",
+  TE: "Trás esquerdo",
+  TD: "Trás direito",
+};
+
+export function isFootKey(value: unknown): value is FootKey {
+  return value === "FE" || value === "FD" || value === "TE" || value === "TD";
+}
+
 export const LESIONS: DiseaseDefinition[] = [
   {
     code: "SH",
@@ -1268,8 +1279,10 @@ export async function hydrateVisitsFromIndexedDb() {
       numero_revisoes?: number;
     };
     if (!data.visit_id) continue;
+    const footKey = data.foot ?? data.payload?.foot;
+    if (!isFootKey(footKey)) continue;
     const foot: FootEntry = {
-      foot: data.payload?.foot ?? data.foot ?? "FE",
+      foot: footKey,
       ok: data.payload?.ok ?? data.ok ?? true,
       zones: data.payload?.zones ?? data.zones ?? [],
       diseases: (data.payload?.diseases ?? data.diseases ?? []).map((d) => ({

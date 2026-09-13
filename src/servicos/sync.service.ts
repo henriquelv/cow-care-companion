@@ -46,6 +46,7 @@ async function fetchAllFarmRows(
       .from(tableName)
       .select("*")
       .eq("farm_id", farmId)
+      .order("id", { ascending: true })
       .range(from, to);
     if (error) throw error;
     return (data ?? []) as SyncRemoteRow[];

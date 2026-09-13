@@ -30,6 +30,20 @@ function visit(overrides: Partial<Visit>): Visit {
 }
 
 describe("visit reports", () => {
+  it("mantém cada lesão no casco correto mesmo com a lista fora de ordem", () => {
+    const cells = visitFootReportCells(
+      visit({
+        feet: [
+          { foot: "TD", ok: false, diseases: [{ code: "SU", severity: 3 }] },
+          { foot: "FD", ok: true },
+          { foot: "TE", ok: true },
+          { foot: "FE", ok: false, diseases: [{ code: "DD", severity: 1 }] },
+        ],
+      }),
+    );
+    expect(cells.map((cell) => cell.foot)).toEqual(["FE", "FD", "TE", "TD"]);
+    expect(cells.map((cell) => cell.severity)).toEqual([1, 0, 0, 3]);
+  });
   const visits = [
     visit({ id: "normal", tag: "100", preventivo: true }),
     visit({
