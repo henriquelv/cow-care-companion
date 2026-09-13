@@ -50,7 +50,9 @@ export interface VisitReportFilters {
   employeeId?: string;
   employeeName?: string;
   lote?: string;
+  tag?: string;
   status?: VisitReportStatus;
+  statuses?: VisitReportStatus[];
 }
 
 export interface VisitReportMetrics {
@@ -148,7 +150,34 @@ function hasRecheck(visit: Visit) {
   return visit.feet.some((foot) => foot.recheck && !foot.resolved && !foot.data_liberacao);
 }
 
+function visitMatchesReportStatus(visit: Visit, status: VisitReportStatus) {
+  switch (status) {
+    case "normal":
+      return !hasProblem(visit) && !visit.preventivo;
+    case "preventive":
+      return visit.preventivo === true && !hasProblem(visit);
+    case "problem":
+      return hasProblem(visit);
+    case "light":
+      return footsWorstSeverity(visit.feet) === 1;
+    case "moderate":
+      return footsWorstSeverity(visit.feet) === 2;
+    case "severe":
+      return footsWorstSeverity(visit.feet) === 3;
+    case "recheck":
+      return hasRecheck(visit);
+    case "taco":
+      return visitHasTaco(visit);
+    default:
+      return true;
+  }
+}
+
 export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilters) {
+  const selectedStatuses = (filters.statuses ?? (filters.status ? [filters.status] : [])).filter(
+    (status) => status !== "all",
+  );
+  const tagSearch = filters.tag?.trim().toLocaleLowerCase("pt-BR") ?? "";
   return visits
     .filter(visitIsFinalized)
     .filter((visit) => !filters.farmId || !visit.farm_id || visit.farm_id === filters.farmId)
@@ -160,28 +189,12 @@ export function filterVisitsForReport(visits: Visit[], filters: VisitReportFilte
     .filter((visit) => !filters.dateFrom || visit.date >= filters.dateFrom)
     .filter((visit) => !filters.dateTo || visit.date <= filters.dateTo)
     .filter((visit) => !filters.lote || visit.lote === filters.lote)
-    .filter((visit) => {
-      switch (filters.status ?? "all") {
-        case "normal":
-          return !hasProblem(visit) && !visit.preventivo;
-        case "preventive":
-          return visit.preventivo === true && !hasProblem(visit);
-        case "problem":
-          return hasProblem(visit);
-        case "light":
-          return footsWorstSeverity(visit.feet) === 1;
-        case "moderate":
-          return footsWorstSeverity(visit.feet) === 2;
-        case "severe":
-          return footsWorstSeverity(visit.feet) === 3;
-        case "recheck":
-          return hasRecheck(visit);
-        case "taco":
-          return visitHasTaco(visit);
-        default:
-          return true;
-      }
-    })
+    .filter((visit) => !tagSearch || visit.tag.toLocaleLowerCase("pt-BR").includes(tagSearch))
+    .filter(
+      (visit) =>
+        selectedStatuses.length === 0 ||
+        selectedStatuses.some((status) => visitMatchesReportStatus(visit, status)),
+    )
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -501,9 +514,17 @@ function reportStatusLabel(status?: VisitReportStatus) {
     moderate: "Problema moderado (G2)",
     severe: "Problema grave (G3)",
     recheck: "Com revisão marcada",
-    taco: "Com taco",
+    taco: "Com ação de taco",
   };
   return labels[status ?? "all"];
+}
+
+function reportStatusesLabel(filters?: VisitReportFilters) {
+  const statuses = (filters?.statuses ?? (filters?.status ? [filters.status] : [])).filter(
+    (status) => status !== "all",
+  );
+  if (statuses.length === 0) return reportStatusLabel("all");
+  return statuses.map((status) => reportStatusLabel(status)).join(" + ");
 }
 
 export async function exportVisitsPdf(input: {
@@ -597,8 +618,9 @@ export async function exportVisitsPdf(input: {
   const period = `${formatDate(input.filters?.dateFrom)} a ${formatDate(input.filters?.dateTo)}`;
   const filterDescription = [
     `Período: ${period}`,
-    `Tipo: ${reportStatusLabel(input.filters?.status)}`,
+    `Tipos: ${reportStatusesLabel(input.filters)}`,
     input.filters?.lote ? `Lote: ${input.filters.lote}` : "Todos os lotes",
+    input.filters?.tag ? `Brinco contém: ${input.filters.tag}` : "Todos os brincos",
   ].join("  |  ");
 
   if (input.reportType === "internal") {

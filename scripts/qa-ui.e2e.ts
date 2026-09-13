@@ -240,8 +240,8 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
   await expect(page.getByRole("button", { name: /Meu saldo produzido no mês/i })).toHaveCount(0);
-  await expect(page.getByText("Este é o seu relatório individual")).toBeVisible();
-  await expect(page.getByText("Incluir valores no PDF")).toHaveCount(0);
+  await expect(page.getByText(/Relatório individual de Sandro/i)).toBeVisible();
+  await expect(page.getByText("Incluir valores financeiros no PDF")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Abrir relatório da equipe" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Comparativo mensal" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Detalhes do trabalho" })).toBeVisible();
@@ -249,9 +249,21 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await expect(page.getByText(/casco\(s\) com doença ou ação de taco/i)).toBeVisible();
   await page.getByRole("tab", { name: "Animais" }).click();
   await expect(page.getByText(/Brinco 100/i)).toBeVisible();
+  await page.getByLabel("Buscar brinco").fill("100");
+  const problemCategory = page.getByRole("button", { name: "Com problema", exact: true });
+  const tacoCategory = page.getByRole("button", { name: "Ação de taco", exact: true });
+  await problemCategory.click();
+  await tacoCategory.click();
+  await expect(problemCategory).toHaveAttribute("aria-pressed", "true");
+  await expect(tacoCategory).toHaveAttribute("aria-pressed", "true");
+
+  await page.screenshot({
+    path: testInfo.outputPath("gerador-relatorio-tablet.png"),
+    fullPage: true,
+  });
 
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Exportar PDF" }).click();
+  await page.getByRole("button", { name: /Baixar PDF com estes filtros/i }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
   await download.saveAs(testInfo.outputPath("relatorio-funcionario.pdf"));
@@ -269,12 +281,16 @@ test("Hullsjob gera relatório interno compacto com valores opcionais", async ({
   await page.getByRole("button", { name: /Todos os cascos estão normais/i }).click();
   await page.getByRole("button", { name: /Salvar visita/i }).click();
   await page.getByRole("button", { name: "Meu trabalho e segurança" }).click();
-  await expect(page.getByText("Incluir valores no PDF")).toBeVisible();
-  await page.getByRole("button", { name: "Interno compacto" }).click();
-  await page.getByText("Incluir valores no PDF").locator("..").getByRole("checkbox").check();
+  await expect(page.getByText("Incluir valores financeiros no PDF")).toBeVisible();
+  await page.getByRole("button", { name: /Compacto.*Mais visitas por página/i }).click();
+  await page
+    .getByText("Incluir valores financeiros no PDF")
+    .locator("..")
+    .getByRole("checkbox")
+    .check();
 
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Exportar PDF" }).click();
+  await page.getByRole("button", { name: /Baixar PDF com estes filtros/i }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^interno-.*\.pdf$/);
   await download.saveAs(testInfo.outputPath("relatorio-interno-hullsjob.pdf"));
@@ -303,29 +319,31 @@ test("administrador escolhe entre relatório próprio e de toda a equipe", async
   const teamScope = page.getByRole("button", { name: /Toda a equipe/i });
   const mineScope = page.getByRole("button", { name: /Só o meu/i });
   await expect(teamScope).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Baixar este relatório em PDF" })).toBeVisible();
-  await expect(page.getByText(/inclui todo o histórico ativo da fazenda/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Baixar PDF completo da fazenda" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Baixar PDF filtrado" })).toBeVisible();
+  await expect(
+    page.getByText(/ignora período, funcionário, lote, brinco e categorias/i),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Baixar histórico completo" })).toBeVisible();
 
   const teamDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Baixar PDF completo da fazenda" }).click();
+  await page.getByRole("button", { name: "Baixar histórico completo" }).click();
   const teamDownload = await teamDownloadPromise;
   expect(teamDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
   await teamDownload.saveAs(testInfo.outputPath("relatorio-equipe.pdf"));
 
-  await page.getByRole("button", { name: "Interno · compacto" }).click();
-  await expect(page.getByText("Incluir valores financeiros no PDF")).toBeVisible();
+  await page.getByRole("button", { name: "Compacto", exact: true }).click();
+  await expect(page.getByText("Incluir valores financeiros")).toBeVisible();
   const internalDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: /Baixar PDF filtrado da equipe/i }).click();
+  await page.getByRole("button", { name: "Baixar PDF filtrado" }).click();
   const internalDownload = await internalDownloadPromise;
   expect(internalDownload.suggestedFilename()).toMatch(/^interno-.*\.pdf$/);
   await internalDownload.saveAs(testInfo.outputPath("relatorio-interno-equipe.pdf"));
 
-  await page.getByRole("button", { name: "Cliente · detalhado" }).click();
+  await page.getByRole("button", { name: "Detalhado", exact: true }).click();
   await mineScope.click();
   await expect(mineScope).toHaveAttribute("aria-pressed", "true");
   const mineDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Baixar meu PDF filtrado" }).click();
+  await page.getByRole("button", { name: "Baixar PDF filtrado" }).click();
   const mineDownload = await mineDownloadPromise;
   expect(mineDownload.suggestedFilename()).toMatch(/^casqueamento-.*\.pdf$/);
 });
@@ -352,6 +370,45 @@ test("Sandro gerencia doenças e prazos da fazenda", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Restaurar doença Dermatite interdigital" }),
   ).toBeVisible();
+});
+
+test("remoção de animal avisa, exige confirmação e permite desfazer", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await activate(page, "STARMILK", "Sandro");
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Gestão da fazenda" }).click();
+  await page.getByRole("tab", { name: /Cadastros/i }).click();
+  await page.getByRole("button", { name: "Animais", exact: true }).click();
+
+  await page.getByLabel("Brinco do animal", { exact: true }).fill("551100");
+  await page.getByRole("button", { name: "Adicionar animal" }).click();
+  await page.getByRole("button", { name: "Remover animal 551100" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Remover animal 551100?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Remover desta edição" })).toBeDisabled();
+  await dialog.getByLabel("Brinco para confirmar remoção").fill("551100");
+  await dialog.getByRole("button", { name: "Remover desta edição" }).click();
+
+  await expect(page.getByText("1 animal removido nesta edição")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Salvar e excluir 1 animal" })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("remocao-pendente-celular.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Desfazer 551100" }).click();
+  await expect(page.getByRole("button", { name: "Salvar cadastro de animais" })).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator('input[aria-label^="Brinco do animal"]')
+        .evaluateAll((inputs) =>
+          inputs.some((input) => (input as HTMLInputElement).value === "551100"),
+        ),
+    )
+    .toBe(true);
 });
 
 test("Romano consulta a agenda antes de escolher a fazenda", async ({ page }) => {

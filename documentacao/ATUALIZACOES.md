@@ -2681,3 +2681,45 @@ Critério de sucesso:
 ## Próximos passos
 
 - Testar a instalação como PWA em Android real, especialmente em aparelhos que restringem atividade em segundo plano.
+
+# 2026-09-13 - Exclusão protegida e relatórios combináveis
+
+## O que foi feito
+
+- A exclusão de animais no cadastro passou a abrir uma confirmação própria, com o brinco em destaque e digitação obrigatória do número antes da remoção.
+- Depois da confirmação, o animal não desaparece de forma silenciosa: o app mostra quantos animais foram removidos nesta edição, informa que nada foi salvo ainda e oferece `Desfazer` para cada brinco.
+- O botão final muda para `Salvar e excluir 1 animal` ou para a quantidade correspondente, em vermelho, deixando explícito o efeito da ação.
+- Ao salvar qualquer alteração da fazenda, o app confirma o sucesso em uma mensagem visível.
+- Corrigido o espaço inferior da tela de cadastro para o botão de salvar não ficar escondido atrás da navegação em celulares.
+- O relatório individual manteve o local atual, mas ganhou períodos rápidos, datas personalizadas, busca por brinco, filtro por lote e seleção de várias categorias no mesmo PDF.
+- As categorias agora podem ser mescladas sem duplicar visitas que atendam a mais de uma condição, por exemplo `Com problema` e `Ação de taco`.
+- A tela mostra uma prévia com total de visitas, animais e atendimentos com problema antes de liberar o download.
+- Os formatos foram renomeados para `Detalhado`, com uma ficha por visita, e `Compacto`, com mais visitas por página.
+- O relatório administrativo recebeu os mesmos filtros combináveis, busca por brinco e prévia de escopo para funcionário ou equipe.
+- Removida a duplicação do botão de PDF no painel administrativo: o PDF filtrado fica junto dos filtros e o histórico completo permanece em um bloco separado, com aviso claro de que ignora os filtros.
+- O cabeçalho dos PDFs passou a registrar todas as categorias mescladas, além do lote e da busca por brinco usados na geração.
+- Atualizado o cache offline para `v46` e o registro do Service Worker para `v30`.
+
+## Por que foi feito
+
+- Impedir que uma sequência de exclusões pareça não ter funcionado e leve o usuário a apagar vários animais por engano.
+- Dar ao usuário uma chance clara de revisar e desfazer alterações antes de salvar.
+- Reunir em um único PDF combinações reais de trabalho, sem obrigar várias exportações separadas.
+- Reduzir a confusão entre relatório filtrado e histórico completo da fazenda.
+- Melhorar a leitura e o uso dos controles em celular e tablet sem alterar o fluxo clínico já utilizado no campo.
+
+## Como validar
+
+- Abrir `Gestão da fazenda > Cadastros > Animais`, tocar na lixeira e confirmar que aparece uma janela com o brinco e dois caminhos claros: manter ou remover.
+- Confirmar a remoção e verificar o aviso `1 animal removido nesta edição`, o botão `Desfazer` e o botão vermelho `Salvar e excluir 1 animal`.
+- Tocar em `Desfazer` e confirmar que o animal volta para a lista antes de qualquer salvamento.
+- Abrir `Trabalho > Gerar relatório em PDF`, combinar duas ou mais categorias, buscar um brinco, escolher um lote e conferir a prévia antes do download.
+- Na administração, aplicar os mesmos filtros, gerar o PDF filtrado e depois conferir que `Histórico completo da fazenda` continua disponível separadamente.
+- Validação técnica concluída com 109 testes unitários, TypeScript, lint e build aprovados; na suíte de interface, 24 cenários de celular/tablet passaram e 1 cenário dependente do servidor de QA foi ignorado, incluindo confirmação e desfazer da exclusão.
+
+## Próximos passos
+
+- Adicionar uma lixeira auditável no servidor para permitir restauração administrativa durante um prazo definido depois que uma exclusão já tiver sido salva.
+- Separar `Trabalho` em subseções recolhíveis de produção, relatório e segurança caso o uso real confirme que a página ainda está longa.
+- Criar modelos de relatório salvos, como `Fechamento mensal`, `Somente revisões` e `Problemas graves`, depois de validar os novos filtros com os usuários.
+- Fazer uma sessão curta de teste com Romano, Patrick e Sandro em aparelhos reais para identificar textos que ainda exijam explicação verbal.

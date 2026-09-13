@@ -124,6 +124,7 @@ import {
   filterVisitsForReport,
   monthlyComparisonFromVisits,
   operationalBreakdownFromVisits,
+  visitReportMetrics,
   type VisitReportStatus,
 } from "@/dominio/visit-report";
 import { DiseasePicker } from "@/componentes/casco/DiseasePicker";
@@ -729,6 +730,7 @@ export function Index() {
             onSave={(f) => {
               saveFarm(f);
               setFarm(f);
+              showToast("Alterações da fazenda salvas com sucesso.");
               goToday();
             }}
             onImport={() => {
@@ -6441,6 +6443,20 @@ function EmployeeBillingScreen({ farm }: { farm: FarmConfig }) {
   );
 }
 
+const EMPLOYEE_REPORT_CATEGORIES: Array<{
+  value: Exclude<VisitReportStatus, "all">;
+  label: string;
+}> = [
+  { value: "preventive", label: "Preventivos" },
+  { value: "normal", label: "Normal, não preventivo" },
+  { value: "problem", label: "Com problema" },
+  { value: "light", label: "Leves · G1" },
+  { value: "moderate", label: "Moderados · G2" },
+  { value: "severe", label: "Graves · G3" },
+  { value: "recheck", label: "Com revisão" },
+  { value: "taco", label: "Ação de taco" },
+];
+
 function EmployeeWorkScreen({
   onOpenBilling,
   onOpenTeamReport,
@@ -6452,7 +6468,9 @@ function EmployeeWorkScreen({
   const today = todayISO();
   const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
   const [reportTo, setReportTo] = useState(today);
-  const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
+  const [reportStatuses, setReportStatuses] = useState<VisitReportStatus[]>([]);
+  const [reportLote, setReportLote] = useState("");
+  const [reportTag, setReportTag] = useState("");
   const [exportingPdf, setExportingPdf] = useState(false);
   const [reportType, setReportType] = useState<"client" | "internal">("client");
   const [includeValues, setIncludeValues] = useState(false);
@@ -6489,11 +6507,21 @@ function EmployeeWorkScreen({
       filterVisitsForReport(loadVisits(), {
         dateFrom: reportFrom,
         dateTo: reportTo,
-        status: reportStatus,
+        statuses: reportStatuses,
+        lote: reportLote || undefined,
+        tag: reportTag,
         employeeId: context?.employee_id,
         employeeName: context?.employee_name,
       }),
-    [context?.employee_id, context?.employee_name, reportFrom, reportStatus, reportTo],
+    [
+      context?.employee_id,
+      context?.employee_name,
+      reportFrom,
+      reportLote,
+      reportStatuses,
+      reportTag,
+      reportTo,
+    ],
   );
   const teamReportVisits = useMemo(
     () =>
@@ -6501,9 +6529,11 @@ function EmployeeWorkScreen({
         farmId: context?.farm_id,
         dateFrom: reportFrom,
         dateTo: reportTo,
-        status: reportStatus,
+        statuses: reportStatuses,
+        lote: reportLote || undefined,
+        tag: reportTag,
       }),
-    [context?.farm_id, reportFrom, reportStatus, reportTo],
+    [context?.farm_id, reportFrom, reportLote, reportStatuses, reportTag, reportTo],
   );
   const employeeVisits = useMemo(
     () =>
@@ -6521,6 +6551,21 @@ function EmployeeWorkScreen({
     () => operationalBreakdownFromVisits(reportVisits),
     [reportVisits],
   );
+  const reportMetrics = useMemo(() => visitReportMetrics(reportVisits), [reportVisits]);
+  const reportLotes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          loadVisits()
+            .filter((visit) =>
+              visitBelongsToEmployee(visit, context?.employee_id ?? "", context?.employee_name),
+            )
+            .map((visit) => visit.lote?.trim())
+            .filter((lote): lote is string => Boolean(lote)),
+        ),
+      ).sort((left, right) => left.localeCompare(right, "pt-BR", { numeric: true })),
+    [context?.employee_id, context?.employee_name],
+  );
   const monthLabel = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", {
     month: "long",
   });
@@ -6537,6 +6582,45 @@ function EmployeeWorkScreen({
     /^\d{4,6}$/.test(newPin) &&
     newPin === confirmPin &&
     currentPin !== newPin;
+
+  function setQuickReportPeriod(period: "today" | "seven-days" | "month" | "all") {
+    if (period === "today") {
+      setReportFrom(today);
+      setReportTo(today);
+      return;
+    }
+    if (period === "seven-days") {
+      setReportFrom(dateAfterDays(-6, today));
+      setReportTo(today);
+      return;
+    }
+    if (period === "month") {
+      setReportFrom(`${today.slice(0, 7)}-01`);
+      setReportTo(today);
+      return;
+    }
+    setReportFrom(
+      employeeVisits.reduce(
+        (earliest, visit) => (!earliest || visit.date < earliest ? visit.date : earliest),
+        "",
+      ) || today,
+    );
+    setReportTo(today);
+  }
+
+  function toggleReportStatus(status: Exclude<VisitReportStatus, "all">) {
+    setReportStatuses((current) =>
+      current.includes(status) ? current.filter((item) => item !== status) : [...current, status],
+    );
+  }
+
+  function clearReportFilters() {
+    setReportFrom(`${today.slice(0, 7)}-01`);
+    setReportTo(today);
+    setReportStatuses([]);
+    setReportLote("");
+    setReportTag("");
+  }
 
   async function handlePinChange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -6583,7 +6667,9 @@ function EmployeeWorkScreen({
           farmId: context.farm_id,
           dateFrom: reportFrom,
           dateTo: reportTo,
-          status: reportStatus,
+          statuses: reportStatuses,
+          lote: reportLote || undefined,
+          tag: reportTag,
           employeeId: context.employee_id,
           employeeName: context.employee_name,
         },
@@ -6709,140 +6795,252 @@ function EmployeeWorkScreen({
       <MonthlyComparisonPanel comparison={monthComparison} />
 
       <section className="border-t border-border pt-5" aria-labelledby="meu-relatorio">
-        <div className="mb-4 flex items-center gap-3">
-          <FileText className="h-6 w-6 text-primary" aria-hidden="true" />
-          <div>
-            <h2 id="meu-relatorio" className="font-display text-lg font-black uppercase">
-              Meu relatório
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Somente os seus atendimentos, detalhados nos quatro cascos
-            </p>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <FileText className="mt-0.5 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
+            <div>
+              <h2 id="meu-relatorio" className="font-display text-lg font-black uppercase">
+                Gerar relatório em PDF
+              </h2>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Escolha o período e combine os atendimentos que devem aparecer.
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={clearReportFilters}
+            className="flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-black uppercase text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            Limpar
+          </button>
         </div>
         {context.is_admin && onOpenTeamReport ? (
-          <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <div className="mb-5 border-l-4 border-primary bg-primary/5 px-4 py-3">
             <p className="font-display text-sm font-black uppercase text-primary">
-              Este é o seu relatório individual
+              Relatório individual de {context.employee_name}
             </p>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              Aqui aparecem {reportVisits.length} visita(s) de {context.employee_name}. A equipe
-              inteira possui {teamReportVisits.length} visita(s) nos mesmos filtros.
+              Os filtros abaixo encontraram {reportVisits.length} visita(s) sua(s). A equipe possui{" "}
+              {teamReportVisits.length} visita(s) com as mesmas escolhas.
             </p>
             <button
               type="button"
               onClick={onOpenTeamReport}
-              className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground"
+              className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-primary bg-card px-4 font-display text-sm font-black uppercase text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <Users className="h-5 w-5" aria-hidden="true" />
               Abrir relatório da equipe
             </button>
           </div>
         ) : null}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <fieldset className="sm:col-span-2">
-            <legend className="text-xs font-bold uppercase text-muted-foreground">
-              Tipo de relatório
-            </legend>
-            <div className="mt-1 grid grid-cols-2 gap-2">
+
+        <fieldset>
+          <legend className="text-xs font-black uppercase text-foreground">Período</legend>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(
+              [
+                ["today", "Hoje"],
+                ["seven-days", "Últimos 7 dias"],
+                ["month", "Este mês"],
+                ["all", "Todo histórico"],
+              ] as const
+            ).map(([value, label]) => (
               <button
+                key={value}
                 type="button"
-                onClick={() => setReportType("client")}
-                aria-pressed={reportType === "client"}
-                className={cn(
-                  "min-h-14 rounded-lg border-2 px-3 text-left text-sm font-black",
-                  reportType === "client"
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card",
-                )}
+                onClick={() => setQuickReportPeriod(value)}
+                className="min-h-11 rounded-lg border-2 border-border bg-card px-2 text-xs font-black uppercase text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
-                Para o cliente
+                {label}
               </button>
-              <button
-                type="button"
-                onClick={() => setReportType("internal")}
-                aria-pressed={reportType === "internal"}
-                className={cn(
-                  "min-h-14 rounded-lg border-2 px-3 text-left text-sm font-black",
-                  reportType === "internal"
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card",
-                )}
-              >
-                Interno compacto
-              </button>
-            </div>
-          </fieldset>
+            ))}
+          </div>
+        </fieldset>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label>
-            <span className="text-xs font-bold uppercase text-muted-foreground">De</span>
+            <span className="text-xs font-bold uppercase text-muted-foreground">Data inicial</span>
             <input
               type="date"
               value={reportFrom}
               max={reportTo || undefined}
               onChange={(event) => setReportFrom(event.target.value)}
-              className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+              className="mt-1 min-h-12 w-full rounded-lg border-2 border-border bg-surface px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             />
           </label>
-          {financialAllowed ? (
-            <label className="flex min-h-12 items-center gap-3 rounded-lg border-2 border-border bg-card px-3 sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={includeValues}
-                onChange={(event) => setIncludeValues(event.target.checked)}
-                className="h-5 w-5 accent-primary"
-              />
-              <span className="text-sm font-bold">Incluir valores no PDF</span>
-            </label>
-          ) : null}
           <label>
-            <span className="text-xs font-bold uppercase text-muted-foreground">Até</span>
+            <span className="text-xs font-bold uppercase text-muted-foreground">Data final</span>
             <input
               type="date"
               value={reportTo}
               min={reportFrom || undefined}
               onChange={(event) => setReportTo(event.target.value)}
-              className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+              className="mt-1 min-h-12 w-full rounded-lg border-2 border-border bg-surface px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             />
           </label>
-          <label className="sm:col-span-2">
-            <span className="text-xs font-bold uppercase text-muted-foreground">Tipo</span>
+          <label>
+            <span className="text-xs font-bold uppercase text-muted-foreground">Buscar brinco</span>
+            <input
+              type="search"
+              value={reportTag}
+              onChange={(event) => setReportTag(event.target.value)}
+              placeholder="Ex.: 1874"
+              className="mt-1 min-h-12 w-full rounded-lg border-2 border-border bg-surface px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            />
+          </label>
+          <label>
+            <span className="text-xs font-bold uppercase text-muted-foreground">Lote</span>
             <select
-              value={reportStatus}
-              onChange={(event) => setReportStatus(event.target.value as VisitReportStatus)}
-              className="mt-1 min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 outline-none focus:border-primary"
+              value={reportLote}
+              onChange={(event) => setReportLote(event.target.value)}
+              className="mt-1 min-h-12 w-full rounded-lg border-2 border-border bg-surface px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
-              <option value="all">Todos os atendimentos</option>
-              <option value="preventive">Preventivos</option>
-              <option value="normal">Cascos normais</option>
-              <option value="problem">Com problema</option>
-              <option value="recheck">Com revisão marcada</option>
-              <option value="taco">Com taco</option>
+              <option value="">Todos os lotes</option>
+              {reportLotes.map((lote) => (
+                <option key={lote} value={lote}>
+                  {lote}
+                </option>
+              ))}
             </select>
           </label>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface px-3 py-3">
-          <p className="text-sm">
-            <strong>{reportVisits.length}</strong> visita(s) no período
+
+        <fieldset className="mt-5 border-t border-border pt-4">
+          <legend className="px-1 text-xs font-black uppercase text-foreground">
+            Atendimentos que entram no PDF
+          </legend>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Sem seleção, entram todos. Marque várias opções para mesclar no mesmo relatório.
           </p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {EMPLOYEE_REPORT_CATEGORIES.map((option) => {
+              const selected = reportStatuses.includes(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => toggleReportStatus(option.value)}
+                  aria-pressed={selected}
+                  className={cn(
+                    "flex min-h-12 items-center justify-center rounded-lg border-2 px-2 text-center text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                    selected
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-foreground",
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <fieldset className="mt-5 border-t border-border pt-4">
+          <legend className="px-1 text-xs font-black uppercase text-foreground">
+            Formato do arquivo
+          </legend>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setReportType("client")}
+              aria-pressed={reportType === "client"}
+              className={cn(
+                "min-h-14 rounded-lg border-2 px-3 text-left text-sm font-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                reportType === "client"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground",
+              )}
+            >
+              Detalhado
+              <span className="mt-0.5 block text-[10px] font-medium opacity-80">
+                Uma ficha por visita
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportType("internal")}
+              aria-pressed={reportType === "internal"}
+              className={cn(
+                "min-h-14 rounded-lg border-2 px-3 text-left text-sm font-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                reportType === "internal"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground",
+              )}
+            >
+              Compacto
+              <span className="mt-0.5 block text-[10px] font-medium opacity-80">
+                Mais visitas por página
+              </span>
+            </button>
+          </div>
+        </fieldset>
+
+        {financialAllowed ? (
+          <label className="mt-3 flex min-h-12 items-center gap-3 rounded-lg border-2 border-border bg-card px-3">
+            <input
+              type="checkbox"
+              checked={includeValues}
+              onChange={(event) => setIncludeValues(event.target.checked)}
+              className="h-5 w-5 accent-primary"
+            />
+            <span className="text-sm font-bold">Incluir valores financeiros no PDF</span>
+          </label>
+        ) : null}
+
+        <div className="mt-5 border-y border-border bg-primary/5 py-4" aria-live="polite">
+          <p className="px-1 text-xs font-black uppercase text-primary">Prévia da exportação</p>
+          <div className="mt-3 grid grid-cols-3 divide-x divide-border text-center">
+            <div className="px-2">
+              <strong className="block font-display text-2xl font-black">
+                {reportMetrics.visits}
+              </strong>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">
+                Visitas
+              </span>
+            </div>
+            <div className="px-2">
+              <strong className="block font-display text-2xl font-black">
+                {reportMetrics.animals}
+              </strong>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">
+                Animais
+              </span>
+            </div>
+            <div className="px-2">
+              <strong className="block font-display text-2xl font-black">
+                {reportMetrics.withProblem}
+              </strong>
+              <span className="text-[10px] font-black uppercase text-muted-foreground">
+                Com problema
+              </span>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => void handleExportPdf()}
             disabled={exportingPdf || reportVisits.length === 0}
-            className="flex min-h-12 items-center gap-2 rounded-xl bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
+            className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50"
           >
             {exportingPdf ? (
-              <RefreshCw className="h-5 w-5 animate-spin" />
+              <RefreshCw className="h-5 w-5 animate-spin" aria-hidden="true" />
             ) : (
-              <Download className="h-5 w-5" />
+              <Download className="h-5 w-5" aria-hidden="true" />
             )}
-            Exportar PDF
+            {exportingPdf ? "Gerando PDF" : "Baixar PDF com estes filtros"}
           </button>
+          {reportVisits.length === 0 ? (
+            <p className="mt-2 text-center text-xs font-semibold text-danger">
+              Nenhuma visita corresponde às escolhas acima.
+            </p>
+          ) : null}
         </div>
       </section>
 
       <OperationalBreakdownPanel
         breakdown={operationalBreakdown}
-        periodLabel={`período de ${new Date(`${reportFrom}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${reportTo}T12:00:00`).toLocaleDateString("pt-BR")}`}
+        periodLabel={`período de ${new Date(`${reportFrom || today}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${reportTo}T12:00:00`).toLocaleDateString("pt-BR")}`}
       />
 
       <section className="border-t border-border pt-5" aria-labelledby="seguranca-pin">
@@ -7019,6 +7217,9 @@ function ConfigScreen({
   const [registrySearch, setRegistrySearch] = useState("");
   const [animalToRemove, setAnimalToRemove] = useState<RegisteredAnimal | null>(null);
   const [removalTag, setRemovalTag] = useState("");
+  const [removedAnimals, setRemovedAnimals] = useState<
+    Array<{ animal: RegisteredAnimal; index: number }>
+  >([]);
   const [diseases, setDiseases] = useState<DiseaseDefinition[]>(() => diseaseCatalog(farm));
   const [hoofAreas, setHoofAreas] = useState<HoofAreaDefinition[]>(farm.hoofAreas);
   const [newAreaName, setNewAreaName] = useState("");
@@ -7033,6 +7234,26 @@ function ConfigScreen({
     );
     return () => cancelAnimationFrame(frame);
   }, [initialFocus, managerUnlocked]);
+
+  useEffect(() => {
+    if (!animalToRemove) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setAnimalToRemove(null);
+      setRemovalTag("");
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [animalToRemove]);
+
+  useEffect(() => {
+    if (removedAnimals.length === 0) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [removedAnimals.length]);
 
   const cleanLotes = lotes.map((lote) => lote.trim().toUpperCase()).filter(Boolean);
   const cleanAnimalTags = animais.map((animal) => animal.tag.trim()).filter(Boolean);
@@ -7115,8 +7336,31 @@ function ConfigScreen({
   }
 
   function removeAnimal(index: number) {
-    setAnimalToRemove(animais[index]);
+    const animal = animais[index];
+    if (!animal) return;
+    setAnimalToRemove(animal);
     setRemovalTag("");
+  }
+
+  function confirmAnimalRemoval() {
+    if (!animalToRemove || removalTag.trim() !== animalToRemove.tag.trim()) return;
+    const index = animais.indexOf(animalToRemove);
+    if (index < 0) return;
+    setAnimais((current) => current.filter((animal) => animal !== animalToRemove));
+    setRemovedAnimals((current) => [...current, { animal: animalToRemove, index }]);
+    setAnimalToRemove(null);
+    setRemovalTag("");
+  }
+
+  function restoreRemovedAnimal(tag: string) {
+    const removed = removedAnimals.find((item) => item.animal.tag === tag);
+    if (!removed) return;
+    setAnimais((current) => {
+      const restored = [...current];
+      restored.splice(Math.min(removed.index, restored.length), 0, removed.animal);
+      return restored;
+    });
+    setRemovedAnimals((current) => current.filter((item) => item !== removed));
   }
 
   function updateAnimal(index: number, partial: Partial<RegisteredAnimal>) {
@@ -7301,7 +7545,7 @@ function ConfigScreen({
   }
 
   return (
-    <div className="space-y-4 pb-8">
+    <div className="space-y-4 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:pb-8">
       <div className="border-b border-border pb-4">
         <p className="text-xs font-bold uppercase text-muted-foreground">
           {farm.farmName || "Fazenda atual"}
@@ -7500,46 +7744,35 @@ function ConfigScreen({
           {/* Animais */}
           {cadastrosTab === "animais" && (
             <section className="space-y-3">
-              {animalToRemove && (
+              {removedAnimals.length > 0 ? (
                 <div
-                  role="alert"
-                  className="space-y-3 rounded-lg border-2 border-danger bg-card p-4"
+                  role="status"
+                  aria-live="polite"
+                  className="border-l-4 border-warn bg-warn/10 px-4 py-3"
                 >
-                  <p className="font-bold">Retirar o animal {animalToRemove.tag} do cadastro?</p>
-                  <label className="block text-sm">
-                    Digite o brinco {animalToRemove.tag} para confirmar
-                    <input
-                      aria-label="Brinco para confirmar remoção"
-                      value={removalTag}
-                      onChange={(event) => setRemovalTag(event.target.value)}
-                      className="mt-2 w-full rounded-lg border-2 border-border p-3"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setAnimalToRemove(null)}
-                      className="min-h-11 rounded-lg border px-4"
-                    >
-                      Cancelar remoção
-                    </button>
-                    <button
-                      type="button"
-                      disabled={removalTag.trim() !== animalToRemove.tag.trim()}
-                      onClick={() => {
-                        setAnimais((current) =>
-                          current.filter((animal) => animal !== animalToRemove),
-                        );
-                        setAnimalToRemove(null);
-                        setRemovalTag("");
-                      }}
-                      className="min-h-11 rounded-lg bg-danger px-4 text-white disabled:opacity-50"
-                    >
-                      Confirmar remoção do animal
-                    </button>
+                  <p className="font-display text-sm font-black uppercase text-foreground">
+                    {removedAnimals.length === 1
+                      ? "1 animal removido nesta edição"
+                      : `${removedAnimals.length} animais removidos nesta edição`}
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    Ainda não foram excluídos. A alteração só será aplicada ao salvar o cadastro.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {removedAnimals.map(({ animal }) => (
+                      <button
+                        key={animal.tag}
+                        type="button"
+                        onClick={() => restoreRemovedAnimal(animal.tag)}
+                        className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-black uppercase text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                      >
+                        <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                        Desfazer {animal.tag}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              )}
+              ) : null}
               <div className="flex items-center justify-between px-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   {animais.length} animal(is) cadastrado(s)
@@ -7685,10 +7918,18 @@ function ConfigScreen({
               <button
                 disabled={!valid}
                 onClick={() => onSave(currentFarm())}
-                className="tap-lg w-full rounded-2xl bg-primary py-4 font-display text-lg uppercase text-primary-foreground stamp disabled:opacity-50"
+                className={cn(
+                  "tap-lg mb-28 w-full rounded-lg py-4 font-display text-lg font-black uppercase text-primary-foreground disabled:opacity-50 sm:mb-0",
+                  removedAnimals.length > 0 ? "bg-danger" : "bg-primary",
+                )}
               >
                 <span className="flex items-center justify-center gap-2">
-                  <Save className="h-5 w-5" /> Salvar animais
+                  <Save className="h-5 w-5" aria-hidden="true" />
+                  {removedAnimals.length > 0
+                    ? removedAnimals.length === 1
+                      ? "Salvar e excluir 1 animal"
+                      : `Salvar e excluir ${removedAnimals.length} animais`
+                    : "Salvar cadastro de animais"}
                 </span>
               </button>
             </section>
@@ -8065,6 +8306,81 @@ function ConfigScreen({
           </section>
         </div>
       )}
+
+      {animalToRemove ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            setAnimalToRemove(null);
+            setRemovalTag("");
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-animal-removal-title"
+            aria-describedby="confirm-animal-removal-description"
+            className="w-full max-w-md rounded-t-xl bg-card px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 shadow-2xl sm:rounded-xl sm:pb-5"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger">
+                <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h2
+                  id="confirm-animal-removal-title"
+                  className="font-display text-lg font-black uppercase text-foreground"
+                >
+                  Remover animal {animalToRemove.tag}?
+                </h2>
+                <p
+                  id="confirm-animal-removal-description"
+                  className="mt-1 text-sm leading-relaxed text-muted-foreground"
+                >
+                  Ele sairá da lista desta edição. Depois você ainda poderá desfazer antes de salvar
+                  o cadastro.
+                </p>
+              </div>
+            </div>
+            <label className="mt-4 block">
+              <span className="text-xs font-black uppercase text-foreground">
+                Digite o brinco {animalToRemove.tag} para confirmar
+              </span>
+              <input
+                autoFocus
+                inputMode="numeric"
+                autoComplete="off"
+                value={removalTag}
+                onChange={(event) => setRemovalTag(event.target.value)}
+                aria-label="Brinco para confirmar remoção"
+                className="mt-2 min-h-12 w-full rounded-lg border-2 border-border bg-surface px-3 text-lg font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              />
+            </label>
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAnimalToRemove(null);
+                  setRemovalTag("");
+                }}
+                className="min-h-12 rounded-lg border-2 border-border bg-card px-4 font-display text-sm font-black uppercase text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                Manter animal
+              </button>
+              <button
+                type="button"
+                disabled={removalTag.trim() !== animalToRemove.tag.trim()}
+                onClick={confirmAnimalRemoval}
+                className="min-h-12 rounded-lg bg-danger px-4 font-display text-sm font-black uppercase text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-40"
+              >
+                Remover desta edição
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -112,6 +112,43 @@ describe("visit reports", () => {
     });
   });
 
+  it("combina categorias do relatório sem duplicar uma visita", () => {
+    const withTacoAndProblem = visit({
+      id: "taco-and-problem",
+      tag: "450",
+      feet: [
+        {
+          foot: "TD",
+          ok: false,
+          diseases: [{ code: "DD", severity: 1 }],
+          taco: { action: "apply", side: "left" },
+        },
+      ],
+    });
+
+    const filtered = filterVisitsForReport([...visits, withTacoAndProblem], {
+      statuses: ["preventive", "problem", "taco"],
+    });
+
+    expect(filtered).toHaveLength(3);
+    expect(filtered.map((item) => item.id)).toEqual(
+      expect.arrayContaining(["taco-and-problem", "normal", "problem"]),
+    );
+  });
+
+  it("filtra o PDF por parte do brinco e lote", () => {
+    const filtered = filterVisitsForReport(
+      [
+        visit({ id: "one", tag: "1874", lote: "LOTE A" }),
+        visit({ id: "two", tag: "9918", lote: "LOTE A" }),
+        visit({ id: "three", tag: "1875", lote: "LOTE B" }),
+      ],
+      { tag: "187", lote: "LOTE A" },
+    );
+
+    expect(filtered.map((item) => item.id)).toEqual(["one"]);
+  });
+
   it("comprova que o relatório completo abrange preventivos, problemas e normais", () => {
     const normal = visit({ id: "normal-clinical", tag: "400", preventivo: false });
     const composition = visitReportComposition([...visits, normal]);

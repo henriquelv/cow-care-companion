@@ -94,6 +94,20 @@ const ACTION_LABELS: Record<string, string> = {
   set_financial_permission: "Permissão financeira atualizada",
 };
 
+const ADMIN_REPORT_CATEGORIES: Array<{
+  value: Exclude<VisitReportStatus, "all">;
+  label: string;
+}> = [
+  { value: "preventive", label: "Preventivos" },
+  { value: "normal", label: "Normal, não preventivo" },
+  { value: "problem", label: "Com problema" },
+  { value: "light", label: "Leves · G1" },
+  { value: "moderate", label: "Moderados · G2" },
+  { value: "severe", label: "Graves · G3" },
+  { value: "recheck", label: "Com revisão" },
+  { value: "taco", label: "Ação de taco" },
+];
+
 function formatDate(value?: string | null) {
   if (!value) return "Nunca";
   const date = new Date(value);
@@ -192,8 +206,9 @@ export function AdminScreen({
   const [reportTo, setReportTo] = useState(today);
   const [reportScope, setReportScope] = useState<"mine" | "team">("team");
   const [reportEmployeeId, setReportEmployeeId] = useState("all");
-  const [reportStatus, setReportStatus] = useState<VisitReportStatus>("all");
+  const [reportStatuses, setReportStatuses] = useState<VisitReportStatus[]>([]);
   const [reportLote, setReportLote] = useState("all");
+  const [reportTag, setReportTag] = useState("");
   const [reportType, setReportType] = useState<"client" | "internal">("client");
   const [includeValues, setIncludeValues] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -317,14 +332,16 @@ export function AdminScreen({
     employeeId: scopedEmployeeId,
     employeeName: scopedEmployeeName,
     lote: reportLote === "all" ? undefined : reportLote,
-    status: reportStatus,
+    tag: reportTag,
+    statuses: reportStatuses,
   };
   const teamReportVisits = filterVisitsForReport(loadVisits(), {
     farmId: context?.farm_id,
     dateFrom: reportFrom,
     dateTo: reportTo,
     lote: reportLote === "all" ? undefined : reportLote,
-    status: reportStatus,
+    tag: reportTag,
+    statuses: reportStatuses,
   });
   const mineReportVisits = filterVisitsForReport(loadVisits(), {
     farmId: context?.farm_id,
@@ -333,7 +350,8 @@ export function AdminScreen({
     employeeId: context?.employee_id,
     employeeName: context?.employee_name,
     lote: reportLote === "all" ? undefined : reportLote,
-    status: reportStatus,
+    tag: reportTag,
+    statuses: reportStatuses,
   });
   const employeeReportVisits = selectedReportEmployee
     ? filterVisitsForReport(loadVisits(), {
@@ -343,7 +361,8 @@ export function AdminScreen({
         employeeId: selectedReportEmployee.id,
         employeeName: selectedReportEmployee.name,
         lote: reportLote === "all" ? undefined : reportLote,
-        status: reportStatus,
+        tag: reportTag,
+        statuses: reportStatuses,
       })
     : [];
   const reportVisits =
@@ -371,7 +390,8 @@ export function AdminScreen({
     employeeId: scopedEmployeeId,
     employeeName: scopedEmployeeName,
     lote: reportLote === "all" ? undefined : reportLote,
-    status: reportStatus,
+    tag: reportTag,
+    statuses: reportStatuses,
   });
   const monthComparison = monthlyComparisonFromVisits(comparisonVisits, reportTo || today);
   const operationalBreakdown = operationalBreakdownFromVisits(reportVisits);
@@ -396,7 +416,8 @@ export function AdminScreen({
       employeeId: employee.id,
       employeeName: employee.name,
       lote: reportLote === "all" ? undefined : reportLote,
-      status: reportStatus,
+      tag: reportTag,
+      statuses: reportStatuses,
     });
     return {
       employee,
@@ -800,8 +821,9 @@ export function AdminScreen({
                   setReportTo(today);
                   setReportScope("team");
                   setReportEmployeeId("all");
-                  setReportStatus("all");
+                  setReportStatuses([]);
                   setReportLote("all");
+                  setReportTag("");
                 }}
                 className="min-h-10 shrink-0 rounded-lg bg-surface px-3 text-xs font-black uppercase text-primary"
               >
@@ -884,26 +906,6 @@ export function AdminScreen({
               )}
               <label>
                 <span className="text-[10px] font-black uppercase text-muted-foreground">
-                  Tipo de atendimento
-                </span>
-                <select
-                  value={reportStatus}
-                  onChange={(event) => setReportStatus(event.target.value as VisitReportStatus)}
-                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 outline-none focus:border-primary"
-                >
-                  <option value="all">Todos os tipos</option>
-                  <option value="preventive">Preventivo sem lesão</option>
-                  <option value="normal">Sem lesão, não preventivo</option>
-                  <option value="problem">Com problema</option>
-                  <option value="light">Problema leve</option>
-                  <option value="moderate">Problema moderado</option>
-                  <option value="severe">Problema grave</option>
-                  <option value="recheck">Com revisão</option>
-                  <option value="taco">Com taco</option>
-                </select>
-              </label>
-              <label>
-                <span className="text-[10px] font-black uppercase text-muted-foreground">
                   Data inicial
                 </span>
                 <input
@@ -941,30 +943,124 @@ export function AdminScreen({
                   ))}
                 </select>
               </label>
+              <label className="sm:col-span-2">
+                <span className="text-[10px] font-black uppercase text-muted-foreground">
+                  Buscar brinco no relatório
+                </span>
+                <input
+                  type="search"
+                  value={reportTag}
+                  onChange={(event) => setReportTag(event.target.value)}
+                  placeholder="Todos os brincos"
+                  className="mt-1 min-h-12 w-full rounded-lg border border-border bg-surface px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                />
+              </label>
+              <fieldset className="sm:col-span-2">
+                <legend className="text-[10px] font-black uppercase text-muted-foreground">
+                  Categorias para mesclar
+                </legend>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Sem seleção, entram todas. Você pode marcar várias no mesmo PDF.
+                </p>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {ADMIN_REPORT_CATEGORIES.map((option) => {
+                    const selected = reportStatuses.includes(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() =>
+                          setReportStatuses((current) =>
+                            current.includes(option.value)
+                              ? current.filter((status) => status !== option.value)
+                              : [...current, option.value],
+                          )
+                        }
+                        aria-pressed={selected}
+                        className={cn(
+                          "min-h-11 rounded-lg border px-2 text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                          selected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card text-foreground",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
             </div>
           </section>
 
-          <section className="rounded-lg border-2 border-primary/30 bg-primary/5 p-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
-            <div className="min-w-0">
-              <h3 className="font-display text-sm font-black uppercase">PDF deste relatório</h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Usa os filtros acima e inclui o resumo, os valores permitidos e cada vaca, visita e
-                casco.
-              </p>
-            </div>
+          <section className="border-y border-border bg-primary/5 px-1 py-4">
+            <h3 className="font-display text-sm font-black uppercase">PDF com estes filtros</h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {reportMetrics.visits} visita(s) e {reportMetrics.animals} animal(is). Cada visita
+              mostra separadamente FE, FD, TE e TD.
+            </p>
+            <fieldset className="mt-3">
+              <legend className="text-[10px] font-black uppercase text-muted-foreground">
+                Formato
+              </legend>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReportType("client")}
+                  aria-pressed={reportType === "client"}
+                  className={cn(
+                    "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                    reportType === "client"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-foreground",
+                  )}
+                >
+                  Detalhado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportType("internal")}
+                  aria-pressed={reportType === "internal"}
+                  className={cn(
+                    "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                    reportType === "internal"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-foreground",
+                  )}
+                >
+                  Compacto
+                </button>
+              </div>
+            </fieldset>
+            {financialAllowed ? (
+              <label className="mt-3 flex min-h-11 items-center gap-3 rounded-lg border border-border bg-card px-3 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={includeValues}
+                  onChange={(event) => setIncludeValues(event.target.checked)}
+                  className="h-5 w-5 accent-primary"
+                />
+                Incluir valores financeiros
+              </label>
+            ) : null}
             <button
               type="button"
               onClick={() => void exportAdminPdf("filtered")}
               disabled={exportingPdf || reportVisits.length === 0}
-              className="mt-3 flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50 sm:mt-0 sm:w-auto"
+              className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-display text-sm font-black uppercase text-primary-foreground disabled:opacity-50"
             >
               {exportingPdf ? (
                 <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
               ) : (
                 <Download className="h-5 w-5" aria-hidden="true" />
               )}
-              Baixar este relatório em PDF
+              Baixar PDF filtrado
             </button>
+            {reportVisits.length === 0 ? (
+              <p className="mt-2 text-center text-xs font-semibold text-danger">
+                Nenhuma visita corresponde aos filtros.
+              </p>
+            ) : null}
           </section>
 
           <section aria-labelledby="production-title">
@@ -1203,61 +1299,19 @@ export function AdminScreen({
             </div>
           </section>
 
-          <section className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4">
-            <h3 className="font-display text-base font-black uppercase">Exportar relatório</h3>
+          <section className="rounded-lg border border-border bg-card p-4">
+            <h3 className="font-display text-base font-black uppercase">
+              Histórico completo da fazenda
+            </h3>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              O PDF completo ignora os filtros acima e inclui todo o histórico ativo da fazenda:
-              preventivos, animais com problema e atendimentos normais.
+              Esta opção ignora período, funcionário, lote, brinco e categorias. Use apenas quando
+              precisar reunir todo o histórico ativo em um único PDF.
             </p>
             <p className="mt-3 rounded-lg bg-card px-3 py-2 text-xs font-bold text-foreground">
               Completo: {completeReportMetrics.visits} atendimento(s) ·{" "}
               {completeReportMetrics.preventive} preventivo(s) · {completeReportMetrics.withProblem}{" "}
               com problema · {completeReportMetrics.normal} normal(is)
             </p>
-            <fieldset className="mt-3">
-              <legend className="text-[10px] font-black uppercase text-muted-foreground">
-                Formato do PDF
-              </legend>
-              <div className="mt-1 grid grid-cols-2 gap-2 rounded-lg bg-card p-1.5">
-                <button
-                  type="button"
-                  onClick={() => setReportType("client")}
-                  aria-pressed={reportType === "client"}
-                  className={cn(
-                    "min-h-11 rounded-md px-3 text-xs font-black uppercase",
-                    reportType === "client"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground",
-                  )}
-                >
-                  Cliente · detalhado
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportType("internal")}
-                  aria-pressed={reportType === "internal"}
-                  className={cn(
-                    "min-h-11 rounded-md px-3 text-xs font-black uppercase",
-                    reportType === "internal"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground",
-                  )}
-                >
-                  Interno · compacto
-                </button>
-              </div>
-            </fieldset>
-            {financialAllowed ? (
-              <label className="mt-3 flex min-h-12 items-center gap-3 rounded-lg border border-border bg-card px-3 text-sm font-semibold">
-                <input
-                  type="checkbox"
-                  checked={includeValues}
-                  onChange={(event) => setIncludeValues(event.target.checked)}
-                  className="h-5 w-5 accent-primary"
-                />
-                Incluir valores financeiros no PDF
-              </label>
-            ) : null}
             <button
               type="button"
               onClick={() => void exportAdminPdf("complete")}
@@ -1269,23 +1323,10 @@ export function AdminScreen({
               ) : (
                 <Download className="h-5 w-5" />
               )}
-              Baixar PDF completo da fazenda
-            </button>
-            <button
-              type="button"
-              onClick={() => void exportAdminPdf("filtered")}
-              disabled={exportingPdf || reportVisits.length === 0}
-              className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-primary bg-card px-4 font-display text-sm font-black uppercase text-primary disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              {reportScope === "mine"
-                ? "Baixar meu PDF filtrado"
-                : selectedReportEmployee
-                  ? `Baixar PDF filtrado de ${selectedReportEmployee.name}`
-                  : "Baixar PDF filtrado da equipe"}
+              Baixar histórico completo
             </button>
             <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
-              Os dois formatos detalham cada visita e mostram separadamente FE, FD, TE e TD.
+              O formato e a opção de valores escolhidos acima também são usados aqui.
             </p>
           </section>
 
@@ -1295,7 +1336,7 @@ export function AdminScreen({
                 Produção por funcionário
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Mesma fazenda, período, lote e tipo escolhidos acima.
+                Mesma fazenda, período, lote, brinco e categorias escolhidos acima.
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {employeeMetricRows.map(({ employee, metrics, billing }) => (
