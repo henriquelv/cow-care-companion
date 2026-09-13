@@ -1,4 +1,5 @@
 import type { Visit } from "./casco-store";
+import { isOperationalRecord } from "./operational-record";
 
 export function fieldVisitKey(
   visit: Pick<
@@ -17,5 +18,5 @@ export function fieldVisitKey(
 }
 
 export function countFieldVisits(visits: Visit[]) {
-  return new Set(visits.map(fieldVisitKey)).size;
+  return new Set(visits.filter(isOperationalRecord).map(fieldVisitKey)).size;
 }

@@ -108,6 +108,20 @@ export function staleSyncedRecordIds(
   return localRows.filter((row) => row.synced && !remoteIds.has(row.id)).map((row) => row.id);
 }
 
+export function protectedSyncIds(
+  localRows: Array<{ id: string; synced: boolean }>,
+  pending: Array<{ tableName: string; payload: unknown }>,
+  tableName: string,
+) {
+  const ids = new Set(localRows.filter((row) => !row.synced).map((row) => row.id));
+  for (const item of pending) {
+    if (item.tableName !== tableName || !item.payload || typeof item.payload !== "object") continue;
+    const id = (item.payload as { id?: unknown }).id;
+    if (typeof id === "string") ids.add(id);
+  }
+  return ids;
+}
+
 export const syncService = {
   isSyncing: false,
 
@@ -276,20 +290,26 @@ export const syncService = {
         const data = await fetchAllFarmRows(supabase, tableName, ctx.farm_id);
         const table = localdb[tableName];
         const localRows = await table.where("farm_id").equals(ctx.farm_id).toArray();
-        const staleIds = staleSyncedRecordIds(localRows, data);
+        const pending = await pendingOutbox(ctx.farm_id);
+        const protectedIds = protectedSyncIds(localRows, pending, tableName);
+        const staleIds = staleSyncedRecordIds(localRows, data).filter(
+          (id) => !protectedIds.has(id),
+        );
         if (staleIds.length > 0) await table.bulkDelete(staleIds);
         await table.bulkPut(
-          data.map((row) => {
-            const remoteUpdatedAt = row.updated_at ?? row.created_at;
-            return {
-              id: String(row.id),
-              farm_id: ctx.farm_id,
-              data: row,
-              updated_at:
-                typeof remoteUpdatedAt === "string" ? remoteUpdatedAt : new Date().toISOString(),
-              synced: true,
-            };
-          }),
+          data
+            .filter((row) => !protectedIds.has(String(row.id)))
+            .map((row) => {
+              const remoteUpdatedAt = row.updated_at ?? row.created_at;
+              return {
+                id: String(row.id),
+                farm_id: ctx.farm_id,
+                data: row,
+                updated_at:
+                  typeof remoteUpdatedAt === "string" ? remoteUpdatedAt : new Date().toISOString(),
+                synced: true,
+              };
+            }),
         );
       }
 

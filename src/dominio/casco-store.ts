@@ -4,6 +4,7 @@ import { farmContextService } from "@/servicos/farm-context.service";
 import { enqueueOutboxMany, localdb, putLocalRecord } from "@/servicos/localdb";
 import { mediaIdFromRef, mediaRef } from "@/servicos/media.service";
 import { tenantFeatures } from "@/configuracao/tenant-features";
+import { isOperationalRecord } from "./operational-record";
 import {
   DEFAULT_PRICING_CONFIG,
   HULLSJOB_DEFAULT_PRICING,
@@ -92,6 +93,7 @@ export interface FootEntry {
 }
 
 export interface Visit {
+  is_test?: boolean;
   id: string;
   farm_id?: string;
   status?: "draft" | "active" | "corrected" | "cancelled";
@@ -189,10 +191,14 @@ export function visitIsVisible(visit: Pick<Visit, "status">) {
 }
 
 export function visitIsFinalized(
-  visit: Pick<Visit, "id" | "tag" | "date" | "createdAt" | "feet" | "status">,
+  visit: Pick<
+    Visit,
+    "id" | "tag" | "date" | "createdAt" | "feet" | "status" | "employee_id" | "is_test"
+  >,
 ) {
   return (
     visitIsVisible(visit) &&
+    isOperationalRecord(visit) &&
     Boolean(visit.id?.trim()) &&
     Boolean(visit.tag?.trim()) &&
     /^\d{4}-\d{2}-\d{2}$/.test(visit.date) &&
@@ -1369,6 +1375,7 @@ export async function hydrateVisitsFromIndexedDb() {
       );
       return {
         id: payload?.id ?? data.id ?? row.id,
+        is_test: payload?.is_test,
         farm_id: ctx.farm_id,
         date: payload?.date ?? data.date ?? todayISO(),
         createdAt:
@@ -1505,6 +1512,7 @@ export function addVisit(v: Visit) {
   v = {
     ...v,
     ...currentVisitMetadata(),
+    is_test: v.is_test || farmContextService.getContext()?.is_platform_admin === true,
     completedAt: v.completedAt,
     tag: v.tag.trim(),
     lote: v.lote?.trim().toUpperCase() || undefined,

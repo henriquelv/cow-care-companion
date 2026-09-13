@@ -56,6 +56,7 @@ function normalizeVisit(row: RemoteVisitRow): Visit {
 
   return {
     id: payload?.id ?? row.id,
+    is_test: payload?.is_test,
     farm_id: row.farm_id,
     date: payload?.date ?? row.date ?? todayISO(),
     createdAt:

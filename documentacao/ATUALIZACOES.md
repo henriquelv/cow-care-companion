@@ -10,12 +10,21 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 
 ## 2026-09-13 - Identificação dos cascos e consistência da leitura
 
+- Verificada a tentativa de exclusão na Fazenda Nossa Senhora de Fátima: o usuário confirmou que não salvou o formulário. Os 30 animais e 34 atendimentos estavam intactos no servidor; foi guardada cópia local em `.qa-artifacts/fatima-before-recovery.local.json`. Para recuperar a lista, basta sair das configurações sem salvar.
+- Cadastro agora pede confirmação digitando o brinco antes de retirar um animal, evitando exclusões sucessivas quando a lista se move.
+- Corrigida a etapa de download do sincronizador: registros alterados localmente e operações ainda pendentes não são sobrescritos pela cópia antiga do servidor após falha de envio.
+- Brinco 1874 verificado novamente: no servidor ainda existe apenas a visita de 05/08. O atendimento de 11/09 presente no PDF precisa ser recuperado do aparelho de Patrick; não foi criada uma visita artificial a partir do PDF.
+- A visita de teste da conta mestra para o brinco `1111`, na Fazenda Nossa Senhora de Fátima, foi cancelada no servidor com cópia prévia e motivo de auditoria; o animal de teste foi bloqueado. Os demais 29 animais permaneceram ativos.
+- A conta mestra não precisa mais iniciar/encerrar visita à fazenda. Registros feitos pelo funcionário central `000` são marcados como teste e ficam excluídos dos relatórios, métricas e valores.
+- Solicitações agora informam claramente quando o envio ao servidor continua pendente. Ao concluir um atendimento, todas as solicitações abertas daquele brinco recebem baixa.
+- O app sincroniza ao recuperar internet, ao voltar para a tela e a cada minuto enquanto estiver aberto. Isso envia solicitações pendentes e atualiza a agenda dos casqueadores sem exigir novo login.
+
 - A leitura sincronizada agora usa a identificação explícita do casco na linha do banco, com compatibilidade para o payload antigo. Não assume mais frente esquerdo quando a identificação está ausente ou inválida.
 - Seleção com nomes por extenso e referência explícita aos lados do animal. O mapa e o seletor de doenças reiniciam seu estado visual ao trocar de casco.
 - Histórico tolera registros incompletos sem travar nem transformar ausência de informação em diagnóstico normal.
 - Paginação da sincronização ordenada por ID para manter a ordem estável entre páginas.
 - Testes de regressão para payload com identificação divergente e PDF com cascos recebidos fora de ordem.
-- Validação: 103 testes unitários, 23 cenários mobile/tablet (1 opcional ignorado), TypeScript, lint e build aprovados. O cenário de múltiplas doenças também verifica os códigos efetivamente salvos por casco e passou novamente com essa checagem.
+- Validação: 107 testes unitários, 23 cenários mobile/tablet (1 opcional ignorado), TypeScript, lint, build, auditoria de produção e auditoria de dependências aprovados. O cenário de múltiplas doenças também verifica os códigos efetivamente salvos por casco e passou novamente com essa checagem.
 
 ### Como validar e próximos passos
 

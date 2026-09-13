@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { collectPagedRows, scopeSyncPayload, staleSyncedRecordIds } from "./sync.service";
+import {
+  collectPagedRows,
+  protectedSyncIds,
+  scopeSyncPayload,
+  staleSyncedRecordIds,
+} from "./sync.service";
 
 const context = {
   farm_id: "farm-1",
@@ -9,6 +14,20 @@ const context = {
 };
 
 describe("payload de sincronização", () => {
+  it("protege alterações offline e exclusões pendentes contra a versão antiga do servidor", () => {
+    const ids = protectedSyncIds(
+      [
+        { id: "editado", synced: false },
+        { id: "normal", synced: true },
+      ],
+      [
+        { tableName: "hoof_visits", payload: { id: "excluido" } },
+        { tableName: "animals", payload: { id: "outro" } },
+      ],
+      "hoof_visits",
+    );
+    expect([...ids]).toEqual(["editado", "excluido"]);
+  });
   it("baixa todas as páginas quando uma tabela ultrapassa mil registros", async () => {
     const calls: Array<[number, number]> = [];
     const rows = await collectPagedRows(async (from, to) => {

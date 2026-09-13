@@ -42,11 +42,12 @@ const CLIENT_FEATURES: Record<string, TenantFeatures> = {
 };
 
 export function tenantFeatures(
-  context: Pick<FarmContext, "client_code"> | null | undefined,
+  context: Pick<FarmContext, "client_code" | "is_platform_admin"> | null | undefined,
   overrides?: TenantFeatureOverrides,
 ): TenantFeatures {
   const clientCode = context?.client_code?.trim().toUpperCase() ?? "";
-  return { ...(CLIENT_FEATURES[clientCode] ?? DEFAULT_FEATURES), ...overrides };
+  const features = { ...(CLIENT_FEATURES[clientCode] ?? DEFAULT_FEATURES), ...overrides };
+  return context?.is_platform_admin ? { ...features, workSessions: false } : features;
 }
 
 export function canViewFinancial(

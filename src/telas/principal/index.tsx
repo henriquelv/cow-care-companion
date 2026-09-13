@@ -388,7 +388,7 @@ export function Index() {
   }
 
   async function switchFarmKeepingLogin(farmId: string) {
-    if (activeWorkSession) {
+    if (appFeatures.workSessions && activeWorkSession) {
       setFarmSwitchError("Encerre a visita à fazenda antes de trocar.");
       return;
     }
@@ -426,6 +426,23 @@ export function Index() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activated]);
+
+  useEffect(() => {
+    if (!activated || !isSupabaseConfigured) return;
+    const syncWhenAvailable = () => {
+      if (navigator.onLine && document.visibilityState === "visible") void runSync();
+    };
+    window.addEventListener("online", syncWhenAvailable);
+    document.addEventListener("visibilitychange", syncWhenAvailable);
+    const timer = window.setInterval(syncWhenAvailable, 60_000);
+    return () => {
+      window.removeEventListener("online", syncWhenAvailable);
+      document.removeEventListener("visibilitychange", syncWhenAvailable);
+      window.clearInterval(timer);
+    };
+    // A troca de fazenda recria o efeito; runSync usa sempre o contexto local atual.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activated, appContext?.farm_id]);
 
   if (!activated) {
     return (
@@ -618,14 +635,14 @@ export function Index() {
               await persistenceReady;
               try {
                 const requests = await limpingRequestService.list();
-                const linked = requests.find(
+                const linkedRequests = requests.filter(
                   (request) =>
                     request.tag.trim().toLocaleLowerCase("pt-BR") ===
                       completedVisit.tag.trim().toLocaleLowerCase("pt-BR") &&
                     request.status !== "attended" &&
                     request.status !== "refused",
                 );
-                if (linked) {
+                for (const linked of appContext?.is_platform_admin ? [] : linkedRequests) {
                   await limpingRequestService.update(linked, {
                     status: "attended",
                     visit_id: completedVisit.id,
@@ -675,9 +692,13 @@ export function Index() {
         {screen.name === "billing" && <EmployeeBillingScreen farm={farm} />}
         {screen.name === "limping-request" && (
           <LimpingRequestScreen
-            onSaved={() => {
-              void runSync();
-              showToast("Solicitação enviada para a agenda.");
+            onSaved={async () => {
+              const synced = await runSync();
+              showToast(
+                synced
+                  ? "Solicitação enviada para a agenda."
+                  : "Solicitação salva neste aparelho. Envio à equipe pendente.",
+              );
               setScreen({ name: "calendar" });
             }}
           />
@@ -3316,7 +3337,7 @@ function FiltersScreen({
   );
 }
 
-function LimpingRequestScreen({ onSaved }: { onSaved: () => void }) {
+function LimpingRequestScreen({ onSaved }: { onSaved: () => void | Promise<void> }) {
   const [tag, setTag] = useState("");
   const [note, setNote] = useState("");
   const [photoMediaId, setPhotoMediaId] = useState<string>();
@@ -3349,7 +3370,7 @@ function LimpingRequestScreen({ onSaved }: { onSaved: () => void }) {
     setError("");
     try {
       await limpingRequestService.create({ tag, note, photoMediaId });
-      onSaved();
+      await onSaved();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Não foi possível enviar a solicitação.");
     } finally {
@@ -6996,6 +7017,8 @@ function ConfigScreen({
   const [newAnimalLote, setNewAnimalLote] = useState("");
   const [newAnimalSex, setNewAnimalSex] = useState<Sex>("vaca");
   const [registrySearch, setRegistrySearch] = useState("");
+  const [animalToRemove, setAnimalToRemove] = useState<RegisteredAnimal | null>(null);
+  const [removalTag, setRemovalTag] = useState("");
   const [diseases, setDiseases] = useState<DiseaseDefinition[]>(() => diseaseCatalog(farm));
   const [hoofAreas, setHoofAreas] = useState<HoofAreaDefinition[]>(farm.hoofAreas);
   const [newAreaName, setNewAreaName] = useState("");
@@ -7092,7 +7115,8 @@ function ConfigScreen({
   }
 
   function removeAnimal(index: number) {
-    setAnimais((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
+    setAnimalToRemove(animais[index]);
+    setRemovalTag("");
   }
 
   function updateAnimal(index: number, partial: Partial<RegisteredAnimal>) {
@@ -7476,6 +7500,46 @@ function ConfigScreen({
           {/* Animais */}
           {cadastrosTab === "animais" && (
             <section className="space-y-3">
+              {animalToRemove && (
+                <div
+                  role="alert"
+                  className="space-y-3 rounded-lg border-2 border-danger bg-card p-4"
+                >
+                  <p className="font-bold">Retirar o animal {animalToRemove.tag} do cadastro?</p>
+                  <label className="block text-sm">
+                    Digite o brinco {animalToRemove.tag} para confirmar
+                    <input
+                      aria-label="Brinco para confirmar remoção"
+                      value={removalTag}
+                      onChange={(event) => setRemovalTag(event.target.value)}
+                      className="mt-2 w-full rounded-lg border-2 border-border p-3"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAnimalToRemove(null)}
+                      className="min-h-11 rounded-lg border px-4"
+                    >
+                      Cancelar remoção
+                    </button>
+                    <button
+                      type="button"
+                      disabled={removalTag.trim() !== animalToRemove.tag.trim()}
+                      onClick={() => {
+                        setAnimais((current) =>
+                          current.filter((animal) => animal !== animalToRemove),
+                        );
+                        setAnimalToRemove(null);
+                        setRemovalTag("");
+                      }}
+                      className="min-h-11 rounded-lg bg-danger px-4 text-white disabled:opacity-50"
+                    >
+                      Confirmar remoção do animal
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center justify-between px-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   {animais.length} animal(is) cadastrado(s)

@@ -1,4 +1,5 @@
 import type { DiseaseDefinition, FootKey, TacoAction, Visit } from "./casco-store";
+import { isOperationalRecord } from "./operational-record";
 
 export interface PricingConfig {
   preventive: number;
@@ -263,7 +264,7 @@ export function billingForVisit(
 }
 
 function visibleVisit(visit: Visit) {
-  return visit.status === undefined || visit.status === "active";
+  return isOperationalRecord(visit) && (visit.status === undefined || visit.status === "active");
 }
 
 export function billingSummaryFromVisits(

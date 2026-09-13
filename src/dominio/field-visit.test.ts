@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { countFieldVisits } from "./field-visit";
 import type { Visit } from "./casco-store";
+import { MASTER_EMPLOYEE_ID } from "./operational-record";
 
 function visit(overrides: Partial<Visit> = {}): Visit {
   return {
@@ -20,6 +21,9 @@ function visit(overrides: Partial<Visit> = {}): Visit {
 }
 
 describe("field visits", () => {
+  it("não conta testes feitos pela conta mestra", () => {
+    expect(countFieldVisits([visit({ employee_id: MASTER_EMPLOYEE_ID })])).toBe(0);
+  });
   it("agrupa vários animais na mesma visita iniciada", () => {
     expect(
       countFieldVisits([

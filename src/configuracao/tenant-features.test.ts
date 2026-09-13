@@ -35,4 +35,10 @@ describe("tenant features", () => {
   it("permite configuração central por fazenda", () => {
     expect(tenantFeatures({ client_code: "STARMILK" }, { hoofMap: true }).hoofMap).toBe(true);
   });
+
+  it("não exige iniciar visita à fazenda para a conta mestra", () => {
+    expect(tenantFeatures({ client_code: "HULLSJOB", is_platform_admin: true }).workSessions).toBe(
+      false,
+    );
+  });
 });

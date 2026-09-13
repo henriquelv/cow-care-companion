@@ -9,6 +9,7 @@ import {
   visitReportMetrics,
 } from "./visit-report";
 import type { Visit } from "./casco-store";
+import { MASTER_EMPLOYEE_ID } from "./operational-record";
 
 function visit(overrides: Partial<Visit>): Visit {
   return {
@@ -71,6 +72,12 @@ describe("visit reports", () => {
         employeeName: "Romano",
       }).map((item) => item.id),
     ).toEqual(["normal"]);
+  });
+
+  it("nunca inclui lançamentos da conta mestra nos relatórios", () => {
+    const masterVisit = visit({ id: "teste-mestre", employee_id: MASTER_EMPLOYEE_ID });
+    expect(visitReportMetrics([...visits, masterVisit]).visits).toBe(2);
+    expect(filterVisitsForReport([...visits, masterVisit], {})).not.toContain(masterVisit);
   });
 
   it("permite ao administrador consolidar toda a equipe da fazenda", () => {
