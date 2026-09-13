@@ -5,7 +5,7 @@ if (!supabaseUrl || !anonKey) {
   throw new Error("Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.");
 }
 
-async function request(path, { method = "GET", body, session, deviceId } = {}) {
+async function request(path, { method = "GET", body, session, deviceId, headers = {} } = {}) {
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
     method,
     headers: {
@@ -14,6 +14,7 @@ async function request(path, { method = "GET", body, session, deviceId } = {}) {
       "Content-Type": "application/json",
       ...(session ? { "x-hoof-session": session } : {}),
       ...(deviceId ? { "x-hoof-device-id": deviceId } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -22,6 +23,20 @@ async function request(path, { method = "GET", body, session, deviceId } = {}) {
     throw new Error(`${path}: HTTP ${response.status} - ${payload?.message ?? "falha"}`);
   }
   return payload;
+}
+
+async function requestAll(path, options = {}) {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = await request(path, {
+      ...options,
+      headers: { ...(options.headers ?? {}), Range: `${from}-${from + pageSize - 1}` },
+    });
+    assert(Array.isArray(page), `${path}: resposta paginada inválida.`);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
 }
 
 function assert(condition, message) {
@@ -131,12 +146,16 @@ async function verifyTenant({
   });
   assert(overview?.ok === true, `${company}: painel não carregou.`);
 
-  const [activeVisits, registeredAnimals] = await Promise.all([
-    request(
-      `hoof_visits?select=id,tag&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`,
+  const [activeVisits, registeredAnimals, feet] = await Promise.all([
+    requestAll(
+      `hoof_visits?select=id,tag,payload&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`,
       { session: access.session_token, deviceId },
     ),
-    request(`animals?select=id,tag&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`, {
+    requestAll(`animals?select=id,tag&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`, {
+      session: access.session_token,
+      deviceId,
+    }),
+    requestAll(`hoof_feet?select=id,visit_id,foot&farm_id=eq.${encodeURIComponent(farm.id)}`, {
       session: access.session_token,
       deviceId,
     }),
@@ -147,6 +166,23 @@ async function verifyTenant({
   assert(
     activeVisits.every((visit) => registeredTags.has(visit.tag.trim().toLocaleLowerCase("pt-BR"))),
     `${company}: existe visita ativa sem animal cadastrado.`,
+  );
+  const feetByVisit = new Map();
+  for (const foot of feet) {
+    const keys = feetByVisit.get(foot.visit_id) ?? new Set();
+    keys.add(foot.foot);
+    feetByVisit.set(foot.visit_id, keys);
+  }
+  const expectedFeet = ["FE", "FD", "TE", "TD"];
+  assert(
+    activeVisits.every((visit) => {
+      const keys = new Set([
+        ...(visit.payload?.feet ?? []).map((foot) => foot.foot),
+        ...(feetByVisit.get(visit.id) ?? []),
+      ]);
+      return expectedFeet.every((foot) => keys.has(foot));
+    }),
+    `${company}: existe visita ativa sem os quatro cascos clínicos.`,
   );
 
   return {

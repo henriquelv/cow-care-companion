@@ -8,6 +8,7 @@ import {
   agendaByDate,
   agendaByDateFromVisits,
   calendarMonthMetricsFromVisits,
+  completeVisitFeet,
   createVisitSyncPayloads,
   curativeDeadlineForDiseases,
   curativeFollowups,
@@ -24,6 +25,7 @@ import {
   loadFarm,
   loadLastBackupAt,
   loadVisits,
+  mergeVisitFeet,
   normalizeSeverity,
   normalizeDiseases,
   preventiveAgendaItems,
@@ -143,6 +145,31 @@ describe("casco-store domain rules", () => {
     expect(visitIsFinalized(visit({ id: "rascunho", tag: "" }))).toBe(false);
     expect(visitIsFinalized(visit({ id: "rascunho-preenchido", status: "draft" }))).toBe(false);
     expect(visitIsFinalized(visit({ id: "cancelada", status: "cancelled" }))).toBe(false);
+  });
+
+  it("completa uma nova visita com os cascos normais que não tiveram problema", () => {
+    const feet = completeVisitFeet([
+      foot({ foot: "TE", ok: false, diseases: [{ code: "DD", severity: 2 }] }),
+    ]);
+
+    expect(feet.map((entry) => entry.foot)).toEqual(["FE", "FD", "TE", "TD"]);
+    expect(feet.filter((entry) => entry.ok).map((entry) => entry.foot)).toEqual(["FE", "FD", "TD"]);
+    expect(feet.find((entry) => entry.foot === "TE")?.diseases).toEqual([
+      { code: "DD", severity: 2 },
+    ]);
+  });
+
+  it("combina cascos do payload antigo com linhas sincronizadas sem perder os normais", () => {
+    const payloadFeet = completeVisitFeet([]);
+    const merged = mergeVisitFeet(payloadFeet, [
+      foot({ foot: "TE", ok: false, diseases: [{ code: "SU", severity: 3 }] }),
+    ]);
+
+    expect(merged).toHaveLength(4);
+    expect(merged.find((entry) => entry.foot === "FE")?.ok).toBe(true);
+    expect(merged.find((entry) => entry.foot === "TE")?.diseases).toEqual([
+      { code: "SU", severity: 3 },
+    ]);
   });
 
   it("impede persistir uma visita antes da confirmação final", () => {

@@ -17,12 +17,17 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 - Adicionada ao verificador uma checagem direta do painel central. O backend retornou 2 clientes, 7 fazendas e 5 funcionários, confirmando que o painel de clientes está disponível.
 - Confirmado que consultas públicas continuam bloqueadas, criação de fazenda exige sessão administrativa e uma empresa não consegue consultar visitas da outra.
 - Auditada a integridade dos dados operacionais: nenhuma visita ativa sem animal cadastrado, nenhum casco órfão, nenhum casco ligado a visita de outra fazenda e nenhum casco duplicado na mesma visita.
+- Corrigida a auditoria dos cascos, que antes parava nas primeiras mil linhas retornadas pela API e produzia um falso alerta de 93 atendimentos incompletos. A leitura paginada confirmou 339 visitas ativas e todas possuem os quatro cascos clínicos ao combinar o conteúdo original com as linhas normalizadas.
+- Quatro visitas legadas possuem parte dos cascos somente no conteúdo original da visita. A hidratação agora combina as duas fontes por casco: preserva os normais do conteúdo original e usa a linha sincronizada mais recente quando ela existir.
+- Novas visitas concluídas passam a persistir sempre `FE`, `FD`, `TE` e `TD`. Cascos não apontados como lesionados são gravados como normais; não é necessário existir problema nos quatro.
+- A sincronização de todas as tabelas agora percorre páginas de mil registros. Isso evita perda aparente de animais, visitas ou cascos quando a fazenda ultrapassar o limite de uma resposta do Supabase.
 - Revisados e renderizados os PDFs da agenda, do funcionário, interno compacto e o relatório real `FazendaVitoria11.09.2026.pdf`. As páginas, cabeçalhos, métricas, quatro cascos, situações clínicas e paginação estão legíveis e sem cortes.
 - Confirmado novamente que o PDF real contém preventivos, animais com problema, animais curados e o atendimento do brinco `1874` feito por Patrick em 11/09/2026.
 - Confirmado que essa visita de 11/09 do brinco `1874` ainda não existe no Supabase. Ela permanece na cópia local usada para gerar o PDF e deverá ser recuperada pela fila corrigida quando o aparelho de Patrick abrir o app e sincronizar.
 - Atualizado o lockfile para versões compatíveis corrigidas. O `npm audit` passou de 7 alertas, sendo 3 altos, para zero vulnerabilidades conhecidas.
-- Atualizado o cache offline para `v42` e o registrador do Service Worker para `v26`, garantindo que celulares e tablets recebam esta revisão.
-- Executados novamente sobre o lockfile final: 99 testes unitários e 23 testes de interface em celular/tablet; 1 cenário opcional permaneceu ignorado. TypeScript, ESLint, build, auditoria de produção e auditoria de dependências também passaram.
+- Atualizado o cache offline para `v43` e o registrador do Service Worker para `v27`, garantindo que celulares e tablets recebam esta revisão.
+- A validação automática de produção também passou a paginar consultas e confirmar que toda visita ativa possui os quatro cascos clínicos, incluindo os normais.
+- Executados 102 testes unitários e 23 testes de interface em celular/tablet; 1 cenário opcional permaneceu ignorado. TypeScript, ESLint, build, auditoria de produção e auditoria de dependências também passaram.
 
 ### Como validar
 
@@ -36,7 +41,7 @@ Este arquivo deve ser atualizado sempre que houver alteração no app. Cada atua
 
 1. Recuperar as visitas locais do aparelho de Patrick e comparar novamente o dia 11/09 com o Supabase.
 2. Não limpar os dados do aparelho antes dessa conferência, porque o PDF comprova que existem atendimentos ainda preservados localmente.
-3. Avaliar em uma migração separada os 93 atendimentos históricos que possuem menos de quatro linhas de casco. O relatório já os identifica como `Sem registro`; eles não devem ser convertidos automaticamente em cascos normais sem confirmação clínica.
+3. Não executar migração clínica para o antigo alerta de 93 atendimentos: ele foi causado pelo limite de mil linhas da consulta, não por perda de cascos no banco.
 
 ## 2026-09-11 - Correção da baixa de revisões e recuperação da fila de sincronização
 

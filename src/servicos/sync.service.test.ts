@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scopeSyncPayload, staleSyncedRecordIds } from "./sync.service";
+import { collectPagedRows, scopeSyncPayload, staleSyncedRecordIds } from "./sync.service";
 
 const context = {
   farm_id: "farm-1",
@@ -9,6 +9,22 @@ const context = {
 };
 
 describe("payload de sincronização", () => {
+  it("baixa todas as páginas quando uma tabela ultrapassa mil registros", async () => {
+    const calls: Array<[number, number]> = [];
+    const rows = await collectPagedRows(async (from, to) => {
+      calls.push([from, to]);
+      return from === 0
+        ? Array.from({ length: 1000 }, (_, index) => index)
+        : Array.from({ length: 250 }, (_, index) => from + index);
+    });
+
+    expect(rows).toHaveLength(1250);
+    expect(calls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+
   it("inclui auditoria do funcionário somente na visita", () => {
     expect(scopeSyncPayload("hoof_visits", { id: "visit-1", tag: "100" }, context)).toEqual({
       id: "visit-1",

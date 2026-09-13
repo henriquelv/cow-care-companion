@@ -17,6 +17,41 @@ const SYNC_TABLES = [
   "hoof_work_sessions",
 ] as const;
 
+const SYNC_PAGE_SIZE = 1000;
+type SyncRemoteRow = Record<string, unknown> & {
+  id: unknown;
+  updated_at?: unknown;
+  created_at?: unknown;
+};
+
+export async function collectPagedRows<T>(
+  fetchPage: (from: number, to: number) => Promise<T[]>,
+  pageSize = SYNC_PAGE_SIZE,
+) {
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = await fetchPage(from, from + pageSize - 1);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+async function fetchAllFarmRows(
+  supabase: ReturnType<typeof requireSupabase>,
+  tableName: (typeof SYNC_TABLES)[number],
+  farmId: string,
+) {
+  return collectPagedRows<SyncRemoteRow>(async (from, to) => {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("*")
+      .eq("farm_id", farmId)
+      .range(from, to);
+    if (error) throw error;
+    return (data ?? []) as SyncRemoteRow[];
+  });
+}
+
 function conflictTarget(tableName: string) {
   switch (tableName) {
     case "animals":
@@ -237,23 +272,23 @@ export const syncService = {
       }
 
       for (const tableName of SYNC_TABLES) {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select("*")
-          .eq("farm_id", ctx.farm_id);
-        if (error) throw error;
+        const data = await fetchAllFarmRows(supabase, tableName, ctx.farm_id);
         const table = localdb[tableName];
         const localRows = await table.where("farm_id").equals(ctx.farm_id).toArray();
-        const staleIds = staleSyncedRecordIds(localRows, data ?? []);
+        const staleIds = staleSyncedRecordIds(localRows, data);
         if (staleIds.length > 0) await table.bulkDelete(staleIds);
         await table.bulkPut(
-          (data ?? []).map((row) => ({
-            id: String(row.id),
-            farm_id: ctx.farm_id,
-            data: row,
-            updated_at: row.updated_at ?? row.created_at ?? new Date().toISOString(),
-            synced: true,
-          })),
+          data.map((row) => {
+            const remoteUpdatedAt = row.updated_at ?? row.created_at;
+            return {
+              id: String(row.id),
+              farm_id: ctx.farm_id,
+              data: row,
+              updated_at:
+                typeof remoteUpdatedAt === "string" ? remoteUpdatedAt : new Date().toISOString(),
+              synced: true,
+            };
+          }),
         );
       }
 

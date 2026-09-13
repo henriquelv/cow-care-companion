@@ -1300,6 +1300,10 @@ export async function hydrateVisitsFromIndexedDb() {
     feetByVisit.set(data.visit_id, [...(feetByVisit.get(data.visit_id) ?? []), foot]);
   }
 
+  const mediaByVisit = new Map<
+    string,
+    Array<{ id: string; foot: FootKey; storage_path?: string }>
+  >();
   for (const row of mediaRows) {
     const media = row.data as {
       id?: string;
@@ -1308,17 +1312,10 @@ export async function hydrateVisitsFromIndexedDb() {
       storage_path?: string;
     };
     if (!media.id || !media.visit_id || !media.foot) continue;
-    const feet = feetByVisit.get(media.visit_id) ?? [];
-    const idx = feet.findIndex((f) => f.foot === media.foot);
-    if (idx >= 0) {
-      feet[idx] = {
-        ...feet[idx],
-        photo: mediaRef(media.id),
-        photoStoragePath: media.storage_path,
-        photoPendingUpload: !media.storage_path,
-      };
-    }
-    feetByVisit.set(media.visit_id, feet);
+    mediaByVisit.set(media.visit_id, [
+      ...(mediaByVisit.get(media.visit_id) ?? []),
+      { id: media.id, foot: media.foot, storage_path: media.storage_path },
+    ]);
   }
 
   const visits = visitRows
@@ -1344,7 +1341,19 @@ export async function hydrateVisitsFromIndexedDb() {
         cancellation_scope?: Visit["cancellation_scope"];
       };
       const payload = data.payload;
-      const feet = feetByVisit.get(row.id) ?? payload?.feet ?? [];
+      const feet = mergeVisitFeet(payload?.feet ?? [], feetByVisit.get(row.id) ?? []).map(
+        (foot) => {
+          const media = mediaByVisit.get(row.id)?.find((entry) => entry.foot === foot.foot);
+          return media
+            ? {
+                ...foot,
+                photo: mediaRef(media.id),
+                photoStoragePath: media.storage_path,
+                photoPendingUpload: !media.storage_path,
+              }
+            : foot;
+        },
+      );
       return {
         id: payload?.id ?? data.id ?? row.id,
         farm_id: ctx.farm_id,
@@ -1382,6 +1391,33 @@ export async function hydrateVisitsFromIndexedDb() {
   visits.sort((a, b) => b.createdAt - a.createdAt);
   saveVisits(visits);
   return visits;
+}
+
+export function mergeVisitFeet(payloadFeet: FootEntry[], syncedFeet: FootEntry[]) {
+  const order: FootKey[] = ["FE", "FD", "TE", "TD"];
+  const byFoot = new Map<FootKey, FootEntry>();
+  for (const foot of payloadFeet) byFoot.set(foot.foot, migrateFootEntry(foot));
+  for (const foot of syncedFeet) byFoot.set(foot.foot, migrateFootEntry(foot));
+  return order.flatMap((foot) => {
+    const entry = byFoot.get(foot);
+    return entry ? [entry] : [];
+  });
+}
+
+export function completeVisitFeet(feet: FootEntry[]) {
+  const order: FootKey[] = ["FE", "FD", "TE", "TD"];
+  const byFoot = new Map<FootKey, FootEntry>();
+  for (const foot of feet) byFoot.set(foot.foot, migrateFootEntry(foot));
+  return order.map(
+    (foot) =>
+      byFoot.get(foot) ?? {
+        foot,
+        ok: true,
+        zones: [],
+        diseases: [],
+        treatments: [],
+      },
+  );
 }
 
 function registerAnimalFromVisit(v: Visit) {
@@ -1434,7 +1470,8 @@ export function addVisit(v: Visit) {
     throw new Error("A visita só pode ser salva depois da confirmação final.");
   }
   const all = loadVisits().filter((visit) => visit.id !== v.id);
-  const normalizedFeet = v.feet.map((foot) => {
+  // Uma visita concluída sempre avalia os quatro cascos. Os não apontados são normais.
+  const normalizedFeet = completeVisitFeet(v.feet).map((foot) => {
     const normalized = {
       ...foot,
       diseases: normalizeDiseases(foot.diseases),

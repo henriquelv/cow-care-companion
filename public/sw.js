@@ -1,4 +1,4 @@
-const CACHE_NAME = "caderninho-casco-v42";
+const CACHE_NAME = "caderninho-casco-v43";
 const CORE_ASSETS = [
   "/",
   "/manifest.webmanifest",
