@@ -1045,6 +1045,37 @@ describe("casco-store domain rules", () => {
     );
   });
 
+  it("não duplica a exclusão já enviada para a lixeira administrativa", async () => {
+    vi.useRealTimers();
+    await localdb.open();
+    await localdb.outbox.clear();
+    localStorage.setItem(
+      "casco.farm_context.v2",
+      JSON.stringify({
+        farm_id: "farm-1",
+        farm_name: "Fazenda Teste",
+        employee_id: "manager-1",
+        employee_name: "Gerente",
+        device_id: "device-1",
+        is_admin: true,
+        last_license_check_at: new Date().toISOString(),
+        grace_period_days: 7,
+      }),
+    );
+    saveFarm({
+      ...farm,
+      animais: [{ tag: "100", sex: "vaca", lote: "A1" }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await localdb.outbox.clear();
+
+    saveFarm({ ...farm, animais: [] }, { animalRemovalsHandledByAdmin: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const queue = await pendingOutbox("farm-1");
+    expect(queue.some((item) => item.tableName === "animals" && item.op === "delete")).toBe(false);
+  });
+
   it("lista preventivo para animais saudáveis e exclui problema ativo", () => {
     saveFarm({
       ...farm,

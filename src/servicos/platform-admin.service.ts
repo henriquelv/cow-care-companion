@@ -1,5 +1,6 @@
 import { requireSupabase } from "./supabase";
 import { adminService } from "./admin.service";
+import { localdb } from "./localdb";
 
 const PLATFORM_SESSION_KEY = "casco.platform_manager_session.v1";
 
@@ -35,6 +36,55 @@ export type PlatformOverview = {
   clients: PlatformClient[];
   farms: PlatformFarm[];
   employees: PlatformEmployee[];
+};
+
+export type PlatformDiagnosticEvent = {
+  action: string;
+  target_type?: string | null;
+  target_id?: string | null;
+  created_at: string;
+  client_name?: string | null;
+  employee_name?: string | null;
+};
+
+export type PlatformDiagnostics = {
+  checked_at: string;
+  server_status: "online";
+  response_ms: number;
+  counts: {
+    clients_total: number;
+    clients_active: number;
+    farms_total: number;
+    farms_active: number;
+    employees_total: number;
+    employees_active: number;
+    devices_active: number;
+    devices_stale: number;
+    licenses_invalid: number;
+    visits_active: number;
+    requests_waiting: number;
+  };
+  integrity: {
+    visits_without_animal: number;
+    visits_incomplete_feet: number;
+    feet_wrong_farm: number;
+    employees_without_farm: number;
+    work_sessions_stale: number;
+  };
+  issues_total: number;
+  recent_events: PlatformDiagnosticEvent[];
+};
+
+export type PlatformLocalDiagnostics = {
+  online: boolean;
+  serviceWorkerActive: boolean;
+  lastSyncAt?: string;
+  pendingItems: number;
+  errorItems: number;
+  errorMessages: string[];
+  storageUsedMb?: number;
+  storageQuotaMb?: number;
+  projectRef: string;
 };
 
 export type PlatformFarmSelection = {
@@ -117,6 +167,78 @@ export const platformAdminService = {
       clients: result.clients ?? [],
       farms: result.farms ?? [],
       employees: result.employees ?? [],
+    };
+  },
+
+  async diagnostics(): Promise<PlatformDiagnostics> {
+    const startedAt = performance.now();
+    const { data, error } = await requireSupabase().rpc("hoof_platform_diagnostics", {
+      p_manager_token: tokenOrThrow(),
+    });
+    if (error) throw new Error("O servidor não respondeu à verificação completa.");
+    const result = data as
+      ({ ok?: boolean; message?: string } & Partial<PlatformDiagnostics>) | null;
+    if (!result?.ok || !result.checked_at || !result.counts || !result.integrity) {
+      throw new Error(result?.message || "A verificação do sistema não foi concluída.");
+    }
+    return {
+      checked_at: result.checked_at,
+      server_status: "online",
+      response_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+      counts: result.counts,
+      integrity: result.integrity,
+      issues_total: result.issues_total ?? 0,
+      recent_events: result.recent_events ?? [],
+    };
+  },
+
+  async closeStaleWorkSessions() {
+    const { data, error } = await requireSupabase().rpc("hoof_platform_close_stale_work_sessions", {
+      p_manager_token: tokenOrThrow(),
+    });
+    if (error) throw new Error("Não foi possível encerrar as sessões antigas.");
+    const result = data as { ok?: boolean; message?: string; repaired_count?: number } | null;
+    if (!result?.ok) throw new Error(result?.message || "A correção não foi concluída.");
+    return { repairedCount: result.repaired_count ?? 0 };
+  },
+
+  async localDiagnostics(): Promise<PlatformLocalDiagnostics> {
+    const [pendingItems, errorItems, errorRows, registration, storage] = await Promise.all([
+      localdb.outbox.filter((item) => item.status === "pending").count(),
+      localdb.outbox.filter((item) => item.status === "error").count(),
+      localdb.outbox
+        .filter((item) => item.status === "error")
+        .reverse()
+        .limit(10)
+        .toArray(),
+      navigator.serviceWorker?.getRegistration().catch(() => undefined),
+      navigator.storage?.estimate().catch(() => undefined),
+    ]);
+    const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? "");
+    let projectRef = "não configurado";
+    try {
+      projectRef = new URL(supabaseUrl).hostname.split(".")[0] || projectRef;
+    } catch {
+      // O painel mostrará que o projeto não está configurado.
+    }
+    return {
+      online: navigator.onLine,
+      serviceWorkerActive: Boolean(registration?.active && navigator.serviceWorker?.controller),
+      lastSyncAt: localStorage.getItem("casco.last_sync_at.v1") ?? undefined,
+      pendingItems,
+      errorItems,
+      errorMessages: Array.from(
+        new Set(
+          errorRows.map((item) => item.errorMessage).filter((value): value is string => !!value),
+        ),
+      ),
+      storageUsedMb:
+        typeof storage?.usage === "number"
+          ? Math.round((storage.usage / 1024 / 1024) * 10) / 10
+          : undefined,
+      storageQuotaMb:
+        typeof storage?.quota === "number" ? Math.round(storage.quota / 1024 / 1024) : undefined,
+      projectRef,
     };
   },
 

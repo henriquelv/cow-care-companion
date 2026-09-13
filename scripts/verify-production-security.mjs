@@ -250,6 +250,25 @@ async function main() {
     body: { p_manager_token: hullsjob.managerToken },
   });
   assert(platformOverview?.ok === true, "Conta mestra: painel de clientes não carregou.");
+  const platformDiagnostics = await request("rpc/hoof_platform_diagnostics", {
+    method: "POST",
+    session: hullsjob.access.session_token,
+    deviceId: "qa-production-hullsjob",
+    body: { p_manager_token: hullsjob.managerToken },
+  });
+  assert(platformDiagnostics?.ok === true, "Conta mestra: diagnóstico central não carregou.");
+  assert(
+    platformDiagnostics?.server_status === "online",
+    "Conta mestra: diagnóstico não confirmou o servidor online.",
+  );
+  const staleWorkSessionLimit = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  const staleWorkSessions = await requestAll(
+    `hoof_work_sessions?select=id,farm_id,employee_name,started_at,status&status=eq.active&started_at=lt.${encodeURIComponent(staleWorkSessionLimit)}`,
+    {
+      session: hullsjob.access.session_token,
+      deviceId: "qa-production-hullsjob",
+    },
+  );
   assert(
     platformOverview.clients?.some((client) => client.activation_code === "HULLSJOB") &&
       platformOverview.clients?.some((client) => client.activation_code === "STARMILK"),
@@ -337,6 +356,9 @@ async function main() {
           clients: platformOverview.clients?.length ?? 0,
           farms: platformOverview.farms?.length ?? 0,
           employees: platformOverview.employees?.length ?? 0,
+          diagnostic_issues: platformDiagnostics.issues_total,
+          integrity: platformDiagnostics.integrity,
+          stale_work_sessions: staleWorkSessions,
         },
         cross_tenant_rows: crossFarmRows.length,
       },

@@ -2001,7 +2001,7 @@ export async function hydrateFarmFromIndexedDb() {
   return next;
 }
 
-export function saveFarm(f: FarmConfig) {
+export function saveFarm(f: FarmConfig, options?: { animalRemovalsHandledByAdmin?: boolean }) {
   if (!canUseStorage()) return;
   const previous = loadFarm();
   const normalized = normalizeFarm(f);
@@ -2074,12 +2074,14 @@ export function saveFarm(f: FarmConfig) {
         op: "delete" as const,
         payload: { id, farm_id: ctx.farm_id },
       })),
-      ...removedAnimals.map((id) => ({
-        farm_id: ctx.farm_id,
-        tableName: "animals",
-        op: "delete" as const,
-        payload: { id, farm_id: ctx.farm_id },
-      })),
+      ...(options?.animalRemovalsHandledByAdmin
+        ? []
+        : removedAnimals.map((id) => ({
+            farm_id: ctx.farm_id,
+            tableName: "animals",
+            op: "delete" as const,
+            payload: { id, farm_id: ctx.farm_id },
+          }))),
       ...normalized.lotes.map((lote) => ({
         farm_id: ctx.farm_id,
         tableName: "farm_lotes",

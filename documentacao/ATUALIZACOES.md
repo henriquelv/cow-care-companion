@@ -2760,3 +2760,46 @@ Critério de sucesso:
 - Programar backup automático diário do Supabase gratuito em armazenamento externo e testar uma restauração completa.
 - Adicionar monitoramento de disponibilidade e alerta de pausa/inatividade do projeto gratuito.
 - Revisar com o cliente os três modelos rápidos de PDF e salvar novos modelos apenas quando houver uso recorrente comprovado.
+
+# 2026-09-13 - Confirmações de ação e central de saúde da conta 000
+
+## O que foi feito
+
+- Criado um aviso padronizado, legível e responsivo para confirmar ações importantes sem interromper o trabalho: visita à fazenda iniciada ou encerrada, atendimento salvo, preventivo agendado, animal cadastrado automaticamente, solicitação enviada, fazenda trocada, configurações salvas, restauração e falhas de sincronização.
+- Os avisos agora diferenciam sucesso, atenção, informação e erro, podem ser fechados manualmente e são anunciados corretamente por leitores de tela.
+- Corrigido o temporizador dos avisos para uma mensagem antiga não apagar uma confirmação mais recente.
+- A exclusão feita em `Gestão da fazenda > Cadastros > Animais` passou a usar a lixeira auditável do servidor. Depois de salvar, o usuário recebe a confirmação de que o animal pode ser restaurado por 30 dias.
+- O salvamento da configuração agora permanece na tela e mostra o erro quando não puder ser concluído. Uma exclusão administrativa exige internet para impedir divergência entre aparelhos.
+- Enquanto cadastros, lotes, regras ou valores estão sendo gravados, o botão mostra `Salvando...` e bloqueia novos toques até a conclusão.
+- Adicionada, exclusivamente na conta mestra `000`, a `Central de saúde do sistema` com estado do servidor, tempo de resposta, fila offline deste aparelho, última sincronização, Service Worker, armazenamento local e projeto Supabase em uso.
+- A central verifica automaticamente visitas sem animal cadastrado, visitas sem os quatro cascos avaliados, cascos ligados à fazenda errada, funcionários sem fazenda, licenças inválidas e visitas à fazenda esquecidas em andamento.
+- A conferência considera casco normal como casco avaliado; uma visita só é incompleta quando falta o registro de FE, FD, TE ou TD.
+- A conta `000` pode copiar um diagnóstico técnico sem senhas ou chaves e consultar os processos administrativos recentes.
+- Encontradas nove sessões antigas de visita à fazenda abertas entre 7 e 11 de setembro. Elas foram encerradas como canceladas, com auditoria, sem apagar nenhum atendimento.
+- Criada proteção no banco para impedir sessões simultâneas do mesmo funcionário na mesma fazenda, inclusive quando um registro offline antigo chega atrasado.
+- Adicionada na conta `000` uma correção manual, com confirmação em duas etapas, para encerrar somente sessões esquecidas há mais de 12 horas.
+- Atualizado o cache offline para `v48` e o registro do Service Worker para `v32`, garantindo a entrega desta versão aos aparelhos já instalados.
+
+## Por que foi feito
+
+- Evitar que o usuário repita uma ação por não saber se ela funcionou.
+- Impedir novas exclusões acidentais e manter uma recuperação segura depois do salvamento.
+- Dar à conta mestra uma forma objetiva de verificar processos, erros locais e integridade do banco sem acessar o painel técnico do Supabase.
+- Corrigir números distorcidos por visitas à fazenda que ficaram abertas e proteger o sistema contra repetição do problema.
+
+## Como validar
+
+- Na Hullsjob, iniciar e encerrar uma visita à fazenda e conferir os avisos com o resultado e a quantidade de atendimentos.
+- Finalizar um atendimento online e offline e conferir que o aviso diferencia `enviado à equipe` de `salvo no aparelho`.
+- Excluir um animal já cadastrado, salvar e conferir a confirmação e a presença do registro na lixeira administrativa.
+- Entrar pela conta `000`, abrir a administração central e conferir `Central de saúde do sistema > Ver processos e erros`.
+- Confirmar que o projeto exibido é `poajhjvdbdzhzccytmka` e que todos os indicadores de integridade estão zerados.
+- Validação concluída com 110 testes unitários, TypeScript, lint, build e lint do banco aprovados; 24 cenários de interface em celular/tablet passaram e 1 cenário opcional foi ignorado.
+- A auditoria das 342 dependências encontrou zero vulnerabilidades conhecidas, e a busca de segredos rastreados não encontrou chaves administrativas no código.
+
+## Próximos passos
+
+- Fazer uma sessão curta em aparelhos reais com Romano, Patrick e Sandro para confirmar que o tempo e a posição dos novos avisos funcionam bem durante o trabalho de campo.
+- Configurar backup externo automático diário do banco e executar uma restauração de teste documentada.
+- Configurar monitoramento externo do link da Vercel e do Supabase com alerta de indisponibilidade ou pausa do plano gratuito.
+- Revisar mensalmente a Central de saúde pela conta `000` e tratar qualquer fila offline ou alerta de integridade antes do fechamento dos relatórios.

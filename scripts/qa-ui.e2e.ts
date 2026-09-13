@@ -49,7 +49,9 @@ test("Romano administra Hullsjob no celular", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await activate(page, "HULLSJOB", "Romano");
   await expect(page.getByText("Fazenda Vitória", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /Iniciar visita à fazenda/i })).toBeVisible();
+  await page.getByRole("button", { name: /Iniciar visita à fazenda/i }).click();
+  await page.getByRole("button", { name: "Iniciar", exact: true }).click();
+  await expect(page.getByRole("status").getByText("Visita à fazenda iniciada")).toBeVisible();
   await expect(page.getByRole("button", { name: /Solicitar atendimento/i })).toBeVisible();
   await page.getByRole("button", { name: "Abrir menu" }).click();
   await expect(page.getByRole("button", { name: "Administração" })).toBeVisible();
@@ -417,6 +419,18 @@ test("remoção de animal avisa, exige confirmação e permite desfazer", async 
         ),
     )
     .toBe(true);
+
+  await page.getByRole("button", { name: "Salvar cadastro de animais" }).click();
+  await expect(page.getByRole("status").getByText("Alterações salvas")).toBeVisible();
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("button", { name: "Gestão da fazenda" }).click();
+  await page.getByRole("tab", { name: /Cadastros/i }).click();
+  await page.getByRole("button", { name: "Animais", exact: true }).click();
+  await page.getByRole("button", { name: "Remover animal 551100" }).click();
+  await page.getByLabel("Brinco para confirmar remoção").fill("551100");
+  await page.getByRole("button", { name: "Remover desta edição" }).click();
+  await page.getByRole("button", { name: "Salvar e excluir 1 animal" }).click();
+  await expect(page.getByRole("status").getByText("Cadastro atualizado")).toBeVisible();
 });
 
 test("Romano consulta a agenda antes de escolher a fazenda", async ({ page }) => {

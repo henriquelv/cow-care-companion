@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/dominio/utils";
+import type { ActionToastData } from "@/componentes/comum/ActionToast";
 import { farmContextService } from "@/servicos/farm-context.service";
 import { syncService } from "@/servicos/sync.service";
 import {
@@ -174,10 +175,12 @@ export function AdminScreen({
   onCorrectVisit,
   onManageAnimals,
   onDataChanged,
+  onNotify,
 }: {
   onCorrectVisit?: (visit: Visit) => void;
   onManageAnimals?: () => void;
   onDataChanged?: () => void | Promise<void>;
+  onNotify?: (toast: ActionToastData) => void;
 }) {
   const context = farmContextService.getContext();
   const [unlocked, setUnlocked] = useState(() => adminService.isUnlocked());
@@ -507,6 +510,7 @@ export function AdminScreen({
     try {
       await adminService.action(action, payload);
       setNotice(success);
+      onNotify?.({ title: "Alteração concluída", message: success });
       await loadOverview();
       await loadTrash();
       return true;
@@ -514,6 +518,7 @@ export function AdminScreen({
       const message =
         caught instanceof Error ? caught.message : "Não foi possível concluir a ação.";
       setError(message);
+      onNotify?.({ title: "Ação não concluída", message, tone: "error" });
       if (message.includes("expirado")) setUnlocked(false);
       return false;
     } finally {
@@ -647,25 +652,29 @@ export function AdminScreen({
     setError("");
     setNotice("");
     try {
+      let successMessage = "";
       if (restoringData.kind === "visit") {
         await adminService.restoreVisit(restoringData.item.id, reason);
-        setNotice(`Visita do animal ${restoringData.item.tag} restaurada.`);
+        successMessage = `Visita do animal ${restoringData.item.tag} restaurada.`;
       } else {
         const result = await adminService.restoreAnimal(
           restoringData.item.farm_id,
           restoringData.item.tag,
           reason,
         );
-        setNotice(
-          `Animal ${restoringData.item.tag} restaurado com ${result.visits_restored ?? 0} visita(s).`,
-        );
+        successMessage = `Animal ${restoringData.item.tag} restaurado com ${result.visits_restored ?? 0} visita(s).`;
       }
+      setNotice(successMessage);
+      onNotify?.({ title: "Registro restaurado", message: successMessage });
       setRestoringData(null);
       setRestoreReason("");
       await syncService.syncAll();
       await Promise.all([loadOverview(), loadTrash(), onDataChanged?.()]);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Não foi possível restaurar o registro.");
+      const message =
+        caught instanceof Error ? caught.message : "Não foi possível restaurar o registro.";
+      setError(message);
+      onNotify?.({ title: "Restauração não concluída", message, tone: "error" });
     } finally {
       setLoading(false);
     }

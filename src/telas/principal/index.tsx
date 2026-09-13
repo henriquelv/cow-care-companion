@@ -159,6 +159,7 @@ import { canViewFinancial, tenantFeatures } from "@/configuracao/tenant-features
 import { limpingRequestService, type LimpingRequest } from "@/servicos/limping-request.service";
 import { AgendaStatusReport } from "@/componentes/agenda/AgendaStatusReport";
 import { ListSearch } from "@/componentes/comum/ListSearch";
+import { ActionToast, type ActionToastData } from "@/componentes/comum/ActionToast";
 import { workSessionService, type HoofWorkSession } from "@/servicos/work-session.service";
 
 const AdminScreen = lazy(() =>
@@ -227,6 +228,10 @@ type Screen =
   | { name: "profile" }
   | { name: "limping-request" };
 
+type ConfigSaveFeedback = {
+  removedAnimalTags?: string[];
+};
+
 function newDraft(tag = ""): Visit {
   const employeeName = farmContextService.getEmployeeName();
   return {
@@ -258,7 +263,8 @@ export function Index() {
   const [farmSwitchLoading, setFarmSwitchLoading] = useState(false);
   const [farmSwitchError, setFarmSwitchError] = useState("");
   const [homeFilters, setHomeFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ActionToastData | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const [activationMessage, setActivationMessage] = useState("");
   const [activeWorkSession, setActiveWorkSession] = useState<HoofWorkSession | null>(() =>
     workSessionService.getActive(),
@@ -301,11 +307,18 @@ export function Index() {
       const session = await workSessionService.start();
       setActiveWorkSession(session);
       setWorkSessionPrompt(null);
-      showToast("Visita à fazenda iniciada.");
+      showToast({
+        title: "Visita à fazenda iniciada",
+        message: "Os próximos animais ficarão agrupados nesta mesma visita.",
+      });
       void runSync();
       if (registerAfter) setScreen({ name: "register", tag });
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Não foi possível iniciar a visita.");
+      showToast({
+        title: "Visita não iniciada",
+        message: error instanceof Error ? error.message : "Tente novamente.",
+        tone: "error",
+      });
     } finally {
       setSessionActionLoading(false);
     }
@@ -317,10 +330,17 @@ export function Index() {
       await workSessionService.complete();
       setActiveWorkSession(null);
       setShowEndWorkSession(false);
-      showToast("Visita à fazenda encerrada e salva.");
+      showToast({
+        title: "Visita à fazenda encerrada",
+        message: `${activeSessionVisits.length} atendimento(s) registrado(s).`,
+      });
       void runSync();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Não foi possível encerrar a visita.");
+      showToast({
+        title: "Visita não encerrada",
+        message: error instanceof Error ? error.message : "Tente novamente.",
+        tone: "error",
+      });
     } finally {
       setSessionActionLoading(false);
     }
@@ -342,10 +362,21 @@ export function Index() {
     document.body.scrollTop = 0;
   }, [screen]);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+  function showToast(nextToast: string | ActionToastData) {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setToast(typeof nextToast === "string" ? { title: nextToast } : nextToast);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 4500);
   }
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    },
+    [],
+  );
 
   function openEdit(tag: string) {
     requestNewVisit(tag);
@@ -377,13 +408,18 @@ export function Index() {
         setAccessBlocked("");
       }
       setSyncInfo(result.ok ? "ok" : "error");
-      if (!result.ok && result.message) showToast(result.message);
+      if (!result.ok && result.message)
+        showToast({ title: "Sincronização pendente", message: result.message, tone: "warning" });
       if (result.ok) setFarm(loadFarm());
       refresh();
       return result.ok;
     } catch (error) {
       setSyncInfo("error");
-      showToast(error instanceof Error ? error.message : "Falha ao sincronizar.");
+      showToast({
+        title: "Falha ao sincronizar",
+        message: error instanceof Error ? error.message : "Tente novamente quando houver internet.",
+        tone: "error",
+      });
       return false;
     }
   }
@@ -410,7 +446,10 @@ export function Index() {
       setScreen({ name: "today" });
       setShowDeactivateConfirm(false);
       refresh();
-      showToast(`Fazenda alterada para ${nextContext.farm_name}.`);
+      showToast({
+        title: "Fazenda alterada",
+        message: `Agora você está trabalhando em ${nextContext.farm_name}.`,
+      });
       if (navigator.onLine) void runSync();
     } catch (error) {
       setFarmSwitchError(
@@ -656,12 +695,25 @@ export function Index() {
               refresh();
               showToast(
                 !synchronized
-                  ? "Visita salva neste aparelho. A sincronização continua pendente."
+                  ? {
+                      title: "Visita salva no aparelho",
+                      message: "O envio para a equipe acontecerá quando a internet voltar.",
+                      tone: "warning",
+                    }
                   : animalCreated
-                    ? `Visita salva. Animal ${v.tag.trim()} cadastrado automaticamente.`
+                    ? {
+                        title: "Visita salva",
+                        message: `Animal ${v.tag.trim()} cadastrado automaticamente.`,
+                      }
                     : completedVisit.preventivo
-                      ? `Preventivo salvo. Próximo em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.`
-                      : "Visita registrada com sucesso!",
+                      ? {
+                          title: "Preventivo salvo",
+                          message: `Próximo casqueamento em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.`,
+                        }
+                      : {
+                          title: "Visita registrada",
+                          message: `Atendimento do animal ${v.tag.trim()} concluído.`,
+                        },
               );
               goToday();
             }}
@@ -697,8 +749,15 @@ export function Index() {
               const synced = await runSync();
               showToast(
                 synced
-                  ? "Solicitação enviada para a agenda."
-                  : "Solicitação salva neste aparelho. Envio à equipe pendente.",
+                  ? {
+                      title: "Solicitação enviada",
+                      message: "O animal já aparece na agenda compartilhada.",
+                    }
+                  : {
+                      title: "Solicitação salva no aparelho",
+                      message: "O envio para a equipe acontecerá quando a internet voltar.",
+                      tone: "warning",
+                    },
               );
               setScreen({ name: "calendar" });
             }}
@@ -727,16 +786,64 @@ export function Index() {
             initialSection={screen.section}
             initialRegistry={screen.registry}
             initialFocus={screen.focus}
-            onSave={(f) => {
-              saveFarm(f);
-              setFarm(f);
-              showToast("Alterações da fazenda salvas com sucesso.");
+            onSave={async (f, feedback) => {
+              const removedAnimalTags = feedback?.removedAnimalTags ?? [];
+              const usesAuditTrash = removedAnimalTags.length > 0 && isSupabaseConfigured;
+              if (usesAuditTrash) {
+                if (!navigator.onLine) {
+                  throw new Error(
+                    "Conecte o aparelho à internet para excluir e enviar o animal à lixeira.",
+                  );
+                }
+                if (!appContext?.farm_id) throw new Error("Fazenda atual não identificada.");
+                for (const tag of removedAnimalTags) {
+                  await adminService.action("remove_animal", {
+                    farm_id: appContext.farm_id,
+                    tag,
+                    reason: "Exclusão confirmada no cadastro de animais",
+                  });
+                }
+              }
+
+              await saveFarm(f, {
+                animalRemovalsHandledByAdmin: usesAuditTrash,
+              });
+              const synchronized = await runSync();
+              setFarm(loadFarm());
+              showToast(
+                usesAuditTrash
+                  ? {
+                      title:
+                        removedAnimalTags.length === 1
+                          ? "Animal excluído"
+                          : `${removedAnimalTags.length} animais excluídos`,
+                      message: "A exclusão foi salva e pode ser desfeita na lixeira por 30 dias.",
+                    }
+                  : removedAnimalTags.length > 0
+                    ? {
+                        title: "Cadastro atualizado",
+                        message: "O animal foi removido deste aparelho em modo local.",
+                      }
+                    : synchronized
+                      ? {
+                          title: "Alterações salvas",
+                          message: "Os dados da fazenda foram enviados aos outros aparelhos.",
+                        }
+                      : {
+                          title: "Alterações salvas no aparelho",
+                          message: "O envio acontecerá quando a internet voltar.",
+                          tone: "warning",
+                        },
+              );
               goToday();
             }}
             onImport={() => {
               setFarm(loadFarm());
               refresh();
-              showToast("Backup importado neste aparelho.");
+              showToast({
+                title: "Backup importado",
+                message: "Os dados foram carregados neste aparelho.",
+              });
               goToday();
             }}
           />
@@ -751,6 +858,7 @@ export function Index() {
             }
           >
             <AdminScreen
+              onNotify={showToast}
               onCorrectVisit={(visit) =>
                 setScreen({ name: "register", tag: visit.tag, correctionOf: visit.id })
               }
@@ -1042,17 +1150,7 @@ export function Index() {
         </div>
       ) : null}
 
-      {/* Toast */}
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] left-4 right-4 z-50 flex items-center gap-3 rounded-2xl bg-foreground/95 px-4 py-3.5 text-background shadow-2xl"
-        >
-          <CheckCircle2 className="h-5 w-5 shrink-0 text-good" aria-hidden="true" />
-          <p className="font-display text-sm uppercase">{toast}</p>
-        </div>
-      )}
+      {toast ? <ActionToast toast={toast} onClose={() => setToast(null)} /> : null}
     </div>
   );
 }
@@ -7252,7 +7350,7 @@ function ConfigScreen({
   initialSection?: "dados" | "cadastros" | "avancado";
   initialRegistry?: "lotes" | "animais";
   initialFocus?: "pricing";
-  onSave: (f: FarmConfig) => void;
+  onSave: (f: FarmConfig, feedback?: ConfigSaveFeedback) => void | Promise<void>;
   onImport: () => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
@@ -7265,6 +7363,8 @@ function ConfigScreen({
   const [managerPin, setManagerPin] = useState("");
   const [managerError, setManagerError] = useState("");
   const [managerLoading, setManagerLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configSaveError, setConfigSaveError] = useState("");
   const [backupError, setBackupError] = useState("");
   const [configTab, setConfigTab] = useState<"dados" | "cadastros" | "avancado">(
     initialSection ?? "dados",
@@ -7506,6 +7606,20 @@ function ConfigScreen({
     };
   }
 
+  async function persistFarm(nextFarm = currentFarm(), feedback?: ConfigSaveFeedback) {
+    setConfigSaving(true);
+    setConfigSaveError("");
+    try {
+      await onSave(nextFarm, feedback);
+    } catch (error) {
+      setConfigSaveError(
+        error instanceof Error ? error.message : "Não foi possível salvar as alterações.",
+      );
+    } finally {
+      setConfigSaving(false);
+    }
+  }
+
   function handleExport() {
     const blob = new Blob([exportBackupJson()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -7675,6 +7789,14 @@ function ConfigScreen({
           Revise campos vazios ou repetidos antes de salvar.
         </p>
       )}
+      {configSaveError ? (
+        <p
+          role="alert"
+          className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-semibold text-danger"
+        >
+          {configSaveError}
+        </p>
+      ) : null}
 
       {/* ── TAB: DADOS ── */}
       {configTab === "dados" && (
@@ -7708,14 +7830,21 @@ function ConfigScreen({
             </label>
           </div>
           <button
-            disabled={!valid}
-            onClick={() => onSave(currentFarm())}
+            disabled={!valid || configSaving}
+            onClick={() => void persistFarm()}
             className={cn(
               "tap-lg w-full rounded-2xl font-display text-2xl uppercase py-5",
               valid ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
             )}
           >
-            💾 Salvar
+            <span className="flex items-center justify-center gap-2">
+              {configSaving ? (
+                <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Save className="h-5 w-5" aria-hidden="true" />
+              )}
+              {configSaving ? "Salvando..." : "Salvar informações"}
+            </span>
           </button>
         </div>
       )}
@@ -7799,12 +7928,17 @@ function ConfigScreen({
                 </button>
               </div>
               <button
-                disabled={!valid}
-                onClick={() => onSave(currentFarm())}
+                disabled={!valid || configSaving}
+                onClick={() => void persistFarm()}
                 className="tap-lg w-full rounded-xl bg-primary py-4 font-display uppercase text-primary-foreground disabled:opacity-50"
               >
                 <span className="flex items-center justify-center gap-2">
-                  <Save className="h-5 w-5" /> Salvar lotes
+                  {configSaving ? (
+                    <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Save className="h-5 w-5" aria-hidden="true" />
+                  )}
+                  {configSaving ? "Salvando..." : "Salvar lotes"}
                 </span>
               </button>
             </section>
@@ -7985,20 +8119,38 @@ function ConfigScreen({
                 </div>
               </div>
               <button
-                disabled={!valid}
-                onClick={() => onSave(currentFarm())}
+                disabled={!valid || configSaving}
+                onClick={() =>
+                  void persistFarm(currentFarm(), {
+                    removedAnimalTags: removedAnimals
+                      .map(({ animal }) => animal.tag)
+                      .filter((tag) =>
+                        farm.animais.some(
+                          (savedAnimal) =>
+                            savedAnimal.tag.trim().toLocaleLowerCase("pt-BR") ===
+                            tag.trim().toLocaleLowerCase("pt-BR"),
+                        ),
+                      ),
+                  })
+                }
                 className={cn(
                   "tap-lg mb-28 w-full rounded-lg py-4 font-display text-lg font-black uppercase text-primary-foreground disabled:opacity-50 sm:mb-0",
                   removedAnimals.length > 0 ? "bg-danger" : "bg-primary",
                 )}
               >
                 <span className="flex items-center justify-center gap-2">
-                  <Save className="h-5 w-5" aria-hidden="true" />
-                  {removedAnimals.length > 0
-                    ? removedAnimals.length === 1
-                      ? "Salvar e excluir 1 animal"
-                      : `Salvar e excluir ${removedAnimals.length} animais`
-                    : "Salvar cadastro de animais"}
+                  {configSaving ? (
+                    <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Save className="h-5 w-5" aria-hidden="true" />
+                  )}
+                  {configSaving
+                    ? "Salvando..."
+                    : removedAnimals.length > 0
+                      ? removedAnimals.length === 1
+                        ? "Salvar e excluir 1 animal"
+                        : `Salvar e excluir ${removedAnimals.length} animais`
+                      : "Salvar cadastro de animais"}
                 </span>
               </button>
             </section>
@@ -8295,21 +8447,26 @@ function ConfigScreen({
               <PricingEditor
                 pricing={farm.pricing}
                 catalog={diseases}
-                saving={false}
-                onSave={async (pricing) => onSave({ ...currentFarm(), pricing })}
+                saving={configSaving}
+                onSave={async (pricing) => persistFarm({ ...currentFarm(), pricing })}
               />
             </section>
           ) : null}
           <button
-            disabled={!valid}
-            onClick={() => onSave(currentFarm())}
+            disabled={!valid || configSaving}
+            onClick={() => void persistFarm()}
             className={cn(
               "tap-lg w-full rounded-2xl font-display text-2xl uppercase py-5",
               valid ? "bg-primary text-primary-foreground stamp" : "bg-muted text-muted-foreground",
             )}
           >
             <span className="flex items-center justify-center gap-2">
-              <Save className="h-5 w-5" /> Salvar regras
+              {configSaving ? (
+                <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Save className="h-5 w-5" aria-hidden="true" />
+              )}
+              {configSaving ? "Salvando..." : "Salvar regras"}
             </span>
           </button>
           <section className="rounded-2xl bg-card p-5 stamp space-y-3">

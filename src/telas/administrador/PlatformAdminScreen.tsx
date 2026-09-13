@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  Activity,
   Building2,
   CalendarDays,
+  CheckCircle2,
   CircleDollarSign,
   ChevronLeft,
   CircleAlert,
+  ClipboardCopy,
+  Database,
+  HardDrive,
   KeyRound,
   LoaderCircle,
   LockKeyhole,
@@ -14,19 +19,25 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Server,
   Eye,
   EyeOff,
   UserCog,
   Users,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { cn } from "@/dominio/utils";
 import { ListSearch } from "@/componentes/comum/ListSearch";
+import { ActionToast } from "@/componentes/comum/ActionToast";
 import {
   platformAdminService,
   type PlatformClient,
   type PlatformEmployee,
   type PlatformFarm,
   type PlatformFarmSelection,
+  type PlatformDiagnostics,
+  type PlatformLocalDiagnostics,
   type PlatformOverview,
 } from "@/servicos/platform-admin.service";
 
@@ -51,6 +62,20 @@ const emptyEmployeeForm: EmployeeForm = {
 function statusLabel(status: string) {
   return status === "active" ? "Ativo" : status === "blocked" ? "Bloqueado" : "Expirado";
 }
+
+const DIAGNOSTIC_LABELS: Record<string, string> = {
+  manager_session_started: "Acesso administrativo confirmado",
+  create_farm: "Fazenda criada",
+  update_farm: "Fazenda atualizada",
+  create_employee: "Funcionário criado",
+  update_employee: "Funcionário atualizado",
+  edit_employee: "Cadastro do funcionário atualizado",
+  reset_employee_pin: "PIN de funcionário redefinido",
+  cancel_visit: "Visita enviada para a lixeira",
+  remove_animal: "Animal enviado para a lixeira",
+  restore_visit: "Visita restaurada",
+  restore_animal: "Animal restaurado",
+};
 
 export function PlatformAdminScreen({
   onExit,
@@ -83,6 +108,12 @@ export function PlatformAdminScreen({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [listSearch, setListSearch] = useState("");
+  const [diagnostics, setDiagnostics] = useState<PlatformDiagnostics | null>(null);
+  const [localDiagnostics, setLocalDiagnostics] = useState<PlatformLocalDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState("");
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [confirmSessionRepair, setConfirmSessionRepair] = useState(false);
 
   const selectedClient = useMemo(
     () =>
@@ -139,9 +170,39 @@ export function PlatformAdminScreen({
     }
   }
 
+  async function runDiagnostics() {
+    setDiagnosticsLoading(true);
+    setDiagnosticsError("");
+    try {
+      const local = await platformAdminService.localDiagnostics();
+      setLocalDiagnostics(local);
+      setDiagnostics(await platformAdminService.diagnostics());
+    } catch (reason) {
+      setDiagnosticsError(
+        reason instanceof Error ? reason.message : "Não foi possível verificar o sistema.",
+      );
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    if (unlocked) void refresh();
+    if (!unlocked) return;
+    void refresh();
+    void runDiagnostics();
   }, [unlocked]);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    const timer = window.setInterval(() => void runDiagnostics(), 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [unlocked]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(""), 4500);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   async function unlock(event: FormEvent) {
     event.preventDefault();
@@ -175,6 +236,54 @@ export function PlatformAdminScreen({
 
   function farmName(farmId: string) {
     return overview?.farms.find((farm) => farm.id === farmId)?.name ?? "Sem fazenda";
+  }
+
+  async function copyDiagnostics() {
+    if (!diagnostics || !localDiagnostics) return;
+    const summary = {
+      checked_at: diagnostics.checked_at,
+      project_ref: localDiagnostics.projectRef,
+      server_status: diagnostics.server_status,
+      response_ms: diagnostics.response_ms,
+      counts: diagnostics.counts,
+      integrity: diagnostics.integrity,
+      local: {
+        online: localDiagnostics.online,
+        service_worker_active: localDiagnostics.serviceWorkerActive,
+        last_sync_at: localDiagnostics.lastSyncAt,
+        pending_items: localDiagnostics.pendingItems,
+        error_items: localDiagnostics.errorItems,
+      },
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(summary, null, 2));
+      setMessage("Diagnóstico copiado sem senhas ou chaves de acesso.");
+    } catch {
+      setDiagnosticsError(
+        "O navegador não permitiu copiar. Tente novamente em uma conexão segura.",
+      );
+    }
+  }
+
+  async function repairStaleWorkSessions() {
+    setDiagnosticsLoading(true);
+    setDiagnosticsError("");
+    try {
+      const result = await platformAdminService.closeStaleWorkSessions();
+      setConfirmSessionRepair(false);
+      setMessage(
+        result.repairedCount === 1
+          ? "1 sessão antiga foi encerrada sem apagar atendimentos."
+          : `${result.repairedCount} sessões antigas foram encerradas sem apagar atendimentos.`,
+      );
+      await runDiagnostics();
+    } catch (reason) {
+      setDiagnosticsError(
+        reason instanceof Error ? reason.message : "Não foi possível concluir a correção.",
+      );
+    } finally {
+      setDiagnosticsLoading(false);
+    }
   }
 
   async function openFarm(
@@ -217,7 +326,9 @@ export function PlatformAdminScreen({
             <label className="block text-xs font-bold uppercase text-muted-foreground">
               PIN da conta mestra
               <input
-                autoFocus
+                name="platform-pin"
+                autoComplete="off"
+                aria-label="PIN da conta mestra"
                 inputMode="numeric"
                 maxLength={6}
                 value={pin}
@@ -297,11 +408,328 @@ export function PlatformAdminScreen({
             {error}
           </p>
         ) : null}
-        {message ? (
-          <p role="status" className="rounded-xl bg-good/10 px-4 py-3 text-sm font-bold text-good">
-            {message}
-          </p>
-        ) : null}
+        <section
+          className="rounded-lg border-2 border-border bg-card p-4"
+          aria-labelledby="system-health-title"
+        >
+          <div className="flex flex-wrap items-start gap-3">
+            <span
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
+                diagnostics && diagnostics.issues_total === 0 && !diagnosticsError
+                  ? "bg-good/10 text-good"
+                  : diagnosticsError
+                    ? "bg-danger/10 text-danger"
+                    : "bg-warn/15 text-warn-foreground",
+              )}
+            >
+              <Activity className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase text-muted-foreground">
+                Exclusivo da conta 000
+              </p>
+              <h2 id="system-health-title" className="font-display text-lg font-black uppercase">
+                Central de saúde do sistema
+              </h2>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                Servidor, sincronização deste aparelho e integridade dos dados.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void runDiagnostics()}
+              disabled={diagnosticsLoading}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border-2 border-border bg-surface px-3 text-xs font-black uppercase disabled:opacity-50 sm:w-auto"
+            >
+              <RefreshCw
+                className={cn("h-4 w-4", diagnosticsLoading && "animate-spin")}
+                aria-hidden="true"
+              />
+              Verificar
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-surface text-center">
+            <div className="min-w-0 px-2 py-3">
+              <Server
+                className={cn("mx-auto h-5 w-5", diagnosticsError ? "text-danger" : "text-good")}
+                aria-hidden="true"
+              />
+              <strong className="mt-1 block text-xs uppercase">
+                {diagnosticsError ? "Falha" : diagnostics ? "Online" : "Verificando"}
+              </strong>
+              <span className="block text-[9px] uppercase text-muted-foreground">Servidor</span>
+            </div>
+            <div className="min-w-0 px-2 py-3">
+              {localDiagnostics?.online === false ? (
+                <WifiOff className="mx-auto h-5 w-5 text-warn-foreground" aria-hidden="true" />
+              ) : (
+                <Wifi className="mx-auto h-5 w-5 text-good" aria-hidden="true" />
+              )}
+              <strong className="mt-1 block text-xs uppercase">
+                {localDiagnostics
+                  ? `${localDiagnostics.pendingItems + localDiagnostics.errorItems} pendência(s)`
+                  : "Verificando"}
+              </strong>
+              <span className="block text-[9px] uppercase text-muted-foreground">
+                Este aparelho
+              </span>
+            </div>
+            <div className="min-w-0 px-2 py-3">
+              {!diagnostics ? (
+                <LoaderCircle
+                  className="mx-auto h-5 w-5 animate-spin text-muted-foreground"
+                  aria-hidden="true"
+                />
+              ) : diagnostics.issues_total === 0 ? (
+                <CheckCircle2 className="mx-auto h-5 w-5 text-good" aria-hidden="true" />
+              ) : (
+                <CircleAlert className="mx-auto h-5 w-5 text-danger" aria-hidden="true" />
+              )}
+              <strong className="mt-1 block text-xs uppercase">
+                {diagnostics ? diagnostics.issues_total : "—"}
+              </strong>
+              <span className="block text-[9px] uppercase text-muted-foreground">
+                Alertas de dados
+              </span>
+            </div>
+          </div>
+
+          {diagnosticsError ? (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg bg-danger/10 p-3 text-sm font-semibold text-danger"
+            >
+              {diagnosticsError} Confira a internet e execute a verificação novamente.
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => setShowDiagnostics((current) => !current)}
+            aria-expanded={showDiagnostics}
+            className="mt-3 min-h-11 w-full rounded-lg bg-primary/10 px-3 text-sm font-black uppercase text-primary"
+          >
+            {showDiagnostics ? "Ocultar detalhes" : "Ver processos e erros"}
+          </button>
+
+          {showDiagnostics ? (
+            <div className="mt-4 space-y-4 border-t border-border pt-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg bg-surface p-3">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4 text-primary" aria-hidden="true" />
+                    <h3 className="font-display text-sm font-black uppercase">Supabase</h3>
+                  </div>
+                  <dl className="mt-2 space-y-1 text-xs">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Projeto</dt>
+                      <dd className="break-all text-right font-bold" translate="no">
+                        {localDiagnostics?.projectRef ?? "Verificando"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Resposta</dt>
+                      <dd className="font-bold tabular-nums">
+                        {diagnostics ? `${diagnostics.response_ms} ms` : "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Última verificação</dt>
+                      <dd className="text-right font-bold tabular-nums">
+                        {diagnostics
+                          ? new Intl.DateTimeFormat("pt-BR", {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            }).format(new Date(diagnostics.checked_at))
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+                <div className="rounded-lg bg-surface p-3">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="h-4 w-4 text-primary" aria-hidden="true" />
+                    <h3 className="font-display text-sm font-black uppercase">Aplicativo local</h3>
+                  </div>
+                  <dl className="mt-2 space-y-1 text-xs">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Modo offline pronto</dt>
+                      <dd className="font-bold">
+                        {localDiagnostics?.serviceWorkerActive ? "Sim" : "Ainda não"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Última sincronização</dt>
+                      <dd className="text-right font-bold tabular-nums">
+                        {localDiagnostics?.lastSyncAt
+                          ? new Intl.DateTimeFormat("pt-BR", {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            }).format(new Date(localDiagnostics.lastSyncAt))
+                          : "Nunca neste aparelho"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Armazenamento usado</dt>
+                      <dd className="font-bold tabular-nums">
+                        {localDiagnostics?.storageUsedMb === undefined
+                          ? "—"
+                          : `${localDiagnostics.storageUsedMb} MB`}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <section aria-labelledby="integrity-title">
+                <h3 id="integrity-title" className="font-display text-sm font-black uppercase">
+                  Conferências automáticas
+                </h3>
+                <div className="mt-2 divide-y divide-border rounded-lg border border-border">
+                  {[
+                    ["Visitas sem animal cadastrado", diagnostics?.integrity.visits_without_animal],
+                    [
+                      "Visitas sem os 4 cascos avaliados",
+                      diagnostics?.integrity.visits_incomplete_feet,
+                    ],
+                    ["Cascos vinculados à fazenda errada", diagnostics?.integrity.feet_wrong_farm],
+                    [
+                      "Funcionários ativos sem fazenda",
+                      diagnostics?.integrity.employees_without_farm,
+                    ],
+                    [
+                      "Visitas à fazenda abertas há mais de 12 h",
+                      diagnostics?.integrity.work_sessions_stale,
+                    ],
+                    ["Fazendas ativas sem licença válida", diagnostics?.counts.licenses_invalid],
+                  ].map(([label, value]) => (
+                    <div
+                      key={String(label)}
+                      className="flex items-center gap-3 px-3 py-2.5 text-sm"
+                    >
+                      {value === 0 ? (
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-good" aria-hidden="true" />
+                      ) : (
+                        <CircleAlert className="h-4 w-4 shrink-0 text-danger" aria-hidden="true" />
+                      )}
+                      <span className="min-w-0 flex-1">{label}</span>
+                      <strong className="tabular-nums">{value ?? "—"}</strong>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Casco normal também conta como avaliado. O alerta aparece somente quando falta o
+                  registro de FE, FD, TE ou TD.
+                </p>
+                {(diagnostics?.integrity.work_sessions_stale ?? 0) > 0 ? (
+                  <div className="mt-3 rounded-lg border-2 border-warn bg-warn/10 p-3">
+                    <p className="text-sm font-bold text-foreground">
+                      Existem visitas à fazenda esquecidas em andamento.
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      A correção encerra somente sessões abertas há mais de 12 horas. Os
+                      atendimentos realizados não são apagados.
+                    </p>
+                    {confirmSessionRepair ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmSessionRepair(false)}
+                          disabled={diagnosticsLoading}
+                          className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-xs font-black uppercase"
+                        >
+                          Manter abertas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void repairStaleWorkSessions()}
+                          disabled={diagnosticsLoading}
+                          className="min-h-11 rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground disabled:opacity-50"
+                        >
+                          Confirmar correção
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmSessionRepair(true)}
+                        className="mt-3 min-h-11 w-full rounded-lg bg-primary px-3 text-xs font-black uppercase text-primary-foreground"
+                      >
+                        Corrigir sessões antigas
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </section>
+
+              {localDiagnostics?.errorMessages.length ? (
+                <section aria-labelledby="local-errors-title">
+                  <h3 id="local-errors-title" className="font-display text-sm font-black uppercase">
+                    Erros de sincronização deste aparelho
+                  </h3>
+                  <ul className="mt-2 space-y-2">
+                    {localDiagnostics.errorMessages.map((errorMessage) => (
+                      <li
+                        key={errorMessage}
+                        className="break-words rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger"
+                      >
+                        {errorMessage}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              <section aria-labelledby="recent-events-title">
+                <div className="flex items-center justify-between gap-3">
+                  <h3
+                    id="recent-events-title"
+                    className="font-display text-sm font-black uppercase"
+                  >
+                    Processos administrativos recentes
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => void copyDiagnostics()}
+                    disabled={!diagnostics || !localDiagnostics}
+                    className="flex min-h-10 shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-[10px] font-black uppercase disabled:opacity-50"
+                  >
+                    <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
+                    Copiar
+                  </button>
+                </div>
+                {diagnostics?.recent_events.length ? (
+                  <ol className="mt-2 divide-y divide-border rounded-lg border border-border">
+                    {diagnostics.recent_events.slice(0, 8).map((event, index) => (
+                      <li
+                        key={`${event.created_at}:${event.action}:${index}`}
+                        className="px-3 py-2.5"
+                      >
+                        <p className="text-sm font-bold">
+                          {DIAGNOSTIC_LABELS[event.action] ?? event.action.replaceAll("_", " ")}
+                        </p>
+                        <p className="mt-0.5 break-words text-[11px] text-muted-foreground">
+                          {event.client_name ?? "Sistema"}
+                          {event.employee_name ? ` · ${event.employee_name}` : ""} ·{" "}
+                          {new Intl.DateTimeFormat("pt-BR", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          }).format(new Date(event.created_at))}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="mt-2 rounded-lg bg-surface p-3 text-sm text-muted-foreground">
+                    Nenhum processo administrativo recente.
+                  </p>
+                )}
+              </section>
+            </div>
+          ) : null}
+        </section>
 
         <ListSearch
           value={listSearch}
@@ -433,6 +861,9 @@ export function PlatformAdminScreen({
                 }}
               >
                 <input
+                  name="new-farm-name"
+                  autoComplete="off"
+                  aria-label="Nome da nova fazenda"
                   value={newFarmName}
                   onChange={(event) => setNewFarmName(event.target.value)}
                   placeholder="Nome da nova fazenda"
@@ -559,6 +990,9 @@ export function PlatformAdminScreen({
                 <p className="font-display text-sm font-black uppercase">Novo funcionário</p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <input
+                    name="employee-name"
+                    autoComplete="name"
+                    aria-label="Nome completo do funcionário"
                     value={employeeForm.name}
                     onChange={(event) =>
                       setEmployeeForm((form) => ({ ...form, name: event.target.value }))
@@ -567,6 +1001,9 @@ export function PlatformAdminScreen({
                     className="min-h-12 rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
                   />
                   <input
+                    name="employee-login"
+                    autoComplete="username"
+                    aria-label="Login do funcionário"
                     value={employeeForm.login_name}
                     onChange={(event) =>
                       setEmployeeForm((form) => ({ ...form, login_name: event.target.value }))
@@ -575,6 +1012,9 @@ export function PlatformAdminScreen({
                     className="min-h-12 rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
                   />
                   <input
+                    name="employee-code"
+                    autoComplete="off"
+                    aria-label="Código do funcionário"
                     value={employeeForm.employee_code}
                     onChange={(event) =>
                       setEmployeeForm((form) => ({ ...form, employee_code: event.target.value }))
@@ -583,6 +1023,9 @@ export function PlatformAdminScreen({
                     className="min-h-12 rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
                   />
                   <input
+                    name="employee-pin"
+                    autoComplete="off"
+                    aria-label="PIN inicial do funcionário"
                     inputMode="numeric"
                     maxLength={6}
                     value={employeeForm.pin}
@@ -596,6 +1039,8 @@ export function PlatformAdminScreen({
                     className="min-h-12 rounded-lg border-2 border-border bg-card px-3 text-center font-bold outline-none focus:border-primary"
                   />
                   <select
+                    name="employee-farm"
+                    aria-label="Fazenda do funcionário"
                     value={employeeForm.farm_id}
                     onChange={(event) =>
                       setEmployeeForm((form) => ({ ...form, farm_id: event.target.value }))
@@ -647,6 +1092,13 @@ export function PlatformAdminScreen({
         )}
       </div>
 
+      {message ? (
+        <ActionToast
+          toast={{ title: "Alteração concluída", message }}
+          onClose={() => setMessage("")}
+        />
+      ) : null}
+
       {resetTarget ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/45 p-3 sm:items-center"
@@ -665,7 +1117,9 @@ export function PlatformAdminScreen({
             </p>
             <div className="relative mt-4">
               <input
-                autoFocus
+                name="reset-employee-pin"
+                autoComplete="off"
+                aria-label={`Novo PIN de ${resetTarget.name}`}
                 type={showResetPin ? "text" : "password"}
                 inputMode="numeric"
                 maxLength={6}
@@ -727,7 +1181,8 @@ export function PlatformAdminScreen({
             <label className="mt-4 block text-xs font-bold uppercase text-muted-foreground">
               Nome da fazenda
               <input
-                autoFocus
+                name="edit-farm-name"
+                autoComplete="off"
                 value={editingFarmName}
                 onChange={(event) => setEditingFarmName(event.target.value)}
                 className="mt-2 min-h-14 w-full rounded-xl border-2 border-border bg-surface px-4 text-base font-bold outline-none focus:border-primary"
@@ -774,7 +1229,9 @@ export function PlatformAdminScreen({
             <h2 className="font-display text-lg font-black uppercase">Editar funcionário</h2>
             <div className="mt-4 space-y-2">
               <input
-                autoFocus
+                name="edit-employee-name"
+                autoComplete="name"
+                aria-label="Nome do funcionário"
                 value={editingEmployeeForm.name}
                 onChange={(event) =>
                   setEditingEmployeeForm((form) => ({ ...form, name: event.target.value }))
@@ -783,6 +1240,9 @@ export function PlatformAdminScreen({
                 className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary"
               />
               <input
+                name="edit-employee-login"
+                autoComplete="username"
+                aria-label="Login do funcionário"
                 value={editingEmployeeForm.login_name}
                 onChange={(event) =>
                   setEditingEmployeeForm((form) => ({ ...form, login_name: event.target.value }))
@@ -791,6 +1251,9 @@ export function PlatformAdminScreen({
                 className="min-h-12 w-full rounded-xl border-2 border-border bg-surface px-3 font-bold outline-none focus:border-primary"
               />
               <input
+                name="edit-employee-code"
+                autoComplete="off"
+                aria-label="Código do funcionário"
                 value={editingEmployeeForm.employee_code}
                 onChange={(event) =>
                   setEditingEmployeeForm((form) => ({ ...form, employee_code: event.target.value }))
