@@ -245,6 +245,14 @@ test("funcionário gera o próprio PDF detalhado", async ({ page }, testInfo) =>
   await expect(page.getByRole("button", { name: "Abrir relatório da equipe" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Comparativo mensal" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Detalhes do trabalho" })).toBeVisible();
+  await page.getByRole("button", { name: "Relatório", exact: true }).click();
+  const reviewPreset = page.getByRole("button", { name: "Revisões deste mês" });
+  const monthPreset = page.getByRole("button", { name: "Fechamento deste mês" });
+  const reviewCategory = page.getByRole("button", { name: "Com revisão", exact: true });
+  await reviewPreset.click();
+  await expect(reviewCategory).toHaveAttribute("aria-pressed", "true");
+  await monthPreset.click();
+  await expect(reviewCategory).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("tab", { name: "Pés" }).click();
   await expect(page.getByText(/casco\(s\) com doença ou ação de taco/i)).toBeVisible();
   await page.getByRole("tab", { name: "Animais" }).click();

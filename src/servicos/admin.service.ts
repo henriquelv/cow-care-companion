@@ -52,6 +52,37 @@ export interface AdminAuditEntry {
   created_at: string;
 }
 
+export interface AdminTrashVisit {
+  id: string;
+  farm_id: string;
+  farm_name: string;
+  tag: string;
+  visit_date: string;
+  employee_name?: string | null;
+  reason?: string | null;
+  cancelled_at: string;
+  cancelled_by_name?: string | null;
+  scope?: "visit" | "animal" | null;
+}
+
+export interface AdminTrashAnimal {
+  farm_id: string;
+  farm_name: string;
+  tag: string;
+  lote?: string | null;
+  sex?: string | null;
+  removed_at: string;
+  reason?: string | null;
+  cancelled_by_name?: string | null;
+  visits_cancelled: number;
+}
+
+export interface AdminTrash {
+  retention_days: number;
+  visits: AdminTrashVisit[];
+  animals: AdminTrashAnimal[];
+}
+
 export interface AdminOverview {
   farms: AdminFarm[];
   employees: AdminEmployee[];
@@ -183,6 +214,58 @@ export const adminService = {
       licenses: result.licenses ?? [],
       audit: result.audit ?? [],
     };
+  },
+
+  async trash(): Promise<AdminTrash> {
+    const { data, error } = await requireSupabase().rpc("hoof_admin_trash", {
+      p_manager_token: managerTokenOrThrow(),
+    });
+    if (error) {
+      if (rpcUnavailable(error)) {
+        throw new Error("A atualização da lixeira ainda não foi aplicada no servidor.");
+      }
+      throw new Error("Não foi possível carregar a lixeira.");
+    }
+    const result = data as ({ ok?: boolean; message?: string } & Partial<AdminTrash>) | null;
+    if (!result?.ok) {
+      if (result?.message?.includes("expirado")) this.clear();
+      throw new Error(result?.message || "Não foi possível carregar a lixeira.");
+    }
+    return {
+      retention_days: result.retention_days ?? 30,
+      visits: result.visits ?? [],
+      animals: result.animals ?? [],
+    };
+  },
+
+  async restoreVisit(visitId: string, reason: string) {
+    const { data, error } = await requireSupabase().rpc("hoof_admin_restore_visit", {
+      p_manager_token: managerTokenOrThrow(),
+      p_visit_id: visitId,
+      p_reason: reason,
+    });
+    if (error) throw new Error("Não foi possível restaurar a visita.");
+    const result = data as { ok?: boolean; message?: string; id?: string } | null;
+    if (!result?.ok) throw new Error(result?.message || "Não foi possível restaurar a visita.");
+    return result;
+  },
+
+  async restoreAnimal(farmId: string, tag: string, reason: string) {
+    const { data, error } = await requireSupabase().rpc("hoof_admin_restore_animal", {
+      p_manager_token: managerTokenOrThrow(),
+      p_farm_id: farmId,
+      p_tag: tag,
+      p_reason: reason,
+    });
+    if (error) throw new Error("Não foi possível restaurar o animal.");
+    const result = data as {
+      ok?: boolean;
+      message?: string;
+      id?: string;
+      visits_restored?: number;
+    } | null;
+    if (!result?.ok) throw new Error(result?.message || "Não foi possível restaurar o animal.");
+    return result;
   },
 
   async action(action: string, payload: Record<string, unknown>) {

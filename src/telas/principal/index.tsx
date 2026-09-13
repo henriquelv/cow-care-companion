@@ -6466,6 +6466,9 @@ function EmployeeWorkScreen({
 }) {
   const context = farmContextService.getContext();
   const today = todayISO();
+  const productionRef = useRef<HTMLElement>(null);
+  const reportRef = useRef<HTMLElement>(null);
+  const securityRef = useRef<HTMLElement>(null);
   const [reportFrom, setReportFrom] = useState(`${today.slice(0, 7)}-01`);
   const [reportTo, setReportTo] = useState(today);
   const [reportStatuses, setReportStatuses] = useState<VisitReportStatus[]>([]);
@@ -6622,6 +6625,14 @@ function EmployeeWorkScreen({
     setReportTag("");
   }
 
+  function applyReportPreset(preset: "month" | "reviews" | "severe") {
+    setReportFrom(`${today.slice(0, 7)}-01`);
+    setReportTo(today);
+    setReportLote("");
+    setReportTag("");
+    setReportStatuses(preset === "reviews" ? ["recheck"] : preset === "severe" ? ["severe"] : []);
+  }
+
   async function handlePinChange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPinStatus(null);
@@ -6704,6 +6715,29 @@ function EmployeeWorkScreen({
         </div>
       </section>
 
+      <nav className="grid grid-cols-3 gap-2" aria-label="Atalhos do meu trabalho">
+        {[
+          { label: "Produção", icon: Activity, ref: productionRef },
+          { label: "Relatório", icon: FileText, ref: reportRef },
+          { label: "Segurança", icon: KeyRound, ref: securityRef },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() =>
+                item.ref.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
+              className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-card px-2 text-xs font-black uppercase text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+
       {financialAllowed ? (
         <button
           type="button"
@@ -6728,7 +6762,7 @@ function EmployeeWorkScreen({
         </button>
       ) : null}
 
-      <section aria-labelledby="producao-funcionario">
+      <section ref={productionRef} className="scroll-mt-24" aria-labelledby="producao-funcionario">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase text-muted-foreground">Minha produção</p>
@@ -6794,7 +6828,11 @@ function EmployeeWorkScreen({
 
       <MonthlyComparisonPanel comparison={monthComparison} />
 
-      <section className="border-t border-border pt-5" aria-labelledby="meu-relatorio">
+      <section
+        ref={reportRef}
+        className="scroll-mt-24 border-t border-border pt-5"
+        aria-labelledby="meu-relatorio"
+      >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <FileText className="mt-0.5 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
@@ -6837,6 +6875,33 @@ function EmployeeWorkScreen({
         ) : null}
 
         <fieldset>
+          <legend className="text-xs font-black uppercase text-foreground">Modelos rápidos</legend>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => applyReportPreset("month")}
+              className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-left text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              Fechamento deste mês
+            </button>
+            <button
+              type="button"
+              onClick={() => applyReportPreset("reviews")}
+              className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-left text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              Revisões deste mês
+            </button>
+            <button
+              type="button"
+              onClick={() => applyReportPreset("severe")}
+              className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-left text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              Graves deste mês
+            </button>
+          </div>
+        </fieldset>
+
+        <fieldset className="mt-5 border-t border-border pt-4">
           <legend className="text-xs font-black uppercase text-foreground">Período</legend>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(
@@ -7043,7 +7108,11 @@ function EmployeeWorkScreen({
         periodLabel={`período de ${new Date(`${reportFrom || today}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${reportTo}T12:00:00`).toLocaleDateString("pt-BR")}`}
       />
 
-      <section className="border-t border-border pt-5" aria-labelledby="seguranca-pin">
+      <section
+        ref={securityRef}
+        className="scroll-mt-24 border-t border-border pt-5"
+        aria-labelledby="seguranca-pin"
+      >
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <KeyRound className="h-6 w-6 text-primary" aria-hidden="true" />

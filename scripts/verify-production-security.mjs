@@ -146,6 +146,18 @@ async function verifyTenant({
   });
   assert(overview?.ok === true, `${company}: painel não carregou.`);
 
+  const trash = await request("rpc/hoof_admin_trash", {
+    method: "POST",
+    session: access.session_token,
+    deviceId,
+    body: { p_manager_token: manager.manager_token },
+  });
+  assert(trash?.ok === true, `${company}: lixeira administrativa não carregou.`);
+  assert(
+    trash?.retention_days === 30 && Array.isArray(trash?.visits) && Array.isArray(trash?.animals),
+    `${company}: formato da lixeira administrativa inválido.`,
+  );
+
   const [activeVisits, registeredAnimals, feet] = await Promise.all([
     requestAll(
       `hoof_visits?select=id,tag,payload&farm_id=eq.${encodeURIComponent(farm.id)}&status=eq.active`,
@@ -189,6 +201,7 @@ async function verifyTenant({
     access,
     farm,
     overview,
+    trash,
     managerToken: manager.manager_token,
     clinicalRules: diseases.length,
     activeVisits: activeVisits.length,
@@ -309,6 +322,7 @@ async function main() {
           clinical_rules: starMilk.clinicalRules,
           active_visits: starMilk.activeVisits,
           registered_animals: starMilk.registeredAnimals,
+          trash_items: starMilk.trash.visits.length + starMilk.trash.animals.length,
         },
         hullsjob: {
           farm: hullsjob.farm.name,
@@ -317,6 +331,7 @@ async function main() {
           clinical_rules: hullsjob.clinicalRules,
           active_visits: hullsjob.activeVisits,
           registered_animals: hullsjob.registeredAnimals,
+          trash_items: hullsjob.trash.visits.length + hullsjob.trash.animals.length,
         },
         platform_panel: {
           clients: platformOverview.clients?.length ?? 0,

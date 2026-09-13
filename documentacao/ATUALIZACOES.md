@@ -2723,3 +2723,40 @@ Critério de sucesso:
 - Separar `Trabalho` em subseções recolhíveis de produção, relatório e segurança caso o uso real confirme que a página ainda está longa.
 - Criar modelos de relatório salvos, como `Fechamento mensal`, `Somente revisões` e `Problemas graves`, depois de validar os novos filtros com os usuários.
 - Fazer uma sessão curta de teste com Romano, Patrick e Sandro em aparelhos reais para identificar textos que ainda exijam explicação verbal.
+
+# 2026-09-13 - Lixeira auditável e atalhos sem mudar o fluxo
+
+## O que foi feito
+
+- Criada no servidor uma lixeira administrativa de 30 dias para visitas e animais excluídos.
+- A lixeira registra e exibe brinco, fazenda, data da exclusão, responsável e motivo, preservando a separação entre empresas e fazendas.
+- O administrador pode restaurar uma visita ou um animal. Ao restaurar um animal, as visitas removidas junto com ele também voltam para histórico, agenda e relatórios.
+- Animais que ainda não tinham visita também aparecem na lixeira, pois a recuperação usa o registro imutável da auditoria como fonte.
+- Toda restauração exige um motivo e gera uma nova entrada na auditoria; nenhum histórico antigo é apagado.
+- A área `Trabalho` ganhou três atalhos discretos para `Produção`, `Relatório` e `Segurança`. As seções e a ordem anterior foram mantidas para não desorientar quem já usa o aplicativo.
+- Os relatórios individual e administrativo ganharam os modelos rápidos `Fechamento deste mês`, `Revisões deste mês` e `Graves deste mês`. Eles apenas preenchem os filtros existentes, que continuam totalmente editáveis e preservam a escolha entre o próprio funcionário e toda a equipe.
+- Atualizado o cache offline para `v47` e o registro do Service Worker para `v31`.
+- Confirmado que os ambientes local e de produção continuam ligados exclusivamente ao projeto Supabase gratuito `poajhjvdbdzhzccytmka`.
+
+## Por que foi feito
+
+- Permitir recuperação depois que uma exclusão já foi salva, sem voltar a deixar a remoção silenciosa ou definitiva.
+- Diminuir o tempo para encontrar relatório e segurança sem redesenhar a navegação usada no campo.
+- Facilitar relatórios recorrentes sem esconder filtros nem criar telas duplicadas.
+
+## Como validar
+
+- Na administração, abrir `Dados`, excluir uma visita com motivo e conferir que ela aparece em `Lixeira > Visitas`.
+- Restaurar a visita, informar o motivo e confirmar que ela volta ao histórico e sai da lixeira.
+- Repetir com um animal e confirmar que as visitas vinculadas também retornam.
+- Em `Trabalho`, usar os três atalhos e confirmar que a página apenas rola até a seção escolhida.
+- Em `Relatório`, tocar nos três modelos rápidos e conferir que período e categorias são preenchidos, permanecendo editáveis.
+- A migração da lixeira foi aplicada ao Supabase gratuito e o verificador de produção confirmou acesso protegido, duas empresas operacionais e zero registros cruzados entre empresas.
+- Validação técnica concluída com 109 testes unitários, TypeScript, lint, build e verificação SQL aprovados; 24 cenários de interface passaram em celular/tablet e 1 cenário opcional dependente do servidor de QA foi ignorado.
+
+## Próximos passos
+
+- Fazer uma validação curta com Romano, Patrick e Sandro para decidir se as três subseções de `Trabalho` devem permanecer sempre abertas ou ganhar recolhimento opcional.
+- Programar backup automático diário do Supabase gratuito em armazenamento externo e testar uma restauração completa.
+- Adicionar monitoramento de disponibilidade e alerta de pausa/inatividade do projeto gratuito.
+- Revisar com o cliente os três modelos rápidos de PDF e salvar novos modelos apenas quando houver uso recorrente comprovado.

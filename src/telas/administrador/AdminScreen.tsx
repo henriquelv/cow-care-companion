@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Activity,
+  ArchiveRestore,
   BarChart3,
   Building2,
   CalendarClock,
@@ -36,6 +37,9 @@ import {
   type AdminEmployee,
   type AdminFarm,
   type AdminOverview,
+  type AdminTrash,
+  type AdminTrashAnimal,
+  type AdminTrashVisit,
 } from "@/servicos/admin.service";
 import { isSupabaseConfigured } from "@/servicos/supabase";
 import {
@@ -77,6 +81,8 @@ const EMPTY_OVERVIEW: AdminOverview = {
   audit: [],
 };
 
+const EMPTY_TRASH: AdminTrash = { retention_days: 30, visits: [], animals: [] };
+
 const ACTION_LABELS: Record<string, string> = {
   manager_session_started: "Acesso gerente iniciado",
   create_farm: "Fazenda criada",
@@ -86,6 +92,8 @@ const ACTION_LABELS: Record<string, string> = {
   remove_employee: "Funcionário excluído da operação",
   cancel_visit: "Visita excluída com auditoria",
   remove_animal: "Animal excluído com auditoria",
+  restore_visit: "Visita restaurada da lixeira",
+  restore_animal: "Animal restaurado da lixeira",
   reset_employee_pin: "PIN redefinido",
   assign_employee_farm: "Acesso à fazenda alterado",
   update_device_status: "Aparelho atualizado",
@@ -176,6 +184,9 @@ export function AdminScreen({
   const [pin, setPin] = useState("");
   const [tab, setTab] = useState<AdminTab>("reports");
   const [overview, setOverview] = useState<AdminOverview>(EMPTY_OVERVIEW);
+  const [trash, setTrash] = useState<AdminTrash>(EMPTY_TRASH);
+  const [trashError, setTrashError] = useState("");
+  const [trashLoading, setTrashLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -213,12 +224,17 @@ export function AdminScreen({
   const [includeValues, setIncludeValues] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [dataMode, setDataMode] = useState<"visits" | "animals">("visits");
+  const [dataView, setDataView] = useState<"active" | "trash">("active");
   const [dataSearch, setDataSearch] = useState("");
   const [adminListSearch, setAdminListSearch] = useState("");
   const [removingData, setRemovingData] = useState<
     { kind: "visit"; visit: Visit } | { kind: "animal"; tag: string; totalVisits: number } | null
   >(null);
   const [dataRemovalReason, setDataRemovalReason] = useState("");
+  const [restoringData, setRestoringData] = useState<
+    { kind: "visit"; item: AdminTrashVisit } | { kind: "animal"; item: AdminTrashAnimal } | null
+  >(null);
+  const [restoreReason, setRestoreReason] = useState("");
   const farmConfiguration = loadFarm();
   const pricingCatalog = diseaseCatalog(farmConfiguration);
   const features = tenantFeatures(context, farmConfiguration.featureOverrides);
@@ -239,13 +255,32 @@ export function AdminScreen({
     }
   }, []);
 
+  const loadTrash = useCallback(async () => {
+    setTrashLoading(true);
+    setTrashError("");
+    try {
+      setTrash(await adminService.trash());
+    } catch (caught) {
+      setTrashError(caught instanceof Error ? caught.message : "Não foi possível abrir a lixeira.");
+    } finally {
+      setTrashLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (unlocked) void loadOverview();
-  }, [loadOverview, unlocked]);
+    if (!unlocked) return;
+    void loadOverview();
+    void loadTrash();
+  }, [loadOverview, loadTrash, unlocked]);
 
   useEffect(() => {
     const modalOpen = Boolean(
-      editingFarm || editingEmployee || removingEmployee || removingData || resetEmployee,
+      editingFarm ||
+      editingEmployee ||
+      removingEmployee ||
+      removingData ||
+      resetEmployee ||
+      restoringData,
     );
     if (!modalOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -265,7 +300,7 @@ export function AdminScreen({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [editingEmployee, editingFarm, removingData, removingEmployee, resetEmployee]);
+  }, [editingEmployee, editingFarm, removingData, removingEmployee, resetEmployee, restoringData]);
 
   const farmNames = useMemo(
     () => new Map(overview.farms.map((farm) => [farm.id, farm.name])),
@@ -439,6 +474,16 @@ export function AdminScreen({
     (animal) =>
       !normalizedDataSearch || animal.tag.toLocaleLowerCase("pt-BR").includes(normalizedDataSearch),
   );
+  const trashVisits = trash.visits.filter((visit) =>
+    [visit.tag, visit.employee_name, visit.reason, visit.cancelled_by_name]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(normalizedDataSearch)),
+  );
+  const trashAnimals = trash.animals.filter((animal) =>
+    [animal.tag, animal.lote, animal.reason, animal.cancelled_by_name]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(normalizedDataSearch)),
+  );
 
   async function unlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -463,6 +508,7 @@ export function AdminScreen({
       await adminService.action(action, payload);
       setNotice(success);
       await loadOverview();
+      await loadTrash();
       return true;
     } catch (caught) {
       const message =
@@ -587,6 +633,50 @@ export function AdminScreen({
     setRemovingData(null);
     setDataRemovalReason("");
     await onDataChanged?.();
+  }
+
+  async function restoreOperationalData() {
+    if (!restoringData) return;
+    const reason = restoreReason.trim();
+    if (reason.length < 3) {
+      setError("Informe o motivo da restauração com pelo menos 3 caracteres.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      if (restoringData.kind === "visit") {
+        await adminService.restoreVisit(restoringData.item.id, reason);
+        setNotice(`Visita do animal ${restoringData.item.tag} restaurada.`);
+      } else {
+        const result = await adminService.restoreAnimal(
+          restoringData.item.farm_id,
+          restoringData.item.tag,
+          reason,
+        );
+        setNotice(
+          `Animal ${restoringData.item.tag} restaurado com ${result.visits_restored ?? 0} visita(s).`,
+        );
+      }
+      setRestoringData(null);
+      setRestoreReason("");
+      await syncService.syncAll();
+      await Promise.all([loadOverview(), loadTrash(), onDataChanged?.()]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível restaurar o registro.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function applyAdminReportPreset(preset: "month" | "reviews" | "severe") {
+    setReportFrom(`${today.slice(0, 7)}-01`);
+    setReportTo(today);
+    setReportStatuses(preset === "reviews" ? ["recheck"] : preset === "severe" ? ["severe"] : []);
+    setReportLote("all");
+    setReportTag("");
   }
 
   async function exportAdminPdf(mode: "complete" | "filtered") {
@@ -733,7 +823,7 @@ export function AdminScreen({
         </div>
         <button
           type="button"
-          onClick={() => void loadOverview()}
+          onClick={() => void Promise.all([loadOverview(), loadTrash()])}
           disabled={loading}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-surface text-primary"
           aria-label="Atualizar administração"
@@ -830,7 +920,35 @@ export function AdminScreen({
                 Limpar
               </button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <fieldset>
+              <legend className="text-[10px] font-black uppercase text-muted-foreground">
+                Modelos rápidos
+              </legend>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => applyAdminReportPreset("month")}
+                  className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-left text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  Fechamento deste mês
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyAdminReportPreset("reviews")}
+                  className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-left text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  Revisões deste mês
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyAdminReportPreset("severe")}
+                  className="min-h-11 rounded-lg border-2 border-border bg-card px-3 text-left text-xs font-black uppercase focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  Graves deste mês
+                </button>
+              </div>
+            </fieldset>
+            <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
               <fieldset className="sm:col-span-2">
                 <legend className="text-[10px] font-black uppercase text-muted-foreground">
                   Quem entra no relatório
@@ -1408,164 +1526,348 @@ export function AdminScreen({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de dado">
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Situação dos registros">
             <button
               type="button"
-              onClick={() => setDataMode("visits")}
-              aria-pressed={dataMode === "visits"}
+              onClick={() => {
+                setDataView("active");
+                setDataSearch("");
+              }}
+              aria-pressed={dataView === "active"}
               className={cn(
-                "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
-                dataMode === "visits"
+                "min-h-12 rounded-lg border-2 px-3 text-xs font-black uppercase",
+                dataView === "active"
                   ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-surface text-muted-foreground",
+                  : "border-border bg-card text-foreground",
               )}
             >
-              Visitas ({loadVisits().length})
+              Registros ativos
             </button>
             <button
               type="button"
-              onClick={() => setDataMode("animals")}
-              aria-pressed={dataMode === "animals"}
+              onClick={() => {
+                setDataView("trash");
+                setDataSearch("");
+                void loadTrash();
+              }}
+              aria-pressed={dataView === "trash"}
               className={cn(
-                "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
-                dataMode === "animals"
+                "min-h-12 rounded-lg border-2 px-3 text-xs font-black uppercase",
+                dataView === "trash"
                   ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-surface text-muted-foreground",
+                  : "border-border bg-card text-foreground",
               )}
             >
-              Animais ({allAnimals().length})
+              Lixeira ({trash.visits.length + trash.animals.length})
             </button>
           </div>
 
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={dataSearch}
-              onChange={(event) => setDataSearch(event.target.value)}
-              inputMode={dataMode === "animals" ? "numeric" : "search"}
-              aria-label={dataMode === "animals" ? "Buscar animal" : "Buscar visita"}
-              placeholder={
-                dataMode === "animals" ? "Buscar brinco" : "Buscar brinco ou funcionário"
-              }
-              className="min-h-12 w-full rounded-lg border border-border bg-surface pl-11 pr-3 outline-none focus:border-primary"
-            />
-          </label>
+          {dataView === "active" ? (
+            <>
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de dado">
+                <button
+                  type="button"
+                  onClick={() => setDataMode("visits")}
+                  aria-pressed={dataMode === "visits"}
+                  className={cn(
+                    "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                    dataMode === "visits"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  Visitas ({loadVisits().length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDataMode("animals")}
+                  aria-pressed={dataMode === "animals"}
+                  className={cn(
+                    "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                    dataMode === "animals"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  Animais ({allAnimals().length})
+                </button>
+              </div>
 
-          {dataMode === "visits" ? (
-            <div className="divide-y divide-border border-y border-border">
-              {operationalVisits.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  Nenhuma visita encontrada.
-                </p>
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={dataSearch}
+                  onChange={(event) => setDataSearch(event.target.value)}
+                  inputMode={dataMode === "animals" ? "numeric" : "search"}
+                  aria-label={dataMode === "animals" ? "Buscar animal" : "Buscar visita"}
+                  placeholder={
+                    dataMode === "animals" ? "Buscar brinco" : "Buscar brinco ou funcionário"
+                  }
+                  className="min-h-12 w-full rounded-lg border border-border bg-surface pl-11 pr-3 outline-none focus:border-primary"
+                />
+              </label>
+
+              {dataMode === "visits" ? (
+                <div className="divide-y divide-border border-y border-border">
+                  {operationalVisits.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      Nenhuma visita encontrada.
+                    </p>
+                  ) : (
+                    operationalVisits.slice(0, 100).map((visit) => (
+                      <article key={visit.id} className="long-list-item py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-display text-lg font-black uppercase">
+                              Brinco {visit.tag}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(visit.createdAt).toLocaleString("pt-BR", {
+                                dateStyle: "short",
+                                timeStyle: "short",
+                              })}
+                              {visit.employee_name ? " · " + visit.employee_name : ""}
+                              {visit.lote ? " · lote " + visit.lote : ""}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase",
+                              visit.preventivo
+                                ? "bg-good/10 text-good"
+                                : "bg-warn/15 text-warn-foreground",
+                            )}
+                          >
+                            {visit.preventivo ? "Preventivo" : "Clínico"}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onCorrectVisit?.(visit)}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-surface px-3 text-xs font-bold"
+                          >
+                            <Pencil className="h-4 w-4 text-primary" /> Editar/corrigir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRemovingData({ kind: "visit", visit });
+                              setDataRemovalReason("");
+                            }}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-danger/10 px-3 text-xs font-bold text-danger"
+                          >
+                            <Trash2 className="h-4 w-4" /> Excluir
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                  {operationalVisits.length > 100 ? (
+                    <p className="py-3 text-center text-xs text-muted-foreground">
+                      Mostrando as 100 visitas mais recentes. Use a busca para localizar outra.
+                    </p>
+                  ) : null}
+                </div>
               ) : (
-                operationalVisits.slice(0, 100).map((visit) => (
-                  <article key={visit.id} className="long-list-item py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-display text-lg font-black uppercase">
-                          Brinco {visit.tag}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(visit.createdAt).toLocaleString("pt-BR", {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })}
-                          {visit.employee_name ? " · " + visit.employee_name : ""}
-                          {visit.lote ? " · lote " + visit.lote : ""}
-                        </p>
-                      </div>
-                      <span
-                        className={cn(
-                          "shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase",
-                          visit.preventivo
-                            ? "bg-good/10 text-good"
-                            : "bg-warn/15 text-warn-foreground",
-                        )}
-                      >
-                        {visit.preventivo ? "Preventivo" : "Clínico"}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onCorrectVisit?.(visit)}
-                        className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-surface px-3 text-xs font-bold"
-                      >
-                        <Pencil className="h-4 w-4 text-primary" /> Editar/corrigir
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRemovingData({ kind: "visit", visit });
-                          setDataRemovalReason("");
-                        }}
-                        className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-danger/10 px-3 text-xs font-bold text-danger"
-                      >
-                        <Trash2 className="h-4 w-4" /> Excluir
-                      </button>
-                    </div>
-                  </article>
-                ))
+                <div className="divide-y divide-border border-y border-border">
+                  {operationalAnimals.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      Nenhum animal encontrado.
+                    </p>
+                  ) : (
+                    operationalAnimals.map((animal) => (
+                      <article key={animal.tag} className="flex items-center gap-3 py-4">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-display text-lg font-black uppercase">
+                            Brinco {animal.tag}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {animal.totalVisits} visita(s)
+                            {animal.lote ? " · lote " + animal.lote : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onManageAnimals}
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface text-primary"
+                          aria-label={"Editar animal " + animal.tag}
+                          title="Editar cadastro"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRemovingData({
+                              kind: "animal",
+                              tag: animal.tag,
+                              totalVisits: animal.totalVisits,
+                            });
+                            setDataRemovalReason("");
+                          }}
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger"
+                          aria-label={"Excluir animal " + animal.tag}
+                          title="Excluir animal"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </article>
+                    ))
+                  )}
+                </div>
               )}
-              {operationalVisits.length > 100 ? (
-                <p className="py-3 text-center text-xs text-muted-foreground">
-                  Mostrando as 100 visitas mais recentes. Use a busca para localizar outra.
+
+              <p className="rounded-lg bg-warn/10 p-3 text-xs text-warn-foreground">
+                Exclusões movem o registro para a lixeira por 30 dias e mantêm a auditoria de quem
+                excluiu, quando e por quê.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de exclusão">
+                <button
+                  type="button"
+                  onClick={() => setDataMode("visits")}
+                  aria-pressed={dataMode === "visits"}
+                  className={cn(
+                    "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                    dataMode === "visits"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  Visitas ({trash.visits.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDataMode("animals")}
+                  aria-pressed={dataMode === "animals"}
+                  className={cn(
+                    "min-h-11 rounded-lg border px-3 text-xs font-black uppercase",
+                    dataMode === "animals"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-surface text-muted-foreground",
+                  )}
+                >
+                  Animais ({trash.animals.length})
+                </button>
+              </div>
+
+              <p className="border-l-4 border-primary bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                Itens excluídos nos últimos {trash.retention_days} dias. Restaurar devolve o
+                registro ao histórico, agenda e relatórios da mesma fazenda.
+              </p>
+
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={dataSearch}
+                  onChange={(event) => setDataSearch(event.target.value)}
+                  aria-label="Buscar na lixeira"
+                  placeholder="Buscar brinco, responsável ou motivo"
+                  className="min-h-12 w-full rounded-lg border border-border bg-surface pl-11 pr-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                />
+              </label>
+
+              {trashError ? (
+                <p role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">
+                  {trashError}
                 </p>
               ) : null}
-            </div>
-          ) : (
-            <div className="divide-y divide-border border-y border-border">
-              {operationalAnimals.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  Nenhum animal encontrado.
+              {trashLoading ? (
+                <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+                  Carregando lixeira...
                 </p>
+              ) : dataMode === "visits" ? (
+                <div className="divide-y divide-border border-y border-border">
+                  {trashVisits.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      Nenhuma visita excluída encontrada.
+                    </p>
+                  ) : (
+                    trashVisits.map((visit) => (
+                      <article key={visit.id} className="py-4">
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-display text-lg font-black uppercase">
+                              Brinco {visit.tag}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Visita de{" "}
+                              {new Date(`${visit.visit_date}T12:00:00`).toLocaleDateString("pt-BR")}
+                              {visit.employee_name ? ` · ${visit.employee_name}` : ""}
+                            </p>
+                            <p className="mt-2 text-sm text-foreground">
+                              Motivo: {visit.reason || "Não informado"}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Excluída em {new Date(visit.cancelled_at).toLocaleString("pt-BR")}
+                              {visit.cancelled_by_name ? ` por ${visit.cancelled_by_name}` : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRestoringData({ kind: "visit", item: visit });
+                              setRestoreReason("");
+                            }}
+                            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-primary/10 px-3 text-xs font-black uppercase text-primary"
+                          >
+                            <ArchiveRestore className="h-4 w-4" aria-hidden="true" />
+                            Restaurar
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
               ) : (
-                operationalAnimals.map((animal) => (
-                  <article key={animal.tag} className="flex items-center gap-3 py-4">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-display text-lg font-black uppercase">
-                        Brinco {animal.tag}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {animal.totalVisits} visita(s)
-                        {animal.lote ? " · lote " + animal.lote : ""}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={onManageAnimals}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface text-primary"
-                      aria-label={"Editar animal " + animal.tag}
-                      title="Editar cadastro"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRemovingData({
-                          kind: "animal",
-                          tag: animal.tag,
-                          totalVisits: animal.totalVisits,
-                        });
-                        setDataRemovalReason("");
-                      }}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger"
-                      aria-label={"Excluir animal " + animal.tag}
-                      title="Excluir animal"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </article>
-                ))
+                <div className="divide-y divide-border border-y border-border">
+                  {trashAnimals.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      Nenhum animal excluído encontrado.
+                    </p>
+                  ) : (
+                    trashAnimals.map((animal) => (
+                      <article key={`${animal.farm_id}:${animal.tag}`} className="py-4">
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-display text-lg font-black uppercase">
+                              Brinco {animal.tag}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {animal.visits_cancelled} visita(s) na lixeira
+                              {animal.lote ? ` · lote ${animal.lote}` : ""}
+                            </p>
+                            <p className="mt-2 text-sm text-foreground">
+                              Motivo: {animal.reason || "Não informado"}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Excluído em {new Date(animal.removed_at).toLocaleString("pt-BR")}
+                              {animal.cancelled_by_name ? ` por ${animal.cancelled_by_name}` : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRestoringData({ kind: "animal", item: animal });
+                              setRestoreReason("");
+                            }}
+                            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-primary/10 px-3 text-xs font-black uppercase text-primary"
+                          >
+                            <ArchiveRestore className="h-4 w-4" aria-hidden="true" />
+                            Restaurar
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
-
-          <p className="rounded-lg bg-warn/10 p-3 text-xs text-warn-foreground">
-            Exclusões retiram o registro da operação e dos relatórios, mas mantêm a auditoria de
-            quem excluiu, quando e por quê.
-          </p>
         </section>
       )}
 
@@ -2337,6 +2639,64 @@ export function AdminScreen({
                 className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-danger px-3 font-bold text-danger-foreground disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" /> Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restoringData && (
+        <div
+          className="modal-viewport fixed inset-0 z-50 flex items-end bg-foreground/45 px-3 sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="restore-data-title"
+        >
+          <div className="modal-panel w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <ArchiveRestore className="h-6 w-6" aria-hidden="true" />
+            </div>
+            <h2 id="restore-data-title" className="mt-4 font-display text-lg font-black uppercase">
+              Restaurar {restoringData.kind === "visit" ? "visita" : "animal"}?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              O brinco {restoringData.item.tag} voltará para a operação da fazenda. A restauração
+              também ficará registrada na auditoria.
+            </p>
+            <label className="mt-4 block">
+              <span className="text-xs font-bold uppercase text-muted-foreground">
+                Motivo da restauração
+              </span>
+              <textarea
+                autoFocus
+                required
+                maxLength={300}
+                value={restoreReason}
+                onChange={(event) => setRestoreReason(event.target.value)}
+                placeholder="Ex.: removido por engano"
+                aria-label="Motivo da restauração"
+                className="mt-1 min-h-24 w-full resize-y rounded-lg border-2 border-border bg-surface p-3 outline-none focus:border-primary"
+              />
+            </label>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRestoringData(null);
+                  setRestoreReason("");
+                }}
+                className="min-h-12 rounded-lg bg-surface font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={loading || restoreReason.trim().length < 3}
+                onClick={() => void restoreOperationalData()}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-3 font-bold text-primary-foreground disabled:opacity-50"
+              >
+                <ArchiveRestore className="h-4 w-4" aria-hidden="true" />
+                Restaurar
               </button>
             </div>
           </div>
