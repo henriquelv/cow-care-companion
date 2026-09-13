@@ -2816,6 +2816,7 @@ Critério de sucesso:
 - Falhas repetidas reutilizam a ocorrência aberta para não criar alertas duplicados.
 - Quando Vercel e Supabase voltarem, o monitor comenta o horário da recuperação e encerra automaticamente a ocorrência.
 - O fluxo usa permissões mínimas: leitura do repositório e escrita de ocorrências, sem chave administrativa ou acesso de alteração ao banco.
+- A primeira execução real (`34788343844`) foi concluída com sucesso: Vercel e Supabase responderam corretamente e nenhuma ocorrência indevida foi aberta.
 
 ## Como validar
 
