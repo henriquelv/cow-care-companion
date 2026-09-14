@@ -2856,6 +2856,7 @@ Critério de sucesso:
 - Atender uma vaca atrasada, concluir todas as etapas e conferir a mensagem informando a retirada da pendência anterior.
 - Para o brinco `1874`, registrar e finalizar a nova avaliação para que a visita de 05/08 seja substituída pelo estado clínico atual; se a vaca estiver curada, marcar a liberação no fluxo.
 - Validação técnica concluída com 111 testes unitários, TypeScript, lint e build aprovados. O cenário de interface do relatório e da exportação em PDF passou em viewport de celular.
+- Versão publicada em `https://gestao-de-cascos.vercel.app` e confirmada no ambiente real da Fazenda Vitória: o resumo passou de 72 itens misturados para 19 visitas atrasadas; os 50 prazos de curativo agrupados aparecem separadamente.
 
 ## Próximos passos
 
