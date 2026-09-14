@@ -671,6 +671,16 @@ export function Index() {
                 completedAt: Date.now(),
                 work_session_id: appFeatures.workSessions ? activeWorkSession?.id : undefined,
               };
+              const normalizedCompletedTag = completedVisit.tag.trim().toLocaleLowerCase("pt-BR");
+              const previousAgendaItems = Array.from(
+                agendaByDate(todayISO(), undefined, { includePreventive: true }).values(),
+              )
+                .flat()
+                .filter(
+                  (item) =>
+                    item.type !== "request" &&
+                    item.tag.trim().toLocaleLowerCase("pt-BR") === normalizedCompletedTag,
+                );
               const { animalCreated, persistenceReady } = addVisit(completedVisit);
               await persistenceReady;
               try {
@@ -693,26 +703,30 @@ export function Index() {
               }
               const synchronized = await runSync();
               refresh();
+              const agendaUpdateMessage =
+                previousAgendaItems.length > 0
+                  ? ` ${previousAgendaItems.length} pendência(s) anterior(es) retirada(s) da agenda.`
+                  : "";
               showToast(
                 !synchronized
                   ? {
                       title: "Visita salva no aparelho",
-                      message: "O envio para a equipe acontecerá quando a internet voltar.",
+                      message: `O envio para a equipe acontecerá quando a internet voltar.${agendaUpdateMessage}`,
                       tone: "warning",
                     }
                   : animalCreated
                     ? {
                         title: "Visita salva",
-                        message: `Animal ${v.tag.trim()} cadastrado automaticamente.`,
+                        message: `Animal ${v.tag.trim()} cadastrado automaticamente.${agendaUpdateMessage}`,
                       }
                     : completedVisit.preventivo
                       ? {
                           title: "Preventivo salvo",
-                          message: `Próximo casqueamento em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.`,
+                          message: `Próximo casqueamento em ${new Date(`${completedVisit.nextPreventiveDate ?? dateAfterMonths(6, completedVisit.date)}T12:00:00`).toLocaleDateString("pt-BR")}.${agendaUpdateMessage}`,
                         }
                       : {
                           title: "Visita registrada",
-                          message: `Atendimento do animal ${v.tag.trim()} concluído.`,
+                          message: `Atendimento do animal ${v.tag.trim()} concluído.${agendaUpdateMessage}`,
                         },
               );
               goToday();

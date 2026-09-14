@@ -2829,3 +2829,36 @@ Critério de sucesso:
 
 - Confirmar que as notificações de `Issues` e `Actions` do GitHub estão habilitadas na conta `henriquelv` para receber o alerta fora do repositório.
 - Configurar o backup externo automático diário do Supabase e executar uma restauração de teste documentada.
+
+# 2026-09-14 - Correção dos 72 itens atrasados na agenda
+
+## O que foi encontrado
+
+- Conferida a agenda real da Fazenda Vitória no Supabase gratuito `poajhjvdbdzhzccytmka`, sem excluir ou alterar registros clínicos.
+- Os `72 atrasados` não representavam 72 animais aguardando atendimento: eram 19 revisões marcadas somadas a 53 prazos internos de curativo.
+- Três animais possuíam dois cascos com prazo no mesmo dia e, por isso, apareciam duas vezes na contagem de curativos.
+- O brinco `1874` possui no servidor somente a visita de 05/08/2026, com revisão marcada para 10/08/2026. Não existe uma segunda visita finalizada ou liberação sincronizada para o sistema encerrar essa revisão automaticamente.
+
+## O que foi corrigido
+
+- O relatório agora abre no filtro `Visitas marcadas`, que conta revisões, preventivos e solicitações agendadas, sem misturar prazos internos de curativo.
+- Os prazos clínicos continuam disponíveis no filtro separado `Prazos de curativo`; nada foi apagado ou escondido definitivamente.
+- Prazos de dois ou mais cascos do mesmo animal para o mesmo dia agora são agrupados em uma única linha, mantendo a identificação de todos os cascos envolvidos.
+- Os quatro totais do topo passam a acompanhar o filtro de tipo e a busca aplicados, evitando números com significados diferentes na mesma caixa.
+- Após finalizar um atendimento, a confirmação informa quantas pendências anteriores daquele animal foram retiradas ou substituídas na agenda local.
+- Atualizado o cache offline para `v49` e o registro do Service Worker para `v33`, para os celulares receberem a correção.
+
+## Como validar
+
+- Abrir `Calendário > Relatório e PDF da agenda` na Fazenda Vitória e confirmar que o tipo inicial é `Visitas marcadas`.
+- Conferir que o total de atrasadas mostra somente visitas efetivamente marcadas, e não os antigos 72 itens misturados.
+- Selecionar `Prazos de curativo` para consultar separadamente os lembretes clínicos.
+- Atender uma vaca atrasada, concluir todas as etapas e conferir a mensagem informando a retirada da pendência anterior.
+- Para o brinco `1874`, registrar e finalizar a nova avaliação para que a visita de 05/08 seja substituída pelo estado clínico atual; se a vaca estiver curada, marcar a liberação no fluxo.
+- Validação técnica concluída com 111 testes unitários, TypeScript, lint e build aprovados. O cenário de interface do relatório e da exportação em PDF passou em viewport de celular.
+
+## Próximos passos
+
+- Conferir no aparelho usado em campo se existe fila offline pendente com a suposta baixa do brinco `1874`; o servidor não recebeu esse segundo atendimento.
+- Acompanhar por uma semana se novas visitas concluídas desaparecem corretamente da lista anterior e se reaparecem apenas quando uma nova revisão for marcada.
+- Validar com a equipe se o termo `Prazos de curativo` é suficientemente claro ou se deve ser ajustado para a nomenclatura usada diariamente na fazenda.

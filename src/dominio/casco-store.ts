@@ -2333,10 +2333,19 @@ export function agendaByDateFromVisits(
     }
   }
 
+  const curativeGroups = new Map<string, CurativeFollowup[]>();
   for (const item of curativeFollowupsFromVisits(visits, referenceDate, employeeId)) {
     if (plannedRecheckKeys.has(`${item.visitId}_${item.foot}`)) continue;
+    const key = `${item.farm_id ?? "local"}_${item.tag.toLocaleLowerCase("pt-BR")}_${item.dueDate}`;
+    curativeGroups.set(key, [...(curativeGroups.get(key) ?? []), item]);
+  }
+
+  for (const group of curativeGroups.values()) {
+    const item = group[0];
+    const feet = Array.from(new Set(group.map((followup) => followup.foot)));
+    const targetDays = Array.from(new Set(group.map((followup) => followup.targetDays)));
     add({
-      id: item.id,
+      id: `curative_${item.farm_id ?? "local"}_${item.tag}_${item.dueDate}`,
       visit_id: item.visitId,
       farm_id: item.farm_id,
       date: item.dueDate,
@@ -2344,9 +2353,13 @@ export function agendaByDateFromVisits(
       tag: item.tag,
       sex: item.sex,
       lote: item.lote,
-      feet: [item.foot],
+      feet,
       title: "Prazo de curativo",
-      detail: `${FOOT_LABEL[item.foot]} · ${item.targetDays} dias após tratamento`,
+      detail: `${feet.map((foot) => FOOT_LABEL[foot]).join(" · ")} · ${
+        targetDays.length === 1
+          ? `${targetDays[0]} dias após tratamento`
+          : "prazos clínicos após tratamento"
+      }`,
       overdue: item.status === "overdue",
       employee_id: item.employee_id,
       employee_name: item.employee_name,

@@ -2,7 +2,7 @@ import type { AgendaItem } from "./casco-store";
 
 export type AgendaStatus = "overdue" | "today" | "next7" | "later";
 export type AgendaStatusFilter = "all" | AgendaStatus | "ontime";
-export type AgendaTypeFilter = "all" | AgendaItem["type"];
+export type AgendaTypeFilter = "appointments" | "all" | AgendaItem["type"];
 
 function dateAtNoon(value: string) {
   return new Date(`${value}T12:00:00`).getTime();
@@ -48,7 +48,15 @@ export function filterAgendaItems(
       if (options.status && options.status !== "all" && options.status !== "ontime") {
         if (status !== options.status) return false;
       }
-      if (options.type && options.type !== "all" && item.type !== options.type) return false;
+      if (options.type === "appointments" && item.type === "curative") return false;
+      if (
+        options.type &&
+        options.type !== "all" &&
+        options.type !== "appointments" &&
+        item.type !== options.type
+      ) {
+        return false;
+      }
       if (!normalizedSearch) return true;
       return [item.tag, item.lote, item.title, item.detail, item.employee_name]
         .filter(Boolean)

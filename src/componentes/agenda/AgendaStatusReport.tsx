@@ -45,9 +45,18 @@ const STATUS_FILTERS: Array<{ id: AgendaStatusFilter; label: string }> = [
 
 const TYPE_LABEL: Record<AgendaItem["type"], string> = {
   recheck: "Revisão",
-  curative: "Curativo",
+  curative: "Prazo de curativo",
   preventive: "Preventivo",
   request: "Solicitação",
+};
+
+const TYPE_FILTER_LABEL: Record<AgendaTypeFilter, string> = {
+  appointments: "Visitas marcadas",
+  recheck: "Revisões",
+  preventive: "Preventivos",
+  request: "Solicitações",
+  curative: "Prazos de curativo",
+  all: "Visitas e prazos",
 };
 
 function formatDate(date: string) {
@@ -71,11 +80,23 @@ export function AgendaStatusReport({
   unscheduledRequestCount = 0,
 }: Props) {
   const [status, setStatus] = useState<AgendaStatusFilter>("all");
-  const [type, setType] = useState<AgendaTypeFilter>("all");
+  const [type, setType] = useState<AgendaTypeFilter>("appointments");
   const [search, setSearch] = useState("");
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportError, setExportError] = useState("");
-  const counts = useMemo(() => agendaStatusCounts(items, today), [items, today]);
+  const metricItems = useMemo(
+    () => filterAgendaItems(items, { referenceDate: today, status: "all", type, search }),
+    [items, search, today, type],
+  );
+  const counts = useMemo(() => agendaStatusCounts(metricItems, today), [metricItems, today]);
+  const curativeCounts = useMemo(
+    () =>
+      agendaStatusCounts(
+        items.filter((item) => item.type === "curative"),
+        today,
+      ),
+    [items, today],
+  );
   const visibleItems = useMemo(
     () => filterAgendaItems(items, { referenceDate: today, status, type, search }),
     [items, search, status, today, type],
@@ -133,6 +154,11 @@ export function AgendaStatusReport({
         </p>
       ) : null}
 
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-xs font-black uppercase text-muted-foreground">Resumo atual</p>
+        <p className="text-right text-sm font-bold text-foreground">{TYPE_FILTER_LABEL[type]}</p>
+      </div>
+
       <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4">
         {[
           { label: "Atrasadas", value: counts.overdue, tone: "text-danger" },
@@ -155,10 +181,23 @@ export function AgendaStatusReport({
         ))}
       </section>
 
+      {type !== "curative" && curativeCounts.overdue > 0 ? (
+        <div className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-3">
+          <p className="text-sm font-bold text-foreground">
+            {curativeCounts.overdue} prazo(s) de curativo vencido(s)
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            São lembretes clínicos, não novas visitas. Para conferir, selecione
+            <strong className="text-foreground"> Prazos de curativo</strong> no filtro Tipo.
+          </p>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-3 text-xs leading-relaxed text-muted-foreground">
-        <strong className="text-foreground">Como é classificado:</strong> a revisão entra pela data
-        escolhida no atendimento. Data vencida fica em Atrasadas; depois aparecem Hoje, Próximos 7
-        dias e Futuras. Solicitações entram nesses grupos somente depois de receberem uma data.
+        <strong className="text-foreground">Como é classificado:</strong> os números acompanham o
+        filtro Tipo. <strong className="text-foreground">Visitas marcadas</strong> mostra revisões,
+        preventivos e solicitações agendadas sem misturar os prazos internos de curativo. Data
+        vencida fica em Atrasadas; depois aparecem Hoje, Próximos 7 dias e Futuras.
         {unscheduledRequestCount > 0 ? (
           <span className="mt-1 block font-bold text-warn-foreground">
             {unscheduledRequestCount} solicitação(ões) ainda aguardando aceite ou agendamento.
@@ -193,11 +232,12 @@ export function AgendaStatusReport({
               onChange={(event) => setType(event.target.value as AgendaTypeFilter)}
               className="min-h-12 w-full rounded-lg border-2 border-border bg-card px-3 font-bold outline-none focus:border-primary"
             >
-              <option value="all">Todos</option>
+              <option value="appointments">Visitas marcadas</option>
               <option value="recheck">Revisões</option>
-              <option value="curative">Curativos</option>
               <option value="preventive">Preventivos</option>
               <option value="request">Solicitações</option>
+              <option value="curative">Prazos de curativo</option>
+              <option value="all">Visitas e prazos</option>
             </select>
           </label>
         </div>
@@ -219,7 +259,8 @@ export function AgendaStatusReport({
         <div>
           <p className="text-xs font-black uppercase text-muted-foreground">Resultado</p>
           <p className="font-display text-lg font-black uppercase">
-            {visibleItems.length} compromisso(s)
+            {visibleItems.length}{" "}
+            {type === "curative" ? "prazo(s)" : type === "appointments" ? "visita(s)" : "item(ns)"}
           </p>
         </div>
         <p className="text-right text-xs text-muted-foreground">Ordenados pela data</p>

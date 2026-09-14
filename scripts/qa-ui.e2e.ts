@@ -135,7 +135,10 @@ test("agenda da fazenda possui relatório por prazo no celular", async ({ page }
   await page.getByRole("button", { name: /Relatório e PDF da agenda/i }).click();
   await expect(page.getByRole("heading", { name: "Relatório de pendências" })).toBeVisible();
   await expect(page.getByLabel("Situação")).toBeVisible();
-  await expect(page.getByLabel("Tipo")).toBeVisible();
+  await expect(page.getByLabel("Tipo")).toHaveValue("appointments");
+  await expect(
+    page.getByLabel("Tipo").getByRole("option", { name: "Prazos de curativo" }),
+  ).toBeAttached();
   await expect(page.getByText(/Como é classificado/i)).toBeVisible();
   await expect(page.getByRole("button", { name: /Baixar agenda em PDF/i })).toBeVisible();
   const agendaDownloadPromise = page.waitForEvent("download");

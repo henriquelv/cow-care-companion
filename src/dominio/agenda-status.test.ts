@@ -43,6 +43,11 @@ describe("relatório de situação da agenda", () => {
   it("filtra por situação, tipo e busca", () => {
     expect(filterAgendaItems(items, { referenceDate: today, status: "ontime" })).toHaveLength(3);
     expect(
+      filterAgendaItems(items, { referenceDate: today, type: "appointments" }).map(
+        (entry) => entry.tag,
+      ),
+    ).toEqual(["100", "200", "300"]);
+    expect(
       filterAgendaItems(items, { referenceDate: today, status: "all", type: "preventive" }).map(
         (entry) => entry.tag,
       ),

@@ -779,6 +779,41 @@ describe("casco-store domain rules", () => {
     expect(curativeMetrics("2026-05-22")).toMatchObject({ open: 1, overdue: 1 });
   });
 
+  it("agrupa na agenda os cascos do mesmo animal com curativo no mesmo dia", () => {
+    saveVisits([
+      visit({
+        id: "curativos-mesmo-retorno",
+        tag: "2234",
+        date: "2026-05-10",
+        createdAt: new Date("2026-05-10T12:00:00-03:00").getTime(),
+        feet: [
+          foot({
+            foot: "FE",
+            ok: false,
+            diseases: [{ code: "DD", severity: 2 }],
+            treatments: ["SPRAY"],
+          }),
+          foot({
+            foot: "TD",
+            ok: false,
+            diseases: [{ code: "DD", severity: 1 }],
+            treatments: ["SPRAY"],
+          }),
+        ],
+      }),
+    ]);
+
+    const items = agendaByDate("2026-05-22").get("2026-05-17");
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({
+      tag: "2234",
+      type: "curative",
+      feet: ["FE", "TD"],
+    });
+    expect(items?.[0]?.detail).toContain("Frente Esq.");
+    expect(items?.[0]?.detail).toContain("Trás Dir.");
+  });
+
   it("isola a agenda pelo funcionário responsável", () => {
     saveVisits([
       visit({
